@@ -32,9 +32,10 @@ const I18N = {
     kitChip: "分解パーツ",
     noImage: "画像未生成",
     genImages: "生成画像（候補）",
-    refRole: "参照用",
-    refImagesHelp: "この行を生成するときにAIへ添付される入力画像です。採用の対象ではありません。",
-    asReference: "参照画像として登録",
+    refRole: "元画像",
+    sourceImages: "元画像（生成入力）",
+    refImagesHelp: "この行を生成するときにAIへ添付される入力画像です。成果物（採用）の対象ではありません。",
+    asReference: "元画像（生成入力）として登録",
     asReferenceHelp: "チェックすると生成時の入力（参照）として使われます。チェックしなければ生成画像（候補）として登録されます。",
     kitImported: "ベースを作成しました",
     kitImportedQueued: "ベースの先頭に追加し、画像生成をキューに登録しました",
@@ -169,9 +170,10 @@ const I18N = {
     kitChip: "Kit part",
     noImage: "Not generated yet",
     genImages: "Generated candidates",
-    refRole: "Reference",
+    refRole: "Source",
+    sourceImages: "Source images (generation input)",
     refImagesHelp: "Input images attached to the AI when generating this row. Not adoption candidates.",
-    asReference: "Register as reference image",
+    asReference: "Register as source image (generation input)",
     asReferenceHelp: "Checked: used as generation input. Unchecked: registered as a generated candidate.",
     kitImported: "Base entries created",
     kitImportedQueued: "Added to the top of Base and queued image generation",
@@ -775,7 +777,7 @@ function openBaseEntry(entryId) {
       </label>
       <h4>${t("genImages")}</h4>
       <div class="entry-assets">${generated.length ? generated.map(assetMini).join("") : `<p class="form-note">${t("noImage")} — ${t("requestOne")} → ${t("queue")}</p>`}</div>
-      ${sources.length ? `<h4>${t("refImages")}</h4><p class="form-note">${t("refImagesHelp")}</p><div class="entry-assets sources">${sources.map((asset) => assetMini(asset, false)).join("")}</div>` : ""}
+      ${sources.length ? `<h4>${t("sourceImages")}</h4><p class="form-note">${t("refImagesHelp")}</p><div class="entry-assets sources">${sources.map((asset) => assetMini(asset, false)).join("")}</div>` : ""}
       <div class="entry-modal-actions">
         <button class="ghost danger" id="entryModalDelete"><i class="fa-solid fa-trash" aria-hidden="true"></i> ${t("delete")}</button>
         <button class="ghost" id="entryModalDup">${t("duplicate")}</button>
