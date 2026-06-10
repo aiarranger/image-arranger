@@ -50,6 +50,8 @@ const I18N = {
     noImage: "画像未生成",
     allLabel: "すべて",
     adoptOneHelp: "採用＝この行の正。チェックすると他の候補の採用は自動で外れます（履歴として残ります）。",
+    entryFile: "生成済みファイル（任意）",
+    entryFileHelp: "手元にある生成画像/動画のパスを指定すると、entry 作成と同時にこの素材の生成画像として登録されます（既定で採用＝正になります）。",
     newEntryRefs: "参照する採用画像（任意・複数可）",
     newEntryRefsHelp: "選んだ画像は元画像（生成入力・リンク式）として添付されます。マスターの正は既定で選択済み（クリックで外せます）。参照は2〜4枚が適正で、多すぎると精度が落ちます。",
     kitNoAdopted: "採用済みの画像がありません。ベース／画像タブのカードで「採用」にチェックを入れると、ここに表示されます。",
@@ -206,6 +208,8 @@ const I18N = {
     noImage: "Not generated yet",
     allLabel: "All",
     adoptOneHelp: "Adopted = the canonical image for this row. Checking it un-adopts the other candidates (kept as history).",
+    entryFile: "Existing generated file (optional)",
+    entryFileHelp: "Provide a path to an image/video you already have and it is registered as this entry's generated image (adopted by default).",
     newEntryRefs: "Adopted images to reference (optional, multiple)",
     newEntryRefsHelp: "Selections are attached as linked source images. Master canonicals are pre-selected (click to remove). 2-4 references work best; too many dilute accuracy.",
     kitNoAdopted: "No adopted images yet. Check 'Adopt' on cards in the Base / Image tabs to make them selectable here.",
@@ -1114,6 +1118,8 @@ function renderFormModal() {
       ${categoryField}
       <label>${t("assetName")}<input name="overview" required value="${escapeHtml(form.draftOverview ?? "")}" placeholder="${state.mode === "video" ? "fish-jump-loop" : "new asset prompt"}"></label>
       <label>${t("prompt")}<textarea name="prompt" rows="7">${escapeHtml(form.draftPrompt ?? "")}</textarea></label>
+      <label>${t("entryFile")}<input name="entryFile" placeholder="/Users/.../Downloads/generated.png"><small>${t("entryFileHelp")}</small></label>
+      <label class="inline"><input name="entryFileAdopt" type="checkbox" checked> ${t("adopt")}<small>${t("adoptOneHelp")}</small></label>
       ${refPicker}
       ${state.mode === "video" ? `
         <label>${t("start")}<select name="startFrame"><option value="">未設定</option>${optionList(imageAssets)}</select></label>
@@ -1391,7 +1397,7 @@ function createEntryFromForm(form) {
       tags: [],
       assets: [],
     });
-    return;
+    return id;
   }
   if (state.mode === "video") {
     const id = makeUniqueId(ids, `video-${slug(overview)}`);
@@ -1409,7 +1415,7 @@ function createEntryFromForm(form) {
       outputDraft,
       assets: [],
     });
-    return;
+    return id;
   }
   const id = makeUniqueId(ids, `image-${slug(overview)}`);
   const refSel = state.form?.refSel ?? [];
@@ -1436,6 +1442,7 @@ function createEntryFromForm(form) {
       linkEntryId: row.entryId,
     })),
   });
+  return id;
 }
 
 async function submitCharacterForm(form) {
@@ -1476,9 +1483,28 @@ async function deleteCurrentCharacter() {
 }
 
 async function submitEntryForm(form) {
-  createEntryFromForm(form);
+  const data = new FormData(form);
+  const entryFile = String(data.get("entryFile") ?? "").trim();
+  const entryFileAdopt = Boolean(data.get("entryFileAdopt"));
+  const newId = createEntryFromForm(form);
   state.form = null;
   await saveDeck(false);
+  if (entryFile && newId) {
+    const result = await api("/api/assets", {
+      method: "POST",
+      body: JSON.stringify({
+        characterId: state.characterId,
+        entryId: newId,
+        sourceFile: entryFile,
+        name: "",
+        adopted: entryFileAdopt,
+        aiGenerated: true,
+        humanReviewed: true,
+      }),
+    });
+    state.deck = result.state;
+    normalizeDeck();
+  }
   render();
   toast(`${t("newEntry")} saved`);
 }
