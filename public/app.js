@@ -28,7 +28,10 @@ const I18N = {
     kitParse: "内容を確認",
     kitCreateSelected: "選択したパーツでベース作成",
     kitPickOne: "取り込むパーツを1つ以上選択してください",
+    kitQueueAfter: "取り込んだパーツの画像生成をすぐキューに登録する",
+    kitChip: "分解パーツ",
     kitImported: "ベースを作成しました",
+    kitImportedQueued: "ベースの先頭に追加し、画像生成をキューに登録しました",
     kitNoSource: "ベース画像を選択してください",
     copyAgentPrompt: "依頼文コピー",
     copiedAgentPrompt: "エージェント依頼文をコピーしました。Codex / Claude Code 等にそのまま貼り付けてください。",
@@ -156,7 +159,10 @@ const I18N = {
     kitParse: "Review",
     kitCreateSelected: "Create bases from selected parts",
     kitPickOne: "Select at least one part to import",
+    kitQueueAfter: "Queue image generation for the imported parts right away",
+    kitChip: "Kit part",
     kitImported: "Base entries created",
+    kitImportedQueued: "Added to the top of Base and queued image generation",
     kitNoSource: "Select a source image first",
     copyAgentPrompt: "Copy agent prompt",
     copiedAgentPrompt: "Agent prompt copied. Paste it into Codex / Claude Code or another agent.",
@@ -709,6 +715,7 @@ function baseRow(entry) {
       <div class="row-top">
         <input class="check" type="checkbox" data-check="${escapeHtml(entry.id)}" ${entry.checked ? "checked" : ""} ${entry.requestStatus === "requested" ? "disabled" : ""}>
         <input class="title-input" data-title="${escapeHtml(entry.id)}" value="${escapeHtml(entry.overview)}">
+        ${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}
         ${statusBadge(entry)}
         ${rowQueueButton(entry)}
         <button class="ghost small" data-add-asset="${escapeHtml(entry.id)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${t("addAsset")}</button>
@@ -853,6 +860,10 @@ function renderKit() {
               <small>${escapeHtml(catText(row.part.category))}</small>
               <span class="kit-part-prompt">${escapeHtml(String(row.part.prompt ?? "").slice(0, 180))}</span>
             </label>`).join("")}
+          <label class="kit-queue-after">
+            <input type="checkbox" id="kitQueueAfter" ${kit.preview.queueAfter !== false ? "checked" : ""}>
+            ${t("kitQueueAfter")}
+          </label>
           <div class="kit-actions">
             <button class="primary" id="kitCreateBtn">${t("kitCreateSelected")}</button>
             <button class="ghost" id="kitPreviewCancel">${t("cancel")}</button>
@@ -1453,6 +1464,7 @@ function bind() {
   if ($("#kitAnalyzeBtn")) $("#kitAnalyzeBtn").onclick = () => requestKitAnalysis().catch((error) => toast(error.message));
   if ($("#kitParseBtn")) $("#kitParseBtn").onclick = openKitPreviewFromPaste;
   if ($("#kitCreateBtn")) $("#kitCreateBtn").onclick = () => importSelectedKitParts().catch((error) => toast(error.message));
+  if ($("#kitQueueAfter")) $("#kitQueueAfter").onchange = () => { if (state.kit.preview) state.kit.preview.queueAfter = $("#kitQueueAfter").checked; };
   if ($("#kitPreviewCancel")) $("#kitPreviewCancel").onclick = () => { state.kit.preview = null; render(); };
   document.querySelectorAll("[data-kit-result]").forEach((button) => {
     button.onclick = () => openKitPreviewFromResult(Number(button.dataset.kitResult));
@@ -1814,10 +1826,11 @@ async function importSelectedKitParts() {
     toast(t("kitPickOne"));
     return;
   }
+  const characterId = preview.characterId || state.characterId;
   const result = await api("/api/base-kit/import", {
     method: "POST",
     body: JSON.stringify({
-      characterId: preview.characterId || state.characterId,
+      characterId,
       sourceEntryId: preview.sourceEntryId ?? "",
       sourceAssetId: preview.sourceAssetId ?? "",
       sourceFile: preview.sourceFile ?? "",
@@ -1827,14 +1840,37 @@ async function importSelectedKitParts() {
     }),
   });
   state.deck = result.state;
+  const queueAfter = preview.queueAfter !== false;
+  if (queueAfter && result.created.length) {
+    const sourceFile = preview.sourceFile
+      || findEntry(preview.sourceEntryId)?.assets?.find((item) => item.id === preview.sourceAssetId)?.file
+      || "";
+    const queueResult = await api("/api/requests", {
+      method: "POST",
+      body: JSON.stringify({
+        characterId,
+        mode: "base",
+        targets: result.created.map((entryInfo) => ({
+          action: "generate",
+          entryId: entryInfo.id,
+          overview: entryInfo.overview,
+          prompt: entryInfo.prompt,
+          inputs: { startFrame: null, endFrame: null, refImages: sourceFile ? [sourceFile] : [] },
+          outputDir: null,
+        })),
+      }),
+    });
+    state.deck = queueResult.state;
+  }
   normalizeDeck();
   state.kitResults = result.kitResults ?? state.kitResults;
   state.kit.preview = null;
   state.kit.json = "";
   state.mode = "base";
+  await loadQueue(false);
   await saveDeck(false);
   render();
-  toast(`${t("kitImported")}（${result.created.length}）`);
+  toast(queueAfter ? `${t("kitImportedQueued")}（${result.created.length}）` : `${t("kitImported")}（${result.created.length}）`);
 }
 
 function agentPromptFor(item) {

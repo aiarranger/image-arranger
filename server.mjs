@@ -161,7 +161,7 @@ function materializeKitParts(character, sourceFile, parts) {
         tags: ["source-reference"],
       });
     }
-    character.base[category].push(item);
+    character.base[category].unshift(item);
     created.push(item);
   }
   return created;
@@ -1203,7 +1203,7 @@ async function handleApi(request, response, context, url) {
     writeJson(context.stateFile, state);
     sendJson(response, 200, {
       ok: true,
-      created: created.map((item) => item.id),
+      created: created.map((item) => ({ id: item.id, overview: item.overview, prompt: item.prompt })),
       kitResults: listKitResults(context),
       state,
     });
