@@ -732,7 +732,7 @@ function isSourceRef(asset) {
   return (asset?.tags ?? []).includes("source-reference") || asset?.name === "source-reference";
 }
 
-function baseCard(entry) {
+function entryCard(entry) {
   const generated = (entry.assets ?? []).filter((asset) => !isSourceRef(asset));
   const main = generated.find((asset) => asset.adopted && asset.file) ?? generated.find((asset) => asset.file);
   const requested = entry.requestStatus === "requested";
@@ -745,56 +745,83 @@ function baseCard(entry) {
         ${main ? `<img src="${assetUrl(main.file)}" alt="${escapeHtml(entry.overview)}" loading="lazy">` : `<span class="no-image">${t("noImage")}</span>`}
       </div>
       <div class="bcard-title">${escapeHtml(entry.overview)}</div>
-      <div class="bcard-meta">${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}${statusBadge(entry)}</div>
+      <div class="bcard-meta">${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}${entry.useBaseRefs ? `<span class="kit-chip">${t("useBaseRefs")}</span>` : ""}${statusBadge(entry)}</div>
     </div>
   `;
 }
 
-function openBaseEntry(entryId) {
+function openEntryModal(entryId, shownAssetId = null) {
   const entry = findEntry(entryId);
   if (!entry) return;
+  const isImage = (character().images ?? []).some((item) => item.id === entry.id);
   const sources = (entry.assets ?? []).filter(isSourceRef);
   const generated = (entry.assets ?? []).filter((asset) => !isSourceRef(asset));
+  const shown = (entry.assets ?? []).find((asset) => asset.id === shownAssetId)
+    ?? generated.find((asset) => asset.adopted && asset.file)
+    ?? generated.find((asset) => asset.file)
+    ?? sources.find((asset) => asset.file)
+    ?? null;
   const requested = entry.requestStatus === "requested";
-  const assetMini = (asset, withAdopt = true) => `
-    <div class="entry-asset" data-open-asset="${escapeHtml(asset.id)}">
-      <div class="thumb">${asset.file ? `<img src="${assetUrl(asset.file)}" alt="${escapeHtml(asset.name ?? "")}" loading="lazy">` : "—"}</div>
-      <div class="entry-asset-name">${escapeHtml(asset.name ?? asset.id)}</div>
-      ${withAdopt
-        ? `<label class="asset-adopt"><input type="checkbox" data-modal-adopt="${escapeHtml(asset.id)}" ${asset.adopted ? "checked" : ""}> ${t("adopt")}</label>`
-        : `<span class="entry-asset-role">${t("refRole")}</span>`}
-    </div>`;
+  const refresh = () => openEntryModal(entry.id, shown?.id ?? null);
+  const thumb = (asset, role) => `
+    <button class="emodal-thumb ${shown && shown.id === asset.id ? "shown" : ""}" data-show-asset="${escapeHtml(asset.id)}" title="${escapeHtml(asset.name ?? asset.id)}">
+      ${asset.file ? `<img src="${assetUrl(asset.file)}" alt="" loading="lazy">` : "—"}
+      ${role === "src" ? `<span class="emodal-thumb-tag">${t("refRole")}</span>` : asset.adopted ? `<span class="emodal-thumb-tag adopted">${t("adopted")}</span>` : ""}
+    </button>`;
   $("#modal").innerHTML = `
     <button class="close" id="closeModal" title="${t("close")}" aria-label="${t("close")}">×</button>
-    <div class="entry-modal">
-      <div class="entry-modal-head">
-        <input class="title-input" id="entryModalTitle" value="${escapeHtml(entry.overview)}">
-        ${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}
-        ${statusBadge(entry)}
+    <div class="modal-card emodal">
+      <div class="modal-media">
+        ${shown?.file ? `<img src="${assetUrl(shown.file)}" alt="${escapeHtml(entry.overview)}">` : `<span class="emodal-empty">${t("noImage")}</span>`}
       </div>
-      <label class="entry-modal-prompt">${t("prompt")}
-        <textarea id="entryModalPrompt" rows="8">${escapeHtml(entry.prompt ?? "")}</textarea>
-      </label>
-      <h4>${t("genImages")}</h4>
-      <div class="entry-assets">${generated.length ? generated.map((asset) => assetMini(asset, true)).join("") : `<p class="form-note">${t("noImage")} — ${t("requestOne")} → ${t("queue")}</p>`}</div>
-      ${sources.length ? `<h4>${t("sourceImages")}</h4><p class="form-note">${t("refImagesHelp")}</p><div class="entry-assets sources">${sources.map((asset) => assetMini(asset, false)).join("")}</div>` : ""}
-      <div class="entry-modal-actions">
-        <button class="ghost danger" id="entryModalDelete"><i class="fa-solid fa-trash" aria-hidden="true"></i> ${t("delete")}</button>
-        <button class="ghost" id="entryModalDup">${t("duplicate")}</button>
-        <button class="ghost" id="entryModalAddAsset">${t("addAsset")}</button>
-        <button class="ghost" id="entryModalSave">${t("save")}</button>
-        ${requested
-          ? `<button class="primary" id="entryModalCancelReq">${t("cancelRequest")}</button>`
-          : `<button class="primary" id="entryModalQueue">${t("requestOne")}</button>`}
+      <div class="emodal-side">
+        <div class="emodal-head">
+          <input class="title-input" id="entryModalTitle" value="${escapeHtml(entry.overview)}">
+          ${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}
+          ${statusBadge(entry)}
+        </div>
+        ${shown ? `
+          <div class="emodal-shownbar">
+            <span class="emodal-shown-name">${escapeHtml(shown.name ?? shown.id)}</span>
+            ${isSourceRef(shown)
+              ? `<span class="kit-chip">${t("refRole")}</span>`
+              : `<label class="asset-adopt"><input type="checkbox" id="entryModalAdoptShown" ${shown.adopted ? "checked" : ""}> ${t("adopt")}</label>
+                 <button class="ghost small" id="entryModalAssetDetail">${t("editImprovePrompt")}</button>`}
+          </div>` : ""}
+        <label class="emodal-prompt">${t("prompt")}
+          <textarea id="entryModalPrompt" rows="6">${escapeHtml(entry.prompt ?? "")}</textarea>
+        </label>
+        ${isImage ? `
+          <label class="base-ref-toggle" title="${escapeHtml(t("useBaseRefsHelp"))}">
+            <input type="checkbox" id="entryModalUseRefs" ${entry.useBaseRefs ? "checked" : ""}>
+            <span>${t("useBaseRefs")}</span>
+          </label>
+          ${entry.useBaseRefs ? characterRefsBlock(entry) : ""}
+        ` : ""}
+        <h4>${t("genImages")}</h4>
+        <div class="emodal-thumbs">${generated.length ? generated.map((asset) => thumb(asset, "gen")).join("") : `<p class="form-note">${t("noImage")}</p>`}</div>
+        ${sources.length ? `<h4>${t("sourceImages")}</h4><p class="form-note">${t("refImagesHelp")}</p><div class="emodal-thumbs">${sources.map((asset) => thumb(asset, "src")).join("")}</div>` : ""}
+        <div class="entry-modal-actions">
+          <button class="ghost danger" id="entryModalDelete"><i class="fa-solid fa-trash" aria-hidden="true"></i> ${t("delete")}</button>
+          <button class="ghost" id="entryModalDup">${t("duplicate")}</button>
+          <button class="ghost" id="entryModalAddAsset">${t("addAsset")}</button>
+          <button class="ghost" id="entryModalSave">${t("save")}</button>
+          ${requested
+            ? `<button class="primary" id="entryModalCancelReq">${t("cancelRequest")}</button>`
+            : `<button class="primary" id="entryModalQueue">${t("requestOne")}</button>`}
+        </div>
       </div>
     </div>`;
   $("#modal").classList.add("open");
   const closeModal = () => $("#modal").classList.remove("open");
   $("#closeModal").onclick = closeModal;
   $("#modal").onclick = (event) => { if (event.target.id === "modal") closeModal(); };
-  $("#entryModalSave").onclick = async () => {
+  const commitFields = () => {
     entry.overview = $("#entryModalTitle").value;
     entry.prompt = $("#entryModalPrompt").value;
+  };
+  $("#entryModalSave").onclick = async () => {
+    commitFields();
     await saveDeck(false);
     render();
     toast(t("save"));
@@ -809,8 +836,7 @@ function openBaseEntry(entryId) {
   $("#entryModalAddAsset").onclick = () => { closeModal(); openAssetForm(entry.id); };
   if ($("#entryModalQueue")) {
     $("#entryModalQueue").onclick = async () => {
-      entry.overview = $("#entryModalTitle").value;
-      entry.prompt = $("#entryModalPrompt").value;
+      commitFields();
       closeModal();
       await requestEntries([entry]);
     };
@@ -821,40 +847,60 @@ function openBaseEntry(entryId) {
       await cancelTargets([{ action: "generate", entryId: entry.id }]);
     };
   }
-  document.querySelectorAll("[data-modal-adopt]").forEach((input) => {
-    input.onclick = (event) => event.stopPropagation();
-    input.onchange = () => {
-      const asset = (entry.assets ?? []).find((item) => item.id === input.dataset.modalAdopt);
-      if (!asset) return;
-      asset.adopted = input.checked;
-      saveDeck(false).catch((error) => toast(error.message));
+  if ($("#entryModalAdoptShown")) {
+    $("#entryModalAdoptShown").onchange = async () => {
+      shown.adopted = $("#entryModalAdoptShown").checked;
+      await saveDeck(false);
+      render();
+      refresh();
+    };
+  }
+  if ($("#entryModalAssetDetail")) {
+    $("#entryModalAssetDetail").onclick = () => openAsset(shown.id, entry.id);
+  }
+  if ($("#entryModalUseRefs")) {
+    $("#entryModalUseRefs").onchange = async () => {
+      commitFields();
+      entry.useBaseRefs = $("#entryModalUseRefs").checked;
+      entry.refs = normalizeEntryRefs(character(), entry.refs);
+      await saveDeck(false);
+      render();
+      refresh();
+    };
+  }
+  $("#modal").querySelectorAll("[data-show-asset]").forEach((button) => {
+    button.onclick = () => openEntryModal(entry.id, button.dataset.showAsset);
+  });
+  $("#modal").querySelectorAll("[data-ref-single]").forEach((button) => {
+    button.onclick = async () => {
+      commitFields();
+      entry.refs = normalizeEntryRefs(character(), entry.refs);
+      entry.refs[button.dataset.refCategory] = button.dataset.refId;
+      await saveDeck(false);
+      render();
+      refresh();
     };
   });
-  document.querySelectorAll("[data-open-asset]").forEach((card) => {
-    card.onclick = (event) => {
-      if (event.target.closest("label")) return;
-      openAsset(card.dataset.openAsset, entry.id);
+  $("#modal").querySelectorAll("[data-ref-multi]").forEach((button) => {
+    button.onclick = async () => {
+      commitFields();
+      entry.refs = normalizeEntryRefs(character(), entry.refs);
+      const category = button.dataset.refCategory;
+      const current = new Set(refIdsFor(category, entry.refs));
+      if (current.has(button.dataset.refId)) current.delete(button.dataset.refId);
+      else current.add(button.dataset.refId);
+      entry.refs[category] = [...current];
+      await saveDeck(false);
+      render();
+      refresh();
     };
   });
-}
-
-function imageRow(entry) {
-  return `
-    <div class="row ${entry.checked ? "selected" : ""}" data-row-id="${escapeHtml(entry.id)}">
-      <div class="row-top">
-        <input class="check" type="checkbox" data-check="${escapeHtml(entry.id)}" ${entry.checked ? "checked" : ""} ${entry.requestStatus === "requested" ? "disabled" : ""}>
-        <input class="title-input" data-title="${escapeHtml(entry.id)}" value="${escapeHtml(entry.overview)}">
-        ${statusBadge(entry)}
-        ${rowQueueButton(entry)}
-        <button class="ghost small" data-add-asset="${escapeHtml(entry.id)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${t("addAsset")}</button>
-        ${duplicateButton(entry)}
-        ${deleteEntryButton(entry)}
-      </div>
-      ${promptBlock(entry)}
-      ${refsBlock(entry)}
-      <div class="assets">${(entry.assets ?? []).map((asset) => assetCard(asset, entry)).join("")}</div>
-    </div>
-  `;
+  $("#modal").querySelectorAll("[data-copy-entry]").forEach((button) => {
+    button.onclick = async () => {
+      await navigator.clipboard.writeText(composedPrompt(entry));
+      toast(t("copied"));
+    };
+  });
 }
 
 function frameCard(label, assetId) {
@@ -896,7 +942,7 @@ function renderBase() {
           <div class="group-title">${catText(category)}</div>
           <button class="ghost small" data-add-base-category="${escapeHtml(category)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${catText(category)}を追加</button>
         </div>
-        ${filtered.length ? `<div class="bgrid">${filtered.map(baseCard).join("")}</div>` : `<div class="empty">${t("noRows")}</div>`}
+        ${filtered.length ? `<div class="bgrid">${filtered.map(entryCard).join("")}</div>` : `<div class="empty">${t("noRows")}</div>`}
       </div>
     `;
   }).join("");
@@ -991,9 +1037,15 @@ function renderRows() {
   const ch = character();
   const rows = state.mode === "video" ? ch.videos : ch.images;
   const filtered = rows.filter((entry) => !state.filter || entry.overview.toLowerCase().includes(state.filter.toLowerCase()));
+  if (state.mode === "image") {
+    return `
+      ${renderListToolbar()}
+      ${filtered.length ? `<div class="bgrid">${filtered.map(entryCard).join("")}</div>` : `<div class="empty">${t("noRows")}</div>`}
+    `;
+  }
   return `
     ${renderListToolbar()}
-    ${filtered.length ? filtered.map((entry) => state.mode === "video" ? videoRow(entry) : imageRow(entry)).join("") : `<div class="empty">${t("noRows")}</div>`}
+    ${filtered.length ? filtered.map(videoRow).join("") : `<div class="empty">${t("noRows")}</div>`}
   `;
 }
 
@@ -1566,7 +1618,7 @@ function bind() {
   document.querySelectorAll("[data-open-entry]").forEach((card) => {
     card.onclick = (event) => {
       if (event.target.closest(".bcard-check")) return;
-      openBaseEntry(card.dataset.openEntry);
+      openEntryModal(card.dataset.openEntry);
     };
   });
   document.querySelectorAll(".bcard-check").forEach((label) => {

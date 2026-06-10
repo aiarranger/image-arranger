@@ -1017,3 +1017,47 @@ textarea.prompt {
 .entry-asset-name { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 4px 0 2px; }
 .entry-modal-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 12px; }
 .entry-asset-role { display: inline-block; background: rgba(109, 99, 138, 0.12); color: var(--muted); border-radius: 999px; padding: 1px 8px; font-size: 10px; }
+
+/* ---- unified entry modal (large media + light side panel) ---- */
+.emodal { grid-template-columns: minmax(320px, 1.3fr) minmax(300px, .9fr); background: #fff; color: var(--ink); }
+.emodal .modal-media { min-height: 480px; }
+.emodal-empty { color: rgba(255, 255, 255, 0.55); font-size: 13px; }
+.emodal-side { padding: 16px 18px; overflow-y: auto; max-height: 90vh; display: flex; flex-direction: column; gap: 10px; background: #fff; }
+.emodal-head { display: flex; align-items: center; gap: 8px; }
+.emodal-head .title-input { flex: 1; font-size: 14px; font-weight: 700; }
+.emodal-shownbar { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: var(--soft); border-radius: 9px; font-size: 12px; }
+.emodal-shown-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.emodal-prompt { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--muted); }
+.emodal-prompt textarea { width: 100%; border: 1.5px solid var(--line); border-radius: 10px; padding: 9px 11px; font-size: 12px; font-family: var(--mono); resize: vertical; }
+.emodal-side h4 { margin: 4px 0 0; font-size: 12.5px; }
+.emodal-thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
+.emodal-thumb {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  border: 2px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+  padding: 0;
+  background: #f1eff9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.emodal-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.emodal-thumb:hover { border-color: var(--purple); }
+.emodal-thumb.shown { border-color: var(--purple); box-shadow: 0 0 0 2px rgba(155, 125, 255, 0.3); }
+.emodal-thumb-tag {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  right: 2px;
+  background: rgba(61, 53, 80, 0.78);
+  color: #fff;
+  border-radius: 5px;
+  font-size: 9px;
+  padding: 1px 0;
+  text-align: center;
+}
+.emodal-thumb-tag.adopted { background: rgba(0, 167, 156, 0.85); }
+.emodal .base-ref-panel { font-size: 12px; }
