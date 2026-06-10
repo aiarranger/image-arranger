@@ -45,6 +45,14 @@ Same as generation, but treat `inputs.sourceAsset` / `assetFile` as the primary 
 3. Generate one video first; check frame fidelity, locked camera, single action, and no extra objects before retrying.
 4. Save into `outputDir` and register the asset.
 
+## Browser Technique for Analysis Tasks (field-tested)
+
+1. **Attaching the image**: never open the native file picker (it blocks automation). On macOS with an external Chrome, put the image on the clipboard with `osascript -e 'set the clipboard to (read (POSIX file "<absolute path>") as «class PNGf»)'`, click the composer, and paste with Cmd+V. If your environment can set `input[type=file]` directly (Playwright etc.), that also works. Wait for the thumbnail spinner to finish before continuing.
+2. **Entering the prompt**: copy it via `pbcopy < file` and paste; do not retype long prompts.
+3. **Waiting**: extended-thinking models can take 5–15 minutes. Poll with light text reads every 30–60 s; do not reload or resend.
+4. **Collecting the JSON**: click the code block's built-in copy button and read the system clipboard (`pbpaste`), or read the `pre code` textContent from the DOM. `navigator.clipboard.writeText` from injected JS can fail due to focus constraints.
+5. Validate the JSON locally before posting it to the complete API.
+
 ## Base Kit Analysis (`analyze`)
 
 1. The deliverable is JSON, not an image.
