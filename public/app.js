@@ -58,7 +58,7 @@ const I18N = {
     kitNoAdopted: "採用済みの画像がありません。ベース／画像タブのカードで「採用」にチェックを入れると、ここに表示されます。",
     promptShown: "この画像を生成したプロンプト",
     promptNext: "プロンプト（次の生成用）",
-    genImages: "生成画像（候補）",
+    genImages: "生成画像",
     refRole: "元画像",
     sourceImages: "元画像（生成入力）",
     refImagesHelp: "この行を生成するときにAIへ添付される入力画像です。成果物（採用）の対象ではありません。",
@@ -222,7 +222,7 @@ const I18N = {
     kitNoAdopted: "No adopted images yet. Check 'Adopt' on cards in the Base / Image tabs to make them selectable here.",
     promptShown: "Prompt that generated this image",
     promptNext: "Prompt (for the next generation)",
-    genImages: "Generated candidates",
+    genImages: "Generated images",
     refRole: "Source",
     sourceImages: "Source images (generation input)",
     refImagesHelp: "Input images attached to the AI when generating this row. Not adoption candidates.",
@@ -718,6 +718,7 @@ function openEntryModal(entryId, shownAssetId = null) {
     <button class="emodal-thumb ${shown && shown.id === asset.id ? "shown" : ""}" data-show-asset="${escapeHtml(asset.id)}" title="${escapeHtml((asset.linkEntryId ? "リンク: " : "") + (asset.name ?? asset.id))}">
       ${file ? `<img src="${assetUrl(file)}" alt="" loading="lazy">` : "—"}
       ${role === "src" ? `<span class="emodal-thumb-tag">${t("refRole")}</span>` : asset.adopted ? `<span class="emodal-thumb-tag adopted">${t("adopted")}</span>` : ""}
+      <span class="emodal-thumb-x" data-del-asset="${escapeHtml(asset.id)}" title="${t("deleteAsset")}">×</span>
     </button>`;
   };
   $("#modal").innerHTML = `
@@ -816,6 +817,15 @@ function openEntryModal(entryId, shownAssetId = null) {
   }
   $("#modal").querySelectorAll("[data-show-asset]").forEach((button) => {
     button.onclick = () => openEntryModal(entry.id, button.dataset.showAsset);
+  });
+  $("#modal").querySelectorAll("[data-del-asset]").forEach((span) => {
+    span.onclick = async (event) => {
+      event.stopPropagation();
+      const target = (entry.assets ?? []).find((item) => item.id === span.dataset.delAsset);
+      if (!target) return;
+      await deleteAsset(entry, target);
+      if (findEntry(entry.id)) openEntryModal(entry.id);
+    };
   });
 }
 

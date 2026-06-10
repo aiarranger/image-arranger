@@ -1108,3 +1108,19 @@ textarea.prompt {
 .improve-mode input[type="radio"] { width: auto; margin: 0; }
 .improve-mode small { color: rgba(248, 246, 255, 0.65); font-weight: normal; }
 .modal-side { max-height: 90vh; overflow-y: auto; }
+.emodal-thumb-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: rgba(214, 69, 80, 0.92);
+  color: #fff;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+  display: none;
+}
+.emodal-thumb:hover .emodal-thumb-x { display: block; }
