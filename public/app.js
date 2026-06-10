@@ -2335,7 +2335,9 @@ function openAsset(assetId, entryId) {
         <div class="modal-actions">
           <button class="ghost danger" id="deleteAssetBtn" type="button"><i class="fa-solid fa-trash" aria-hidden="true"></i> ${t("deleteAsset")}</button>
           <button class="ghost" id="saveImprovePrompt" type="button">${t("saveImprovePrompt")}</button>
-          <button class="primary" id="queueImproveAsset" type="button" ${asset.requestStatus === "requested" ? "disabled" : ""}>${asset.requestStatus === "requested" ? t("requested") : t("queueImprove")}</button>
+          ${asset.requestStatus === "requested"
+            ? `<button class="primary" id="cancelImproveAsset" type="button">${t("cancelRequest")}</button>`
+            : `<button class="primary" id="queueImproveAsset" type="button">${t("queueImprove")}</button>`}
         </div>
       </div>
     </div>
@@ -2351,12 +2353,23 @@ function openAsset(assetId, entryId) {
     render();
     toast(t("saveImprovePrompt"));
   };
-  $("#queueImproveAsset").onclick = async () => {
-    asset.improvementPrompt = $("#assetImprovePrompt").value;
-    asset.improveMode = readImproveMode();
-    await enqueueTargets([improveTarget({ entry, asset })]);
-    $("#modal").classList.remove("open");
-  };
+  if ($("#queueImproveAsset")) {
+    $("#queueImproveAsset").onclick = async () => {
+      asset.improvementPrompt = $("#assetImprovePrompt").value;
+      asset.improveMode = readImproveMode();
+      await enqueueTargets([improveTarget({ entry, asset })]);
+      $("#modal").classList.remove("open");
+    };
+  }
+  if ($("#cancelImproveAsset")) {
+    $("#cancelImproveAsset").onclick = async () => {
+      asset.improvementPrompt = $("#assetImprovePrompt").value;
+      asset.improveMode = readImproveMode();
+      await saveDeck(false);
+      $("#modal").classList.remove("open");
+      await cancelTargets([{ action: "improve", entryId: entry.id, assetId: asset.id }]);
+    };
+  }
   $("#modal").onclick = (event) => {
     if (event.target.id === "modal") $("#modal").classList.remove("open");
   };
