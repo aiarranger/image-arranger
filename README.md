@@ -12,7 +12,7 @@ Character-consistent generation in 2026 is a reference-image game: you get the b
 
 image-arranger gives that workflow structure:
 
-- **Create kit** — start from one key image, queue an analysis request, and get per-part base prompts (face close-up, expression sheet, horns, wings, tail, outfit...) imported back as structured base entries.
+- **Create kit** — pick adopted reference images and one-shot generate the character's canonical identity sheet from a reusable prompt template (bring your favorite community sheet prompt). Need to fix one part without rerolling the whole sheet? Decompose into per-part references, improve just that part, and regenerate the sheet with it attached.
 - **Base** — manage per-part reference entries with candidate assets; mark only approved candidates as adopted.
 - **Image** — one prompt per output image. Attach adopted images as source inputs; they are stored as links and resolve to each linked entry's *current* canonical image at queue time.
 - **Video** — point start/end frames at adopted images for image-to-video services.
@@ -88,7 +88,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: keep it dependency-fr
 
 **image-arranger は「生成しない」画像・動画生成ワークフロー管理ツールです。** どのリファレンスを正とするか、どの候補を採用したか、何を依頼中か——生成サービス側が持っていない管理層をローカルで完結させます。
 
-- **素材作成**：キー画像1枚から分析依頼をキューに登録し、パーツ別（顔・表情差分・角・翼・尻尾・衣装など）の生成プロンプトJSONを取り込むと、ベースが自動作成されます
+- **素材作成**：採用画像を参照に、同一性の正となるリファレンスシートをテンプレプロンプトで一発生成（コミュニティの優れたシートプロンプトをテンプレ登録可）。シートの一部だけ直したいときはパーツに分解→そのパーツだけ改善→直したパーツを添えてシートを再生成
 - **ベース**：パーツ別リファレンスを候補管理し、承認したものだけ「採用」に
 - **画像**：1プロンプト＝1アウトプット。採用済み画像を元画像（生成入力）として添付でき、リンク先の最新の「正」にキュー時解決されます
 - **動画**：採用画像を start/end フレームに指定して image-to-video へ

@@ -15,6 +15,18 @@ const I18N = {
     kitSource: "ベース画像を選ぶ（複数選択可）",
     kitSourceHelp: "採用済みの画像から選択します（複数可。全身用＋顔色用のように組み合わせると精度が上がります）。",
     kitPartsAuto: "どのパーツに分解するか（顔・表情・角・翼・尻尾など）は、AIが画像を分析して判断します。",
+    kitSheetTitle: "シートを作る（推奨）",
+    kitSheetIntro: "選んだ参照画像から、同一性の正となるリファレンスシートを1回の生成で作ります。生成結果を採用するとマスターの正＝新規画像の既定参照になります。プロンプトはテンプレとして保存・使い回しできます（コミュニティの優れたシートプロンプトを貼ってもOK）。",
+    sheetName: "シート名",
+    sheetTpl: "プロンプトテンプレ",
+    sheetTplBuiltin: "標準テンプレ（内蔵）",
+    sheetSaveTpl: "テンプレとして保存",
+    sheetTplSaved: "テンプレを保存しました",
+    sheetQueue: "シート生成を依頼",
+    sheetQueued: "シート生成をキューに登録しました。「依頼文コピー」でエージェントへ。",
+    sheetNeedPrompt: "シートのプロンプトを入力してください",
+    kitDecomposeTitle: "パーツに分解（シートの部分修正用）",
+    kitDecomposeIntro: "シートの一部だけ直したいとき（角の形・翼の構造など）に使います。パーツ単体の高精細な正を作って改善し、直したパーツを参照に付けてシートを再生成すると、シート全体を崩さず部分更新できます。",
     kitCharName: "キャラクター名",
     kitAnalyze: "分析を依頼",
     kitAnalyzeQueued: "分析依頼を登録しました。下の「依頼文コピー」でエージェントに渡してください。",
@@ -154,6 +166,18 @@ const I18N = {
     kitSource: "Pick source images (multi-select)",
     kitSourceHelp: "Choose adopted images (multiple allowed — e.g. one for structure plus one for face/color detail).",
     kitPartsAuto: "The AI decides which parts to extract (face, expressions, horns, wings, tail...) by analyzing the image.",
+    kitSheetTitle: "Create the identity sheet (recommended)",
+    kitSheetIntro: "One-shot generate the canonical reference sheet from the selected references. Adopt the result and it becomes the master canonical = default reference for new images. Prompts are saved as reusable templates (community sheet prompts welcome).",
+    sheetName: "Sheet name",
+    sheetTpl: "Prompt template",
+    sheetTplBuiltin: "Built-in template",
+    sheetSaveTpl: "Save as template",
+    sheetTplSaved: "Template saved",
+    sheetQueue: "Queue sheet generation",
+    sheetQueued: "Sheet generation queued. Use 'Copy agent prompt' to hand it off.",
+    sheetNeedPrompt: "Enter the sheet prompt",
+    kitDecomposeTitle: "Decompose into parts (for partial sheet repair)",
+    kitDecomposeIntro: "Use when one part of the sheet needs fixing (horn shape, wing structure...). Generate a high-detail canonical for just that part, improve it, then regenerate the sheet with the fixed part attached as a reference.",
     kitCharName: "Character name",
     kitAnalyze: "Request analysis",
     kitAnalyzeQueued: "Analysis request queued. Use 'Copy agent prompt' below to hand it off.",
@@ -821,6 +845,52 @@ function renderListToolbar() {
   `;
 }
 
+const BUILTIN_SHEET_TEMPLATE = {
+  id: "builtin-identity-sheet",
+  name: "標準テンプレ（内蔵）",
+  text: [
+    "参照画像をキャラクターデザインの正として使用し、AI画像生成・i2i・動画生成で同一性を維持するための「AI可読型キャラクターリファレンスシート」を1枚作成してください。",
+    "",
+    "Create exactly ONE high-resolution reference sheet image. This is not a poster, not concept art, not a finished illustration — it is a practical production reference document.",
+    "",
+    "Faithfully preserve the character's identity from the attached reference image(s): face, eyes, hairstyle, hair colors, body proportions, silhouette, outfit design, colors, and attached body parts (horns, wings, tails, etc. are anatomy, not accessories). Do not redesign. Do not average into a generic face.",
+    "",
+    "Include, in an organized grid layout:",
+    "- Full-body front, back, and side views (neutral standing pose)",
+    "- Face close-up (front) with precise eye design",
+    "- Expression variations (smile / neutral / angry / surprised)",
+    "- Hair structure (front / side / back) with highlight and streak placement",
+    "- Outfit reference (front and back) with fabric and fastener details",
+    "- Attached body parts with natural attachment points",
+    "- Color palette swatches with HEX codes for hair, eyes, skin, and outfit",
+    "- Short AI-control annotations (e.g. \"do not shift hair hue\", \"keep shadow saturation low\")",
+    "",
+    "Style: clean cel-style anime rendering, white background, high readability, like a professional anime production design sheet. No dramatic lighting, no heavy painting, no watermark, no logo. One image only — no A/B variants.",
+  ].join("\n"),
+};
+
+function sheetTemplates() {
+  return [BUILTIN_SHEET_TEMPLATE, ...(state.deck?.promptTemplates ?? [])];
+}
+
+function isSheetQueueRow(row) {
+  return row.action === "generate" && ((findEntry(row.entryId)?.tags ?? []).includes("identity-sheet"));
+}
+
+function pendingQueueRow(row) {
+  return `
+    <div class="kit-result kit-pending">
+      <span class="kit-result-info">
+        <strong>${escapeHtml(row.overview || row.entryId)}</strong>
+        <small>${t("requested")} ・ ${escapeHtml(formatDateTime(row.requestedAt))} ・ ${escapeHtml(row.requestId)}</small>
+      </span>
+      <span class="kit-actions">
+        <button class="ghost small" data-copy-agent="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}"><i class="fa-solid fa-robot" aria-hidden="true"></i> ${t("copyAgentPrompt")}</button>
+        <button class="ghost small danger" data-cancel-queue="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}">${t("cancelRequest")}</button>
+      </span>
+    </div>`;
+}
+
 function renderKit() {
   const ch = character();
   const kit = state.kit;
@@ -848,23 +918,28 @@ function renderKit() {
             <span class="kit-source-origin">${origin === "base" ? t("base") : t("image")}</span>
           </button>`).join("") : `<p class="form-note">${t("kitNoAdopted")}</p>`}
       </div>
-      <h3 class="kit-step">2. ${t("kitAnalyze")}</h3>
+      <h3 class="kit-step">2. ${t("kitSheetTitle")}</h3>
+      <p class="form-note">${t("kitSheetIntro")}</p>
+      <label class="kit-name">${t("sheetName")}<input id="sheetName" value="${escapeHtml(kit.sheetName || `${ch.name} リファレンスシート`)}"></label>
+      <label class="kit-name">${t("sheetTpl")}
+        <select id="sheetTplSelect">
+          ${sheetTemplates().map((tpl) => `<option value="${escapeHtml(tpl.id)}" ${kit.sheetTplId === tpl.id ? "selected" : ""}>${escapeHtml(tpl.name)}</option>`).join("")}
+        </select>
+      </label>
+      <label class="kit-name kit-extra">${t("prompt")}<textarea id="sheetPrompt" rows="8">${escapeHtml(kit.sheetPrompt ?? BUILTIN_SHEET_TEMPLATE.text)}</textarea></label>
+      <div class="kit-actions">
+        <button class="primary" id="sheetQueueBtn">${t("sheetQueue")}</button>
+        <button class="ghost" id="sheetSaveTplBtn">${t("sheetSaveTpl")}</button>
+      </div>
+      ${(state.requests ?? []).filter((row) => row.characterId === ch.id && isSheetQueueRow(row)).map(pendingQueueRow).join("")}
+      <h3 class="kit-step">3. ${t("kitDecomposeTitle")}</h3>
+      <p class="form-note">${t("kitDecomposeIntro")}</p>
       <p class="form-note">${t("kitPartsAuto")}</p>
       <label class="kit-name">${t("kitCharName")}<input id="kitCharName" value="${escapeHtml(kit.characterName || ch.name)}"></label>
       <label class="kit-name kit-extra">${t("kitExtra")}<textarea id="kitExtra" rows="2" placeholder="${escapeHtml(t("kitExtraHelp"))}">${escapeHtml(kit.extra ?? "")}</textarea></label>
       <div class="kit-actions"><button class="primary" id="kitAnalyzeBtn">${t("kitAnalyze")}</button></div>
-      ${(state.requests ?? []).filter((row) => row.action === "analyze" && row.characterId === ch.id).map((row) => `
-        <div class="kit-result kit-pending">
-          <span class="kit-result-info">
-            <strong>${escapeHtml(row.overview || row.entryId)}</strong>
-            <small>${t("requested")} ・ ${escapeHtml(formatDateTime(row.requestedAt))} ・ ${escapeHtml(row.requestId)}</small>
-          </span>
-          <span class="kit-actions">
-            <button class="ghost small" data-copy-agent="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}"><i class="fa-solid fa-robot" aria-hidden="true"></i> ${t("copyAgentPrompt")}</button>
-            <button class="ghost small danger" data-cancel-queue="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}">${t("cancelRequest")}</button>
-          </span>
-        </div>`).join("")}
-      <h3 class="kit-step">3. ${t("kitPasteTitle")}</h3>
+      ${(state.requests ?? []).filter((row) => row.action === "analyze" && row.characterId === ch.id).map(pendingQueueRow).join("")}
+      <h3 class="kit-step">4. ${t("kitPasteTitle")}</h3>
       ${(state.kitResults ?? []).length ? state.kitResults.map((result, index) => `
         <div class="kit-result">
           <span class="kit-result-info">
@@ -1541,6 +1616,33 @@ function bind() {
   if ($("#kitExtra")) $("#kitExtra").oninput = () => { state.kit.extra = $("#kitExtra").value; };
   if ($("#kitJson")) $("#kitJson").oninput = () => { state.kit.json = $("#kitJson").value; };
   if ($("#kitAnalyzeBtn")) $("#kitAnalyzeBtn").onclick = () => requestKitAnalysis().catch((error) => toast(error.message));
+  if ($("#sheetName")) $("#sheetName").onchange = () => { state.kit.sheetName = $("#sheetName").value; };
+  if ($("#sheetPrompt")) $("#sheetPrompt").oninput = () => { state.kit.sheetPrompt = $("#sheetPrompt").value; };
+  if ($("#sheetTplSelect")) {
+    $("#sheetTplSelect").onchange = () => {
+      const tpl = sheetTemplates().find((item) => item.id === $("#sheetTplSelect").value);
+      if (!tpl) return;
+      state.kit.sheetTplId = tpl.id;
+      state.kit.sheetPrompt = tpl.text;
+      render();
+    };
+  }
+  if ($("#sheetQueueBtn")) $("#sheetQueueBtn").onclick = () => requestSheetGeneration().catch((error) => toast(error.message));
+  if ($("#sheetSaveTplBtn")) {
+    $("#sheetSaveTplBtn").onclick = async () => {
+      const text = ($("#sheetPrompt")?.value ?? "").trim();
+      if (!text) { toast(t("sheetNeedPrompt")); return; }
+      const name = prompt(t("sheetSaveTpl"), "");
+      if (!name) return;
+      state.deck.promptTemplates = state.deck.promptTemplates ?? [];
+      const tplId = makeUniqueId(new Set(sheetTemplates().map((item) => item.id)), `tpl-${slug(name)}`);
+      state.deck.promptTemplates.push({ id: tplId, name, text });
+      state.kit.sheetTplId = tplId;
+      await saveDeck(false);
+      render();
+      toast(t("sheetTplSaved"));
+    };
+  }
   if ($("#kitParseBtn")) $("#kitParseBtn").onclick = openKitPreviewFromPaste;
   if ($("#kitCreateBtn")) $("#kitCreateBtn").onclick = () => importSelectedKitParts().catch((error) => toast(error.message));
   if ($("#kitQueueAfter")) $("#kitQueueAfter").onchange = () => { if (state.kit.preview) state.kit.preview.queueAfter = $("#kitQueueAfter").checked; };
@@ -1811,6 +1913,75 @@ async function enqueueTargets(targets, saveBeforeRequest = true) {
   await loadQueue(false);
   render();
   toast(`${t("requestDone")}\n${result.requestFile}`);
+}
+
+async function requestSheetGeneration() {
+  const kit = state.kit;
+  if (!kit.sources.length) {
+    toast(t("kitNoSource"));
+    return;
+  }
+  const promptText = ($("#sheetPrompt")?.value ?? "").trim();
+  if (!promptText) {
+    toast(t("sheetNeedPrompt"));
+    return;
+  }
+  const ch = character();
+  const name = ($("#sheetName")?.value ?? "").trim() || `${ch.name} リファレンスシート`;
+  const ids = entryIds(ch);
+  const id = makeUniqueId(ids, `base-sheet-${slug(name)}`);
+  const refFiles = [];
+  const assets = kit.sources.map((sel, index) => {
+    const srcAsset = findEntry(sel.entryId)?.assets?.find((item) => item.id === sel.assetId);
+    const resolved = srcAsset ? (resolveReferenceFile(srcAsset) || srcAsset.file) : "";
+    if (resolved) refFiles.push(resolved);
+    return {
+      id: `asset-${id}-src-${index}`,
+      kind: "image",
+      file: srcAsset?.file ?? "",
+      name: srcAsset?.name ?? "source",
+      adopted: false,
+      prompt: "",
+      sourceLicense: "",
+      aiGenerated: true,
+      humanReviewed: true,
+      usageNotes: "元画像（リンク参照：キュー登録時にリンク先の最新の採用画像へ解決）",
+      tags: ["source-reference"],
+      linkEntryId: sel.entryId,
+    };
+  });
+  ch.base.master = ch.base.master ?? [];
+  ch.base.master.unshift({
+    id,
+    overview: name,
+    prompt: promptText,
+    version: 1,
+    checked: false,
+    requestStatus: "idle",
+    tags: ["identity-sheet"],
+    assets,
+  });
+  await saveDeck(false);
+  const queueResult = await api("/api/requests", {
+    method: "POST",
+    body: JSON.stringify({
+      characterId: state.characterId,
+      mode: "base",
+      targets: [{
+        action: "generate",
+        entryId: id,
+        overview: name,
+        prompt: promptText,
+        inputs: { startFrame: null, endFrame: null, refImages: [...new Set(refFiles)] },
+        outputDir: null,
+      }],
+    }),
+  });
+  state.deck = queueResult.state;
+  normalizeDeck();
+  await loadQueue(false);
+  render();
+  toast(t("sheetQueued"));
 }
 
 async function requestKitAnalysis() {
