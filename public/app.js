@@ -1881,9 +1881,11 @@ function improvePrompt(asset, entry) {
   const instruction = String(asset.improvementPrompt ?? "").trim()
     || "Improve quality, readability, and asset extraction while preserving the useful composition and original intent.";
   return [
-    "Improve the existing generated asset. Use the attached source asset as the primary reference.",
+    "Improve the existing generated asset.",
+    "The FIRST attached image is the asset to improve — keep its composition and intent.",
+    "Any OTHER attached images are the original identity references (the character's canonical design): match face, colors, proportions, and attached body parts to them.",
     instruction,
-    "Keep it usable as a game asset. No text, no logo, no watermark, no UI unless explicitly requested.",
+    "Keep it usable as a game asset. No text, no logo, no watermark, no UI unless explicitly requested. Create exactly ONE image.",
     basePrompt ? `Original prompt:\n${basePrompt}` : "",
   ].filter(Boolean).join("\n\n");
 }
