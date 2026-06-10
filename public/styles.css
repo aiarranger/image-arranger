@@ -926,3 +926,38 @@ textarea.prompt {
 .kit-name input { padding: 8px 10px; border: 1.5px solid var(--line); border-radius: 10px; font-size: 13px; }
 .kit-actions { display: flex; gap: 10px; }
 .kit-json { width: 100%; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 10px; font-family: var(--mono); font-size: 12px; resize: vertical; }
+
+/* ---- kit results & part selection ---- */
+.kit-extra textarea { padding: 8px 10px; border: 1.5px solid var(--line); border-radius: 10px; font-size: 12.5px; font-family: inherit; resize: vertical; }
+.kit-result {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-strong);
+  margin-bottom: 8px;
+}
+.kit-result-info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.kit-result-info small { color: var(--muted); font-size: 11px; }
+.kit-preview { border: 2px solid var(--purple); border-radius: 12px; padding: 12px 14px; background: var(--panel-strong); margin-top: 10px; }
+.kit-preview h4 { margin: 0 0 8px; font-size: 13.5px; }
+.kit-part-row {
+  display: grid;
+  grid-template-columns: auto minmax(120px, max-content) minmax(60px, max-content) 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.7);
+}
+.kit-part-row input[type="checkbox"] { width: auto; flex: none; margin: 0; }
+.kit-part-row.selected { border-color: var(--purple); background: var(--soft); }
+.kit-part-row .kit-part-label { font-weight: 600; font-size: 12.5px; }
+.kit-part-row small { color: var(--muted); font-size: 10.5px; }
+.kit-part-row .kit-part-prompt { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

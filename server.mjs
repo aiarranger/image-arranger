@@ -77,8 +77,9 @@ const BASE_KIT_PARTS = [
   { key: "palette", label: "カラーパレット", labelEn: "Color palette", category: "accessory", hint: "color swatch grid of the character's main colors, swatches only, no text" },
 ];
 
-export function composeAnalyzePrompt(characterName, parts = BASE_KIT_PARTS) {
+export function composeAnalyzePrompt(characterName, parts = BASE_KIT_PARTS, extraRequest = "") {
   const lines = (parts ?? []).map((part) => `- key: ${part.key} / label: ${part.label} / category: ${part.category}${part.hint ? ` / focus: ${part.hint}` : ""}`);
+  const extra = String(extraRequest ?? "").trim();
   return [
     "画像生成は不要です。これは画像分析タスクです。",
     "",
@@ -95,6 +96,11 @@ export function composeAnalyzePrompt(characterName, parts = BASE_KIT_PARTS) {
     "- Add parts NOT in the vocabulary if this character has other identity-critical features",
     "  (unique body parts, signature markings, etc.). Use category \"accessory\" for attached",
     "  features and props, \"master\" only for whole-identity references.",
+    ...(extra ? [
+      "",
+      "User-requested additions (include these as parts when they exist in the image):",
+      extra,
+    ] : []),
     "",
     "For each chosen part, describe THIS character's actual visual features precisely",
     "(exact colors, shapes, proportions, attachment points, materials), in generation-ready English.",
@@ -610,6 +616,18 @@ function completeRequestFiles(context, selectors) {
       target.status = "completed";
       target.completedAt = nowIso();
       if (Array.isArray(selector.results)) target.results = selector.results;
+      if ((target.action ?? "") === "analyze") {
+        const partsSource = selector.parts
+          ?? (Array.isArray(selector.results) ? selector.results.find((item) => item?.parts)?.parts : null);
+        if (partsSource) {
+          try {
+            const parsed = parseKitParts(partsSource);
+            if (parsed.length) target.analysisParts = parsed;
+          } catch {
+            // keep target completed; invalid parts payloads are simply not stored
+          }
+        }
+      }
       changed = true;
       completed += 1;
       completedTargets.push({ requestPayload, target, selector });
@@ -624,27 +642,41 @@ function completeRequestFiles(context, selectors) {
   return { completed, completedTargets };
 }
 
-function materializeCompletedAnalyses(state, completedTargets) {
-  let createdCount = 0;
-  for (const { requestPayload, target, selector } of completedTargets) {
-    if ((target.action ?? "") !== "analyze") continue;
-    const partsSource = selector.parts
-      ?? (Array.isArray(selector.results) ? selector.results.find((item) => item?.parts)?.parts : null)
-      ?? (Array.isArray(target.results) ? target.results.find((item) => item?.parts)?.parts : null);
-    if (!partsSource) continue;
-    let parts;
-    try {
-      parts = parseKitParts(partsSource);
-    } catch {
-      continue;
+function listKitResults(context) {
+  const rows = [];
+  for (const { file, requestPayload } of readRequestFiles(context)) {
+    for (const [targetIndex, target] of (requestPayload.targets ?? []).entries()) {
+      if ((target.action ?? "") !== "analyze") continue;
+      if (!Array.isArray(target.analysisParts) || !target.analysisParts.length) continue;
+      if (target.kitImportedAt) continue;
+      rows.push({
+        requestId: requestPayload.requestId,
+        targetIndex,
+        requestFile: file,
+        characterId: requestPayload.character ?? "",
+        characterName: requestPayload.characterName ?? "",
+        sourceEntryId: target.entryId ?? "",
+        sourceAssetId: target.assetId ?? "",
+        sourceFile: target.inputs?.sourceAsset ?? target.assetFile ?? "",
+        completedAt: target.completedAt ?? "",
+        parts: target.analysisParts,
+      });
     }
-    if (!parts.length) continue;
-    const character = state.characters?.find((item) => item.id === requestPayload.character);
-    if (!character) continue;
-    const sourceFile = target.inputs?.sourceAsset ?? target.assetFile ?? "";
-    createdCount += materializeKitParts(character, sourceFile, parts).length;
   }
-  return createdCount;
+  return rows;
+}
+
+function markKitResultImported(context, requestId, targetIndex) {
+  for (const { requestPath, requestPayload } of readRequestFiles(context)) {
+    if (requestPayload.requestId !== requestId) continue;
+    const target = requestPayload.targets?.[targetIndex];
+    if (!target) return false;
+    target.kitImportedAt = nowIso();
+    requestPayload.updatedAt = nowIso();
+    writeJson(requestPath, requestPayload);
+    return true;
+  }
+  return false;
 }
 
 function listRequestedTargets(context, state = null) {
@@ -931,7 +963,11 @@ async function handleApi(request, response, context, url) {
   }
   if (request.method === "GET" && url.pathname === "/api/requests") {
     const state = readState(context.stateFile, context.projectRoot, context.init);
-    sendJson(response, 200, { ok: true, requests: listRequestedTargets(context, state) });
+    sendJson(response, 200, {
+      ok: true,
+      projectRoot: toPosixPath(context.projectRoot),
+      requests: listRequestedTargets(context, state),
+    });
     return true;
   }
   if (request.method === "PUT" && url.pathname === "/api/state") {
@@ -1007,10 +1043,17 @@ async function handleApi(request, response, context, url) {
     })).filter((target) => (target.requestId && target.targetIndex !== undefined) || target.entryId);
     if (!selectors.length) throw new HttpError(400, "No request targets to complete");
     const { completed, completedTargets } = completeRequestFiles(context, selectors);
-    const kitEntriesCreated = materializeCompletedAnalyses(state, completedTargets);
+    const kitResultsStored = completedTargets.filter(({ target }) => (target.action ?? "") === "analyze" && target.analysisParts?.length).length;
     recomputeRequestedStatuses(state, context);
     writeJson(context.stateFile, state);
-    sendJson(response, 200, { ok: true, completed, kitEntriesCreated, requests: listRequestedTargets(context, state), state });
+    sendJson(response, 200, {
+      ok: true,
+      completed,
+      kitResultsStored,
+      kitResults: listKitResults(context),
+      requests: listRequestedTargets(context, state),
+      state,
+    });
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/characters") {
@@ -1071,6 +1114,10 @@ async function handleApi(request, response, context, url) {
     sendJson(response, 200, { ok: true, parts: BASE_KIT_PARTS });
     return true;
   }
+  if (request.method === "GET" && url.pathname === "/api/base-kit/results") {
+    sendJson(response, 200, { ok: true, kitResults: listKitResults(context) });
+    return true;
+  }
   if (request.method === "POST" && url.pathname === "/api/base-kit/analyze") {
     const state = readState(context.stateFile, context.projectRoot, context.init);
     const body = await readBody(request);
@@ -1088,6 +1135,7 @@ async function handleApi(request, response, context, url) {
       .filter((part) => part.label);
     const parts = requestedParts.length ? requestedParts : BASE_KIT_PARTS;
     const characterName = String(body.characterName ?? character.name ?? "").trim() || character.name;
+    const extraRequest = String(body.extraRequest ?? "").trim();
     const requestId = `req_${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}_${randomUUID().slice(0, 8)}`;
     const requestPayload = {
       schema: "image-arranger-request.v1",
@@ -1104,10 +1152,11 @@ async function handleApi(request, response, context, url) {
         assetName: sourceAsset.name ?? sourceAsset.id,
         assetFile: sourceAsset.file,
         overview: `${characterName} / ベース分解 分析`,
-        prompt: composeAnalyzePrompt(characterName, parts),
+        prompt: composeAnalyzePrompt(characterName, parts, extraRequest),
         basePrompt: "",
         improvementPrompt: "",
         parts,
+        extraRequest,
         expects: "json",
         inputs: { startFrame: null, endFrame: null, refImages: [sourceAsset.file], sourceAsset: sourceAsset.file },
         outputDir: null,
@@ -1147,9 +1196,17 @@ async function handleApi(request, response, context, url) {
     const sourceAsset = sourceEntry?.assets?.find((item) => item.id === body.sourceAssetId);
     const created = materializeKitParts(character, sourceAsset?.file ?? String(body.sourceFile ?? ""), parts);
     if (!created.length) throw new HttpError(400, "Analysis JSON has no usable parts (label and prompt are required)");
+    if (body.requestId && Number.isInteger(Number(body.targetIndex))) {
+      markKitResultImported(context, String(body.requestId), Number(body.targetIndex));
+    }
     state.updatedAt = nowIso();
     writeJson(context.stateFile, state);
-    sendJson(response, 200, { ok: true, created: created.map((item) => item.id), state });
+    sendJson(response, 200, {
+      ok: true,
+      created: created.map((item) => item.id),
+      kitResults: listKitResults(context),
+      state,
+    });
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/assets") {

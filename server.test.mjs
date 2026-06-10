@@ -413,6 +413,11 @@ test("analyze prompt lets the AI choose parts from the vocabulary", () => {
   assert.match(prompt, /Skip vocabulary parts that do not apply/);
   assert.match(prompt, /"character": "Sample Character"/);
   assert.match(prompt, /exactly ONE isolated reference image/);
+  assert.doesNotMatch(prompt, /User-requested additions/);
+
+  const withExtra = composeAnalyzePrompt("Sample Character", undefined, "靴も別パーツにしてほしい");
+  assert.match(withExtra, /User-requested additions/);
+  assert.match(withExtra, /靴も別パーツにしてほしい/);
 });
 
 test("parseKitParts accepts raw JSON, fenced blocks, and objects", () => {
@@ -448,12 +453,14 @@ test("base kit: analyze request, complete with parts, and paste import create ba
         characterId: "sample-character",
         sourceEntryId: entryId,
         sourceAssetId: sourceAsset.id,
+        extraRequest: "靴も別パーツにしてほしい",
       }),
     }).then((response) => response.json());
     assert.equal(analyze.ok, true);
     assert.equal(analyze.request.targets[0].action, "analyze");
     assert.equal(analyze.request.targets[0].parts.length, presets.parts.length);
     assert.match(analyze.request.targets[0].prompt, /YOU decide which parts to include/);
+    assert.match(analyze.request.targets[0].prompt, /靴も別パーツにしてほしい/);
     assert.equal(analyze.request.service, "chatgpt");
     assert.deepEqual(analyze.request.targets[0].inputs.refImages, [sourceAsset.file]);
     assert.match(analyze.request.targets[0].prompt, /画像分析タスク/);
@@ -480,20 +487,46 @@ test("base kit: analyze request, complete with parts, and paste import create ba
     }).then((response) => response.json());
     assert.equal(complete.ok, true);
     assert.equal(complete.completed, 1);
-    assert.equal(complete.kitEntriesCreated, 2);
-    const character = complete.state.characters[0];
+    assert.equal(complete.kitResultsStored, 1);
+    // complete stores the analysis for user selection; no entries are created yet
+    assert.equal(complete.state.characters[0].base.master.some((item) => item.id.startsWith("base-kit")), false);
+    assert.equal(complete.kitResults.length, 1);
+    assert.equal(complete.kitResults[0].requestId, analyze.request.requestId);
+    assert.equal(complete.kitResults[0].parts.length, 3);
+    const completedAsset = complete.state.characters[0].images[0].assets.find((item) => item.id === sourceAsset.id);
+    assert.equal(completedAsset.requestStatus, "idle");
+    const requestPayload = JSON.parse(readFileSync(join(context.requestDir, `${analyze.request.requestId}.json`), "utf8"));
+    assert.equal(requestPayload.status, "completed");
+    assert.equal(requestPayload.targets[0].analysisParts.length, 3);
+
+    const listedResults = await fetch(`${baseUrl}/api/base-kit/results`).then((response) => response.json());
+    assert.equal(listedResults.kitResults.length, 1);
+
+    // user selects only the face part and imports
+    const selected = await fetch(`${baseUrl}/api/base-kit/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: "sample-character",
+        sourceEntryId: entryId,
+        sourceAssetId: sourceAsset.id,
+        requestId: analyze.request.requestId,
+        targetIndex: 0,
+        parts: [partsJson.parts[0]],
+      }),
+    }).then((response) => response.json());
+    assert.equal(selected.ok, true);
+    assert.equal(selected.created.length, 1);
+    const character = selected.state.characters[0];
     const faceEntry = character.base.master.find((item) => item.id.startsWith("base-kit-face-front"));
-    const hornsEntry = character.base.accessory.find((item) => item.id.startsWith("base-kit-horns"));
     assert.equal(faceEntry.prompt, "face close-up prompt");
     assert.deepEqual(faceEntry.tags, ["base-kit"]);
     assert.equal(faceEntry.assets[0].name, "source-reference");
     assert.equal(faceEntry.assets[0].file, sourceAsset.file);
     assert.equal(faceEntry.assets[0].adopted, true);
-    assert.equal(hornsEntry.prompt, "horns prompt");
-    const completedAsset = complete.state.characters[0].images[0].assets.find((item) => item.id === sourceAsset.id);
-    assert.equal(completedAsset.requestStatus, "idle");
-    const requestPayload = JSON.parse(readFileSync(join(context.requestDir, `${analyze.request.requestId}.json`), "utf8"));
-    assert.equal(requestPayload.status, "completed");
+    assert.equal(character.base.accessory.some((item) => item.id.startsWith("base-kit-horns")), false);
+    // imported result no longer appears as pending
+    assert.equal(selected.kitResults.length, 0);
 
     const pasted = await fetch(`${baseUrl}/api/base-kit/import`, {
       method: "POST",

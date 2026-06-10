@@ -17,12 +17,21 @@ const I18N = {
     kitPartsAuto: "どのパーツに分解するか（顔・表情・角・翼・尻尾など）は、AIが画像を分析して判断します。",
     kitCharName: "キャラクター名",
     kitAnalyze: "分析を依頼",
-    kitAnalyzeQueued: "分析依頼をキューに登録しました。処理後、結果JSONを下の取り込み欄へ。",
+    kitAnalyzeQueued: "分析依頼をキューに登録しました。キュータブの「依頼文コピー」からエージェント依頼文を取得できます。",
+    kitExtra: "追加で分けてほしい要素（任意）",
+    kitExtraHelp: "基本はAIが判断します。「靴も別パーツに」「胸の紋章を分けて」など、追加の指定があれば書いてください。",
     kitPasteTitle: "分析結果の取り込み",
-    kitPasteHelp: "ChatGPT等が返したJSON（```コードブロックのままでも可）を貼り付けてください。",
-    kitImport: "取り込んでベースを作成",
+    kitPasteHelp: "ChatGPT等が返したJSON（```コードブロックのままでも可）を貼り付けて「内容を確認」を押してください。",
+    kitResultsEmpty: "取り込み待ちの分析結果はありません（エージェントが完了報告すると、ここに表示されます）。",
+    kitSelectParts: "パーツを選択して取り込む",
+    kitSelectPartsTitle: "ベースにするパーツを選択",
+    kitParse: "内容を確認",
+    kitCreateSelected: "選択したパーツでベース作成",
+    kitPickOne: "取り込むパーツを1つ以上選択してください",
     kitImported: "ベースを作成しました",
     kitNoSource: "ベース画像を選択してください",
+    copyAgentPrompt: "依頼文コピー",
+    copiedAgentPrompt: "エージェント依頼文をコピーしました。Codex / Claude Code 等にそのまま貼り付けてください。",
     request: "キューに登録",
     requestOne: "キュー登録",
     addCharacter: "素材パターン追加",
@@ -136,12 +145,21 @@ const I18N = {
     kitPartsAuto: "The AI decides which parts to extract (face, expressions, horns, wings, tail...) by analyzing the image.",
     kitCharName: "Character name",
     kitAnalyze: "Request analysis",
-    kitAnalyzeQueued: "Analysis request queued. Paste the resulting JSON below after processing.",
+    kitAnalyzeQueued: "Analysis request queued. Use 'Copy agent prompt' on the Queue tab to hand it off.",
+    kitExtra: "Extra elements to split out (optional)",
+    kitExtraHelp: "The AI decides by default. Add requests like 'split the shoes' or 'separate the chest emblem' if needed.",
     kitPasteTitle: "Import analysis result",
-    kitPasteHelp: "Paste the JSON returned by ChatGPT (a fenced ``` code block is fine).",
-    kitImport: "Import and create bases",
+    kitPasteHelp: "Paste the JSON returned by ChatGPT (a fenced ``` code block is fine) and press 'Review'.",
+    kitResultsEmpty: "No analysis results waiting for import (agent completions appear here).",
+    kitSelectParts: "Select parts to import",
+    kitSelectPartsTitle: "Choose the parts to create as bases",
+    kitParse: "Review",
+    kitCreateSelected: "Create bases from selected parts",
+    kitPickOne: "Select at least one part to import",
     kitImported: "Base entries created",
     kitNoSource: "Select a source image first",
+    copyAgentPrompt: "Copy agent prompt",
+    copiedAgentPrompt: "Agent prompt copied. Paste it into Codex / Claude Code or another agent.",
     request: "Queue selected",
     requestOne: "Queue row",
     addCharacter: "Add asset pattern",
@@ -262,8 +280,10 @@ const state = {
   form: null,
   requests: [],
   toastTimer: null,
-  kit: { sourceEntryId: "", sourceAssetId: "", parts: null, characterName: "", json: "" },
+  kit: { sourceEntryId: "", sourceAssetId: "", characterName: "", extra: "", json: "", preview: null },
   kitPresets: [],
+  kitResults: [],
+  projectRoot: "",
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -387,14 +407,17 @@ async function api(path, options = {}) {
 }
 
 async function loadDeck() {
-  const [deck, queuePayload, kitPresets] = await Promise.all([
+  const [deck, queuePayload, kitPresets, kitResults] = await Promise.all([
     api("/api/state"),
     api("/api/requests").catch(() => ({ requests: [] })),
     api("/api/base-kit/presets").catch(() => ({ parts: [] })),
+    api("/api/base-kit/results").catch(() => ({ kitResults: [] })),
   ]);
   state.deck = deck;
   state.requests = queuePayload.requests ?? [];
+  state.projectRoot = queuePayload.projectRoot ?? state.projectRoot ?? "";
   state.kitPresets = kitPresets.parts ?? [];
+  state.kitResults = kitResults.kitResults ?? [];
   normalizeDeck();
   state.lang = state.deck.settings?.lang ?? state.lang;
   state.mode = state.deck.settings?.mode ?? state.mode;
@@ -405,6 +428,9 @@ async function loadDeck() {
 async function loadQueue(showMessage = true) {
   const payload = await api("/api/requests");
   state.requests = payload.requests ?? [];
+  state.projectRoot = payload.projectRoot ?? state.projectRoot ?? "";
+  const resultsPayload = await api("/api/base-kit/results").catch(() => null);
+  if (resultsPayload) state.kitResults = resultsPayload.kitResults ?? [];
   if (showMessage) render();
 }
 
@@ -792,11 +818,36 @@ function renderKit() {
       <h3 class="kit-step">2. ${t("kitAnalyze")}</h3>
       <p class="form-note">${t("kitPartsAuto")}</p>
       <label class="kit-name">${t("kitCharName")}<input id="kitCharName" value="${escapeHtml(kit.characterName || ch.name)}"></label>
+      <label class="kit-name kit-extra">${t("kitExtra")}<textarea id="kitExtra" rows="2" placeholder="${escapeHtml(t("kitExtraHelp"))}">${escapeHtml(kit.extra ?? "")}</textarea></label>
       <div class="kit-actions"><button class="primary" id="kitAnalyzeBtn">${t("kitAnalyze")}</button></div>
       <h3 class="kit-step">3. ${t("kitPasteTitle")}</h3>
+      ${(state.kitResults ?? []).length ? state.kitResults.map((result, index) => `
+        <div class="kit-result">
+          <span class="kit-result-info">
+            <strong>${escapeHtml(result.characterName || result.characterId)}</strong>
+            <small>${escapeHtml(result.sourceFile.split("/").pop() ?? "")} ・ ${escapeHtml(formatDateTime(result.completedAt))} ・ ${result.parts.length}パーツ</small>
+          </span>
+          <button class="ghost small" data-kit-result="${index}">${t("kitSelectParts")}</button>
+        </div>`).join("") : `<p class="form-note">${t("kitResultsEmpty")}</p>`}
       <p class="form-note">${t("kitPasteHelp")}</p>
-      <textarea id="kitJson" class="kit-json" rows="7" placeholder='{"parts":[{"key":"face-front","label":"顔アップ（正面）","category":"master","prompt":"..."}]}'>${escapeHtml(kit.json ?? "")}</textarea>
-      <div class="kit-actions"><button class="primary" id="kitImportBtn">${t("kitImport")}</button></div>
+      <textarea id="kitJson" class="kit-json" rows="5" placeholder='{"parts":[{"key":"face-front","label":"顔アップ（正面）","category":"master","prompt":"..."}]}'>${escapeHtml(kit.json ?? "")}</textarea>
+      <div class="kit-actions"><button class="ghost" id="kitParseBtn">${t("kitParse")}</button></div>
+      ${kit.preview ? `
+        <div class="kit-preview">
+          <h4>${t("kitSelectPartsTitle")}（${kit.preview.parts.filter((row) => row.checked).length} / ${kit.preview.parts.length}）</h4>
+          ${kit.preview.parts.map((row, index) => `
+            <label class="kit-part-row ${row.checked ? "selected" : ""}">
+              <input type="checkbox" data-kit-pick="${index}" ${row.checked ? "checked" : ""}>
+              <span class="kit-part-label">${escapeHtml(row.part.label ?? row.part.key ?? "")}</span>
+              <small>${escapeHtml(catText(row.part.category))}</small>
+              <span class="kit-part-prompt">${escapeHtml(String(row.part.prompt ?? "").slice(0, 180))}</span>
+            </label>`).join("")}
+          <div class="kit-actions">
+            <button class="primary" id="kitCreateBtn">${t("kitCreateSelected")}</button>
+            <button class="ghost" id="kitPreviewCancel">${t("cancel")}</button>
+          </div>
+        </div>
+      ` : ""}
     </div>
   `;
 }
@@ -857,6 +908,7 @@ function renderQueue() {
                 <span class="queue-file" title="${escapeHtml(`${item.requestFile} / ${t("target")}: ${item.targetIndex}`)}">${escapeHtml(item.requestId)}</span>
               </div>
               <div class="queue-actions">
+                <button class="ghost small" data-copy-agent="${escapeHtml(item.requestId)}" data-target-index="${item.targetIndex}"><i class="fa-solid fa-robot" aria-hidden="true"></i> ${t("copyAgentPrompt")}</button>
                 <button class="ghost small" data-toggle="${escapeHtml(key)}">${opened ? "▲" : "▼"} ${t("queueDetails")}</button>
                 <button class="ghost small danger" data-cancel-queue="${escapeHtml(item.requestId)}" data-target-index="${item.targetIndex}">${t("cancelRequest")}</button>
               </div>
@@ -1385,9 +1437,31 @@ function bind() {
     };
   });
   if ($("#kitCharName")) $("#kitCharName").onchange = () => { state.kit.characterName = $("#kitCharName").value; };
+  if ($("#kitExtra")) $("#kitExtra").oninput = () => { state.kit.extra = $("#kitExtra").value; };
   if ($("#kitJson")) $("#kitJson").oninput = () => { state.kit.json = $("#kitJson").value; };
   if ($("#kitAnalyzeBtn")) $("#kitAnalyzeBtn").onclick = () => requestKitAnalysis().catch((error) => toast(error.message));
-  if ($("#kitImportBtn")) $("#kitImportBtn").onclick = () => importKitJson().catch((error) => toast(error.message));
+  if ($("#kitParseBtn")) $("#kitParseBtn").onclick = openKitPreviewFromPaste;
+  if ($("#kitCreateBtn")) $("#kitCreateBtn").onclick = () => importSelectedKitParts().catch((error) => toast(error.message));
+  if ($("#kitPreviewCancel")) $("#kitPreviewCancel").onclick = () => { state.kit.preview = null; render(); };
+  document.querySelectorAll("[data-kit-result]").forEach((button) => {
+    button.onclick = () => openKitPreviewFromResult(Number(button.dataset.kitResult));
+  });
+  document.querySelectorAll("[data-kit-pick]").forEach((input) => {
+    input.onchange = () => {
+      const row = state.kit.preview?.parts?.[Number(input.dataset.kitPick)];
+      if (row) row.checked = input.checked;
+      render();
+    };
+  });
+  document.querySelectorAll("[data-copy-agent]").forEach((button) => {
+    button.onclick = async (event) => {
+      event.stopPropagation();
+      const item = (state.requests ?? []).find((row) => row.requestId === button.dataset.copyAgent && row.targetIndex === Number(button.dataset.targetIndex));
+      if (!item) return;
+      await navigator.clipboard.writeText(agentPromptFor(item));
+      toast(t("copiedAgentPrompt"));
+    };
+  });
   if ($("#addCategoryBtn")) $("#addCategoryBtn").onclick = openCategoryForm;
   document.querySelectorAll("[data-ref-single]").forEach((button) => {
     button.onclick = () => {
@@ -1658,6 +1732,7 @@ async function requestKitAnalysis() {
       sourceEntryId: kit.sourceEntryId,
       sourceAssetId: kit.sourceAssetId,
       characterName: ($("#kitCharName")?.value ?? "").trim() || character().name,
+      extraRequest: ($("#kitExtra")?.value ?? state.kit.extra ?? "").trim(),
     }),
   });
   state.deck = result.state;
@@ -1667,28 +1742,140 @@ async function requestKitAnalysis() {
   toast(`${t("kitAnalyzeQueued")}\n${result.requestFile}`);
 }
 
-async function importKitJson() {
+function parseKitText(text) {
+  const fenced = String(text).match(/```(?:json)?\s*([\s\S]*?)```/);
+  const parsed = JSON.parse(fenced ? fenced[1] : text);
+  if (Array.isArray(parsed)) return parsed;
+  return Array.isArray(parsed?.parts) ? parsed.parts : [];
+}
+
+function openKitPreviewFromPaste() {
   const text = String($("#kitJson")?.value ?? state.kit.json ?? "").trim();
   if (!text) {
     toast(t("kitPasteHelp"));
     return;
   }
+  let parts;
+  try {
+    parts = parseKitText(text);
+  } catch (error) {
+    toast(`JSON: ${error.message}`);
+    return;
+  }
+  if (!parts.length) {
+    toast(t("kitPasteHelp"));
+    return;
+  }
+  state.kit.preview = {
+    origin: "paste",
+    characterId: state.characterId,
+    sourceEntryId: state.kit.sourceEntryId,
+    sourceAssetId: state.kit.sourceAssetId,
+    sourceFile: "",
+    requestId: null,
+    targetIndex: null,
+    parts: parts.map((part) => ({ part, checked: true })),
+  };
+  render();
+}
+
+function openKitPreviewFromResult(index) {
+  const result = state.kitResults[index];
+  if (!result) return;
+  state.kit.preview = {
+    origin: "request",
+    characterId: result.characterId || state.characterId,
+    sourceEntryId: result.sourceEntryId,
+    sourceAssetId: result.sourceAssetId,
+    sourceFile: result.sourceFile,
+    requestId: result.requestId,
+    targetIndex: result.targetIndex,
+    parts: result.parts.map((part) => ({ part, checked: true })),
+  };
+  render();
+}
+
+async function importSelectedKitParts() {
+  const preview = state.kit.preview;
+  if (!preview) return;
+  const parts = preview.parts.filter((row) => row.checked).map((row) => row.part);
+  if (!parts.length) {
+    toast(t("kitPickOne"));
+    return;
+  }
   const result = await api("/api/base-kit/import", {
     method: "POST",
     body: JSON.stringify({
-      characterId: state.characterId,
-      sourceEntryId: state.kit.sourceEntryId,
-      sourceAssetId: state.kit.sourceAssetId,
-      json: text,
+      characterId: preview.characterId || state.characterId,
+      sourceEntryId: preview.sourceEntryId ?? "",
+      sourceAssetId: preview.sourceAssetId ?? "",
+      sourceFile: preview.sourceFile ?? "",
+      requestId: preview.requestId,
+      targetIndex: preview.targetIndex,
+      parts,
     }),
   });
   state.deck = result.state;
   normalizeDeck();
+  state.kitResults = result.kitResults ?? state.kitResults;
+  state.kit.preview = null;
   state.kit.json = "";
   state.mode = "base";
   await saveDeck(false);
   render();
   toast(`${t("kitImported")}（${result.created.length}）`);
+}
+
+function agentPromptFor(item) {
+  const origin = window.location.origin;
+  const root = state.projectRoot || "(server project root)";
+  const refs = (item.inputs?.refImages ?? []).map((file) => `   - ${file}`).join("\n") || "   - (なし)";
+  if (item.action === "analyze") {
+    return `image-arranger のベース分解・画像分析依頼を1件処理してください。
+
+サーバ: ${origin}（起動済み。サーバや開発サーバの起動・再起動はしない）
+作業ディレクトリ（projectRoot）: ${root}
+対象: requestId ${item.requestId} / targetIndex ${item.targetIndex}（action: analyze）
+
+手順（前提が満たせない場合は回避策を取らず停止して報告すること）:
+1. curl -s ${origin}/api/requests で上記 requestId / targetIndex の行がまだあることを確認。無ければ停止して報告。
+2. これは画像分析タスク。画像は生成しない。
+3. ChatGPT を開き、次の画像（projectRoot からの相対パス）を添付して、該当行の prompt を一字一句そのまま送信する:
+${refs}
+4. 返答の JSON コードブロック（{"character","parts":[{"key","label","category","prompt"}]}）を取り出す。
+   各 parts[].prompt が「パーツ単体・1画像のみ・元デザインの忠実トレース（再デザイン禁止）・
+   角/翼/尻尾は身体部位として自然接続・無地背景・文字/ロゴ/透かしなし」を満たすか確認し、欠けは最小修正。
+   parts は必ず ChatGPT の返答から作る。自分では書かない。
+5. 完了報告:
+   curl -X POST ${origin}/api/requests/complete \\
+     -H "Content-Type: application/json" \\
+     -d '{"requestId":"${item.requestId}","targetIndex":${item.targetIndex},"parts":<取り出したJSON>}'
+   レスポンスの kitResultsStored が 1 であることを確認する。
+   ※ベースentryの作成はユーザーが画面でパーツを選択して行うため、エージェントは entry 作成を確認しなくてよい。
+   POST に失敗した場合のみ、JSON を整形してそのまま報告する（ユーザーが画面から取り込む）。
+6. 最終報告: 選ばれたパーツの一覧 / JSON の修正点 / 気づいた問題を簡潔に。
+
+禁止: 画像生成 / 依頼の自作・編集 / parts の自作 / サーバ・開発サーバの起動 / 無関係な checkout や worktree の探索。`;
+  }
+  const isImprove = item.action === "improve";
+  return `image-arranger の画像${isImprove ? "改善" : "生成"}依頼を1件処理してください。
+
+サーバ: ${origin}（起動済み。サーバや開発サーバの起動・再起動はしない）
+作業ディレクトリ（projectRoot）: ${root}
+対象: requestId ${item.requestId} / targetIndex ${item.targetIndex}（action: ${item.action} / service: ${item.service}）
+
+手順（前提が満たせない場合は回避策を取らず停止して報告すること）:
+1. curl -s ${origin}/api/requests で上記 requestId / targetIndex の行がまだあることを確認。無ければ停止して報告。
+2. 該当行の prompt をそのまま使い、参照画像は次のみ添付する（projectRoot からの相対パス）:
+${refs}
+${isImprove ? "   改善元（inputs.sourceAsset）を主参照として扱い、improvementPrompt を改善意図として優先する。\n" : ""}3. 1 target = 1成果物。複数案・グリッド・A/B比較・コンタクトシートを作らない。
+4. 生成結果を ${item.outputDir || "outputDir"} に保存し、完了報告:
+   curl -X POST ${origin}/api/requests/complete \\
+     -H "Content-Type: application/json" \\
+     -d '{"requestId":"${item.requestId}","targetIndex":${item.targetIndex},"results":[{"file":"<保存した相対パス>"}]}'
+5. 最終報告: 保存先 / 確認した品質ポイント / 問題があれば内容を簡潔に。
+
+禁止: 通常UIで保存できない場合のスクリーンショット・キャッシュ・blob URL での代替 / 依頼の自作・編集 / サーバ・開発サーバの起動 / 無関係な checkout の探索。`;
 }
 
 async function cancelTargets(targets, shouldRender = true) {
