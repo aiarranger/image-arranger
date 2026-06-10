@@ -32,6 +32,7 @@ const I18N = {
     kitChip: "分解パーツ",
     noImage: "画像未生成",
     allLabel: "すべて",
+    adoptOneHelp: "採用＝この行の正。チェックすると他の候補の採用は自動で外れます（履歴として残ります）。",
     newEntryRefs: "参照する採用画像（任意・複数可）",
     newEntryRefsHelp: "選んだ画像はこのエントリの元画像（生成入力）として添付され、キュー登録時にAIへ渡されます。",
     kitNoAdopted: "採用済みの画像がありません。ベース／画像タブのカードで「採用」にチェックを入れると、ここに表示されます。",
@@ -172,6 +173,7 @@ const I18N = {
     kitChip: "Kit part",
     noImage: "Not generated yet",
     allLabel: "All",
+    adoptOneHelp: "Adopted = the canonical image for this row. Checking it un-adopts the other candidates (kept as history).",
     newEntryRefs: "Adopted images to reference (optional, multiple)",
     newEntryRefsHelp: "Selected images are attached as source images (generation inputs) and sent to the AI when queued.",
     kitNoAdopted: "No adopted images yet. Check 'Adopt' on cards in the Base / Image tabs to make them selectable here.",
@@ -550,6 +552,17 @@ function adoptedAssets(entry) {
   return (entry.assets ?? []).filter((asset) => asset.adopted && !isSourceRef(asset));
 }
 
+function setAdopted(entry, asset, adopted) {
+  // 採用＝この行の「正」。生成画像のうち常に1枚だけが採用になる（履歴は未採用候補として残る）
+  if (adopted) {
+    for (const item of entry.assets ?? []) {
+      if (!isSourceRef(item)) item.adopted = item.id === asset.id;
+    }
+  } else {
+    asset.adopted = false;
+  }
+}
+
 function referenceAssets(entry) {
   return (entry.assets ?? []).filter((asset) => isSourceRef(asset) && asset.file);
 }
@@ -805,7 +818,7 @@ function openEntryModal(entryId, shownAssetId = null) {
             <span class="emodal-shown-name">${escapeHtml(shown.name ?? shown.id)}</span>
             ${isSourceRef(shown)
               ? `<span class="kit-chip">${t("refRole")}</span>`
-              : `<label class="asset-adopt"><input type="checkbox" id="entryModalAdoptShown" ${shown.adopted ? "checked" : ""}> ${t("adopt")}</label>
+              : `<label class="asset-adopt" title="${escapeHtml(t("adoptOneHelp"))}"><input type="checkbox" id="entryModalAdoptShown" ${shown.adopted ? "checked" : ""}> ${t("adopt")}</label>
                  <button class="ghost small" id="entryModalAssetDetail">${t("editImprovePrompt")}</button>`}
           </div>` : ""}
         ${shown && !isSourceRef(shown) ? `
@@ -876,7 +889,7 @@ function openEntryModal(entryId, shownAssetId = null) {
   }
   if ($("#entryModalAdoptShown")) {
     $("#entryModalAdoptShown").onchange = async () => {
-      shown.adopted = $("#entryModalAdoptShown").checked;
+      setAdopted(entry, shown, $("#entryModalAdoptShown").checked);
       await saveDeck(false);
       render();
       refresh();
@@ -1677,7 +1690,7 @@ function bind() {
       const generated = (entry.assets ?? []).filter((asset) => !isSourceRef(asset));
       const main = generated.find((asset) => asset.adopted && asset.file) ?? generated.find((asset) => asset.file);
       if (!main) return;
-      main.adopted = input.checked;
+      setAdopted(entry, main, input.checked);
       saveDeck(false).catch((error) => toast(error.message));
       render();
     };
@@ -1819,7 +1832,7 @@ function bind() {
       const entry = findEntry(input.dataset.adoptEntry);
       const asset = (entry.assets ?? []).find((item) => item.id === input.dataset.adoptAsset);
       if (!asset) return;
-      asset.adopted = input.checked;
+      setAdopted(entry, asset, input.checked);
       saveDeck(false);
       render();
     };
