@@ -13,7 +13,7 @@ const I18N = {
     analyze: "分析",
     kitIntro: "1枚のベース画像から、キャラクター一貫性のためのパーツ別ベース（顔・表情・角・翼・尻尾など）を作ります。画像分析はChatGPT等への依頼としてキューに登録され、返ってきたJSONを取り込むとベースが自動作成されます。",
     kitSource: "ベース画像を選ぶ",
-    kitSourceHelp: "登録済みの画像から選択します。新しい画像は各タブの「素材追加」から登録してください。",
+    kitSourceHelp: "採用済みの画像から選択します（カードの「採用」チェックでここに表示されます）。",
     kitPartsAuto: "どのパーツに分解するか（顔・表情・角・翼・尻尾など）は、AIが画像を分析して判断します。",
     kitCharName: "キャラクター名",
     kitAnalyze: "分析を依頼",
@@ -31,6 +31,8 @@ const I18N = {
     kitQueueAfter: "取り込んだパーツの画像生成をすぐキューに登録する",
     kitChip: "分解パーツ",
     noImage: "画像未生成",
+    allLabel: "すべて",
+    kitNoAdopted: "採用済みの画像がありません。ベース／画像タブのカードで「採用」にチェックを入れると、ここに表示されます。",
     promptShown: "この画像を生成したプロンプト",
     promptNext: "プロンプト（次の生成用）",
     genImages: "生成画像（候補）",
@@ -149,7 +151,7 @@ const I18N = {
     analyze: "Analyze",
     kitIntro: "Build per-part character bases (face, expressions, horns, wings, tail...) from one key image. The analysis is queued as a request for ChatGPT or another service; paste the returned JSON to create the base entries automatically.",
     kitSource: "Pick a source image",
-    kitSourceHelp: "Choose from registered assets. Register new files via 'Add asset' on any row.",
+    kitSourceHelp: "Choose from adopted images (check 'Adopt' on a card to make it selectable here).",
     kitPartsAuto: "The AI decides which parts to extract (face, expressions, horns, wings, tail...) by analyzing the image.",
     kitCharName: "Character name",
     kitAnalyze: "Request analysis",
@@ -167,6 +169,8 @@ const I18N = {
     kitQueueAfter: "Queue image generation for the imported parts right away",
     kitChip: "Kit part",
     noImage: "Not generated yet",
+    allLabel: "All",
+    kitNoAdopted: "No adopted images yet. Check 'Adopt' on cards in the Base / Image tabs to make them selectable here.",
     promptShown: "Prompt that generated this image",
     promptNext: "Prompt (for the next generation)",
     genImages: "Generated candidates",
@@ -522,6 +526,21 @@ function allImageAssets() {
   return [...baseAssets, ...imageAssets];
 }
 
+function adoptedImagePool(ch = character()) {
+  const pool = [];
+  for (const entry of allBaseEntries(ch)) {
+    for (const asset of (entry.assets ?? [])) {
+      if (asset.adopted && asset.file && !isSourceRef(asset)) pool.push({ asset, entry, origin: "base" });
+    }
+  }
+  for (const entry of ch.images ?? []) {
+    for (const asset of (entry.assets ?? [])) {
+      if (asset.adopted && asset.file && !isSourceRef(asset)) pool.push({ asset, entry, origin: "image" });
+    }
+  }
+  return pool;
+}
+
 function adoptedAssets(entry) {
   // 採用＝生成画像（出力）にだけ適用される概念。参照画像（入力）は含めない
   return (entry.assets ?? []).filter((asset) => asset.adopted && !isSourceRef(asset));
@@ -734,14 +753,14 @@ function entryCard(entry) {
   const requested = entry.requestStatus === "requested";
   return `
     <div class="bcard ${entry.checked ? "selected" : ""}" data-open-entry="${escapeHtml(entry.id)}" title="${escapeHtml(entry.overview)}">
-      <label class="bcard-check">
-        <input type="checkbox" data-check="${escapeHtml(entry.id)}" ${entry.checked ? "checked" : ""} ${requested ? "disabled" : ""}>
-      </label>
+      ${main ? `<label class="bcard-check" title="${t("adopt")}">
+        <input type="checkbox" data-adopt-card="${escapeHtml(entry.id)}" ${main.adopted ? "checked" : ""}>
+      </label>` : ""}
       <div class="bcard-thumb">
         ${main ? `<img src="${assetUrl(main.file)}" alt="${escapeHtml(entry.overview)}" loading="lazy">` : `<span class="no-image">${t("noImage")}</span>`}
       </div>
       <div class="bcard-title">${escapeHtml(entry.overview)}</div>
-      <div class="bcard-meta">${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}${entry.useBaseRefs ? `<span class="kit-chip">${t("useBaseRefs")}</span>` : ""}${statusBadge(entry)}</div>
+      <div class="bcard-meta">${main?.adopted ? `<span class="kit-chip adopted-chip">${t("adopted")}</span>` : ""}${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}${entry.useBaseRefs ? `<span class="kit-chip">${t("useBaseRefs")}</span>` : ""}${statusBadge(entry)}</div>
     </div>
   `;
 }
@@ -965,21 +984,29 @@ function renderListToolbar() {
 function renderKit() {
   const ch = character();
   const kit = state.kit;
-  const assets = allImageAssets().filter((asset) => asset.file && asset.kind !== "video");
+  const srcFilter = kit.srcFilter ?? "all";
+  const pool = adoptedImagePool(ch)
+    .filter((item) => item.asset.kind !== "video")
+    .filter((item) => srcFilter === "all" || item.origin === srcFilter);
   return `
     <div class="kit">
       <p class="kit-intro">${t("kitIntro")}</p>
       <h3 class="kit-step">1. ${t("kitSource")}</h3>
       <p class="form-note">${t("kitSourceHelp")}</p>
+      <div class="kit-filter">
+        ${[["all", t("allLabel")], ["base", t("base")], ["image", t("image")]].map(([key, label]) => `
+          <button class="kit-filter-chip ${srcFilter === key ? "active" : ""}" data-kit-filter="${key}">${label}</button>`).join("")}
+      </div>
       <div class="kit-sources">
-        ${assets.length ? assets.map((asset) => `
+        ${pool.length ? pool.map(({ asset, entry, origin }) => `
           <button class="kit-source ${kit.sourceAssetId === asset.id ? "selected" : ""}"
-            data-kit-source-entry="${escapeHtml(asset.entry.id)}"
+            data-kit-source-entry="${escapeHtml(entry.id)}"
             data-kit-source-asset="${escapeHtml(asset.id)}"
-            title="${escapeHtml(`${asset.name ?? asset.id} / ${asset.entry.overview}`)}">
+            title="${escapeHtml(`${asset.name ?? asset.id} / ${entry.overview}`)}">
             <span class="thumb"><img src="${assetUrl(asset.file)}" loading="lazy" alt="${escapeHtml(asset.name ?? asset.id)}"></span>
-            <span class="kit-source-name">${escapeHtml(asset.name ?? asset.id)}</span>
-          </button>`).join("") : `<div class="empty">${t("noRows")}</div>`}
+            <span class="kit-source-name">${escapeHtml(entry.overview || asset.name || asset.id)}</span>
+            <span class="kit-source-origin">${origin === "base" ? t("base") : t("image")}</span>
+          </button>`).join("") : `<p class="form-note">${t("kitNoAdopted")}</p>`}
       </div>
       <h3 class="kit-step">2. ${t("kitAnalyze")}</h3>
       <p class="form-note">${t("kitPartsAuto")}</p>
@@ -1609,6 +1636,24 @@ function bind() {
   });
   document.querySelectorAll(".bcard-check").forEach((label) => {
     label.onclick = (event) => event.stopPropagation();
+  });
+  document.querySelectorAll("[data-adopt-card]").forEach((input) => {
+    input.onchange = () => {
+      const entry = findEntry(input.dataset.adoptCard);
+      if (!entry) return;
+      const generated = (entry.assets ?? []).filter((asset) => !isSourceRef(asset));
+      const main = generated.find((asset) => asset.adopted && asset.file) ?? generated.find((asset) => asset.file);
+      if (!main) return;
+      main.adopted = input.checked;
+      saveDeck(false).catch((error) => toast(error.message));
+      render();
+    };
+  });
+  document.querySelectorAll("[data-kit-filter]").forEach((button) => {
+    button.onclick = () => {
+      state.kit.srcFilter = button.dataset.kitFilter;
+      render();
+    };
   });
   document.querySelectorAll("[data-kit-source-asset]").forEach((button) => {
     button.onclick = () => {
