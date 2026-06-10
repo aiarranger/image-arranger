@@ -48,6 +48,7 @@ const I18N = {
     kitQueueAfter: "取り込んだパーツの画像生成をすぐキューに登録する",
     kitChip: "分解パーツ",
     noImage: "画像未生成",
+    registerImage: "画像を登録",
     allLabel: "すべて",
     adoptOneHelp: "採用＝この行の正。チェックすると他の候補の採用は自動で外れます（履歴として残ります）。",
     entryFile: "生成済みファイル（任意）",
@@ -211,6 +212,7 @@ const I18N = {
     kitQueueAfter: "Queue image generation for the imported parts right away",
     kitChip: "Kit part",
     noImage: "Not generated yet",
+    registerImage: "Register image",
     allLabel: "All",
     adoptOneHelp: "Adopted = the canonical image for this row. Checking it un-adopts the other candidates (kept as history).",
     entryFile: "Existing generated file (optional)",
@@ -746,7 +748,10 @@ function openEntryModal(entryId, shownAssetId = null) {
           <textarea id="entryModalPrompt" rows="${shown && !isSourceRef(shown) && (shown.prompt ?? "").trim() ? 3 : 6}">${escapeHtml(entry.prompt ?? "")}</textarea>
         </label>
         <h4>${t("genImages")}</h4>
-        <div class="emodal-thumbs">${generated.length ? generated.map((asset) => thumb(asset, "gen")).join("") : `<p class="form-note">${t("noImage")}</p>`}</div>
+        <div class="emodal-thumbs">
+          ${generated.length ? generated.map((asset) => thumb(asset, "gen")).join("") : `<p class="form-note">${t("noImage")}</p>`}
+          <button class="ghost small" id="entryModalRegisterImage"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${t("registerImage")}</button>
+        </div>
         ${sources.length ? `<h4>${t("sourceImages")}</h4><p class="form-note">${t("refImagesHelp")}</p><div class="emodal-thumbs">${sources.map((asset) => thumb(asset, "src")).join("")}</div>` : ""}
         <div class="entry-modal-actions">
           <button class="ghost danger" id="entryModalDelete"><i class="fa-solid fa-trash" aria-hidden="true"></i> ${t("delete")}</button>
@@ -784,6 +789,7 @@ function openEntryModal(entryId, shownAssetId = null) {
     render();
   };
   $("#entryModalAddAsset").onclick = () => { closeModal(); openAssetForm(entry.id); };
+  if ($("#entryModalRegisterImage")) $("#entryModalRegisterImage").onclick = () => { closeModal(); openAssetForm(entry.id); };
   if ($("#entryModalQueue")) {
     $("#entryModalQueue").onclick = async () => {
       commitFields();
