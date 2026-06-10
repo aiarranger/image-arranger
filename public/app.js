@@ -152,6 +152,7 @@ const I18N = {
     cancelDone: "依頼をキャンセルしました",
     cancelAll: "表示中をすべて取消",
     assetAdded: "素材候補を追加しました",
+    assetAddedCompleted: "素材を登録し、依頼中だったキューを完了にしました",
     characterAdded: "キャラクターを追加しました",
     characterUpdated: "キャラクターを更新しました",
     characterDeleted: "キャラクターを削除しました",
@@ -314,6 +315,7 @@ const I18N = {
     cancelDone: "Request was cancelled",
     cancelAll: "Cancel all visible",
     assetAdded: "Asset candidate was added",
+    assetAddedCompleted: "Asset registered; the pending queue target was marked completed",
     characterAdded: "Character was added",
     characterUpdated: "Character was updated",
     characterDeleted: "Character was deleted",
@@ -1571,9 +1573,23 @@ async function submitAssetForm(form) {
     }
     await saveDeck(false);
   }
+  let completedQueue = false;
+  if (entry && entry.requestStatus === "requested" && asset && !Boolean(data.get("asReference"))) {
+    // 生成は手動で済んでいたケース：依頼中の generate target を完了扱いにしてバッジを外す
+    const completedResult = await api("/api/requests/complete", {
+      method: "POST",
+      body: JSON.stringify({
+        targets: [{ action: "generate", entryId, results: [{ file: asset.file, assetId: asset.id }] }],
+      }),
+    });
+    state.deck = completedResult.state;
+    normalizeDeck();
+    completedQueue = true;
+    await loadQueue(false);
+  }
   state.form = null;
   render();
-  toast(t("assetAdded"));
+  toast(completedQueue ? t("assetAddedCompleted") : t("assetAdded"));
 }
 
 async function saveQueueTarget(requestId, targetIndex) {
