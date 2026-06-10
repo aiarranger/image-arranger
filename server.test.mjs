@@ -569,6 +569,53 @@ test("base kit: analyze request, complete with parts, and paste import create ba
   });
 });
 
+test("error reporting marks targets and deck entries, allowing retry", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const entryId = state.characters[0].images[0].id;
+    const queued = await fetch(`${baseUrl}/api/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: state.characters[0].id,
+        mode: "image",
+        targets: [{ entryId, overview: "will fail", prompt: "p", inputs: { startFrame: null, endFrame: null, refImages: [] } }],
+      }),
+    }).then((response) => response.json());
+
+    const errored = await fetch(`${baseUrl}/api/requests/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestId: queued.request.requestId,
+        targetIndex: 0,
+        error: "コンテンツポリシーで2回拒否",
+      }),
+    }).then((response) => response.json());
+    assert.equal(errored.ok, true);
+    assert.equal(errored.errored, 1);
+    assert.equal(errored.completed, 0);
+    assert.equal(errored.state.characters[0].images[0].requestStatus, "error");
+    assert.equal(errored.requests.length, 0);
+    const payload = JSON.parse(readFileSync(join(context.requestDir, `${queued.request.requestId}.json`), "utf8"));
+    assert.equal(payload.status, "error");
+    assert.equal(payload.targets[0].status, "error");
+    assert.equal(payload.targets[0].errorMessage, "コンテンツポリシーで2回拒否");
+
+    // 再キュー（リトライ）すると requested に戻る
+    const retry = await fetch(`${baseUrl}/api/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: state.characters[0].id,
+        mode: "image",
+        targets: [{ entryId, overview: "retry", prompt: "p2", inputs: { startFrame: null, endFrame: null, refImages: [] } }],
+      }),
+    }).then((response) => response.json());
+    assert.equal(retry.state.characters[0].images[0].requestStatus, "requested");
+  });
+});
+
 test("doctor passes public sample workspace", () => {
   const temp = mkdtempSync(join(tmpdir(), "image-arranger-doctor-"));
   const result = runDoctor({

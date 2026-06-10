@@ -616,6 +616,14 @@ function completeRequestFiles(context, selectors) {
       if (target.status !== "requested") continue;
       const selector = selectors.find((selector) => requestSelectorMatches(target, selector, requestPayload, targetIndex));
       if (!selector) continue;
+      if (selector.error) {
+        target.status = "error";
+        target.errorMessage = String(selector.error);
+        target.erroredAt = nowIso();
+        changed = true;
+        completedTargets.push({ requestPayload, target, selector });
+        continue;
+      }
       target.status = "completed";
       target.completedAt = nowIso();
       if (Array.isArray(selector.results)) target.results = selector.results;
@@ -637,7 +645,8 @@ function completeRequestFiles(context, selectors) {
     }
     if (!changed) continue;
     const active = (requestPayload.targets ?? []).some((target) => target.status === "requested");
-    requestPayload.status = active ? "requested" : "completed";
+    const someError = (requestPayload.targets ?? []).some((target) => target.status === "error");
+    requestPayload.status = active ? "requested" : (someError ? "error" : "completed");
     if (!active) requestPayload.completedAt = nowIso();
     requestPayload.updatedAt = nowIso();
     writeJson(requestPath, requestPayload);
@@ -1044,15 +1053,21 @@ async function handleApi(request, response, context, url) {
       assetId: target.assetId ?? "",
       results: Array.isArray(target.results) ? target.results : (Array.isArray(body.results) ? body.results : []),
       parts: target.parts ?? body.parts ?? null,
+      error: target.error ?? body.error ?? null,
     })).filter((target) => (target.requestId && target.targetIndex !== undefined) || target.entryId);
     if (!selectors.length) throw new HttpError(400, "No request targets to complete");
     const { completed, completedTargets } = completeRequestFiles(context, selectors);
+    const erroredTargets = completedTargets
+      .filter(({ target }) => target.status === "error")
+      .map(({ target }) => ({ action: target.action ?? "generate", entryId: target.entryId, assetId: target.assetId ?? "" }));
+    if (erroredTargets.length) applyRequestStatus(state, erroredTargets, "error");
     const kitResultsStored = completedTargets.filter(({ target }) => (target.action ?? "") === "analyze" && target.analysisParts?.length).length;
     recomputeRequestedStatuses(state, context);
     writeJson(context.stateFile, state);
     sendJson(response, 200, {
       ok: true,
       completed,
+      errored: erroredTargets.length,
       kitResultsStored,
       kitResults: listKitResults(context),
       requests: listRequestedTargets(context, state),

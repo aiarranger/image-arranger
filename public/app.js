@@ -2126,11 +2126,17 @@ ${refs}
 2. 該当行の prompt をそのまま使い、参照画像は次のみ添付する（projectRoot からの相対パス）:
 ${refs}
 ${isImprove ? "   改善元（inputs.sourceAsset）を主参照として扱い、improvementPrompt を改善意図として優先する。\n" : ""}3. 1 target = 1成果物。複数案・グリッド・A/B比較・コンタクトシートを作らない。
-4. 生成結果を ${item.outputDir || "outputDir"} に保存し、完了報告:
+   作業タブは1つだけ使い回す（targetごとに新しいタブ/ウィンドウを開かず、同じタブで「新しいチャット」）。
+4. コンテンツポリシー等で拒否された場合: ①同一プロンプトで1回だけ再送 ②デザインを変えない最小限の表現修正で1回再送
+   ③それでも失敗したら error 報告して次へ:
+   curl -X POST ${origin}/api/requests/complete \\
+     -H "Content-Type: application/json" \\
+     -d '{"requestId":"${item.requestId}","targetIndex":${item.targetIndex},"error":"<理由と試した修正>"}'
+5. 生成結果を ${item.outputDir || "outputDir"} に保存し、完了報告:
    curl -X POST ${origin}/api/requests/complete \\
      -H "Content-Type: application/json" \\
      -d '{"requestId":"${item.requestId}","targetIndex":${item.targetIndex},"results":[{"file":"<保存した相対パス>"}]}'
-5. 最終報告: 保存先 / 確認した品質ポイント / 問題があれば内容を簡潔に。
+6. 最終報告: 保存先 / 確認した品質ポイント / エラーがあれば理由と次の修正案を簡潔に。
 
 禁止: 通常UIで保存できない場合のスクリーンショット・キャッシュ・blob URL での代替 / 依頼の自作・編集 / サーバ・開発サーバの起動 / 無関係な checkout の探索。`;
 }
