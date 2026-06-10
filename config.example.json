@@ -1,0 +1,6 @@
+{
+  "port": 4217,
+  "workspace": "./workspace/demo",
+  "init": "sample",
+  "projectRoot": "."
+}

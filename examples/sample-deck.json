@@ -1,0 +1,211 @@
+{
+  "schema": "prompt-deck.v1",
+  "version": 1,
+  "createdAt": "2026-06-06T00:00:00.000Z",
+  "updatedAt": "2026-06-06T00:00:00.000Z",
+  "settings": {
+    "lang": "ja",
+    "currentCharacterId": "sample-character",
+    "mode": "image"
+  },
+  "characters": [
+    {
+      "id": "sample-character",
+      "name": "Sample Character",
+      "workflow": "character",
+      "categoryLabels": {},
+      "description": "Public sample for character base references and image prompt composition.",
+      "base": {
+        "master": [
+          {
+            "id": "base-sample-character-master",
+            "overview": "全身ベース",
+            "prompt": "full body character design sheet, neutral standing pose, consistent face, clean background",
+            "version": 1,
+            "checked": false,
+            "requestStatus": "idle",
+            "tags": [],
+            "assets": []
+          }
+        ],
+        "accessory": [
+          {
+            "id": "base-sample-character-accessory-cap",
+            "overview": "キャップ",
+            "prompt": "wearing a simple blue cap",
+            "version": 1,
+            "checked": false,
+            "requestStatus": "idle",
+            "tags": [],
+            "assets": []
+          }
+        ],
+        "expression": [
+          {
+            "id": "base-sample-character-expression-smile",
+            "overview": "笑顔",
+            "prompt": "friendly smile, relaxed eyes",
+            "version": 1,
+            "checked": false,
+            "requestStatus": "idle",
+            "tags": [],
+            "assets": []
+          },
+          {
+            "id": "base-sample-character-expression-focus",
+            "overview": "集中",
+            "prompt": "focused expression, looking forward",
+            "version": 1,
+            "checked": false,
+            "requestStatus": "idle",
+            "tags": [],
+            "assets": []
+          }
+        ],
+        "clothing": [
+          {
+            "id": "base-sample-character-clothing-casual",
+            "overview": "カジュアル",
+            "prompt": "casual jacket, clean readable silhouette",
+            "version": 1,
+            "checked": false,
+            "requestStatus": "idle",
+            "tags": [],
+            "assets": []
+          }
+        ],
+        "background": [
+          {
+            "id": "base-sample-character-background-studio",
+            "overview": "スタジオ",
+            "prompt": "simple bright studio background",
+            "version": 1,
+            "checked": false,
+            "requestStatus": "idle",
+            "tags": [],
+            "assets": []
+          }
+        ]
+      },
+      "images": [
+        {
+          "id": "image-sample-character-studio-smile",
+          "overview": "スタジオで笑顔",
+          "prompt": "polished illustration, reusable game asset concept",
+          "version": 1,
+          "checked": false,
+          "requestStatus": "idle",
+          "tags": [],
+          "assets": [],
+          "refs": {
+            "master": "base-sample-character-master",
+            "accessory": [
+              "base-sample-character-accessory-cap"
+            ],
+            "expression": [
+              "base-sample-character-expression-smile"
+            ],
+            "clothing": [
+              "base-sample-character-clothing-casual"
+            ],
+            "background": [
+              "base-sample-character-background-studio"
+            ]
+          }
+        }
+      ],
+      "videos": []
+    },
+    {
+      "id": "sample-game-assets",
+      "name": "Sample Game Assets",
+      "workflow": "material",
+      "categoryLabels": {
+        "expression": {
+          "ja": "場面/用途",
+          "en": "Scene / Use"
+        },
+        "clothing": {
+          "ja": "形式",
+          "en": "Format"
+        }
+      },
+      "description": "Public sample for standalone image and video asset prompts.",
+      "base": {
+        "master": [
+          {
+            "id": "base-sample-game-rule",
+            "overview": "共通ルール",
+            "prompt": "one asset per prompt, no text, no logo, no watermark, clean reusable game material",
+            "version": 1,
+            "checked": false,
+            "requestStatus": "idle",
+            "tags": [],
+            "assets": []
+          }
+        ],
+        "accessory": [
+          {
+            "id": "base-sample-game-single-image",
+            "overview": "1画像のみ",
+            "prompt": "create exactly one image, not a grid or collage",
+            "version": 1,
+            "checked": false,
+            "requestStatus": "idle",
+            "tags": [],
+            "assets": []
+          }
+        ],
+        "expression": [
+          {
+            "id": "base-sample-game-scene-static",
+            "overview": "静止画像",
+            "prompt": "stable image for a reusable asset library",
+            "version": 1,
+            "checked": false,
+            "requestStatus": "idle",
+            "tags": [],
+            "assets": []
+          }
+        ],
+        "clothing": [
+          {
+            "id": "base-sample-game-format-wide",
+            "overview": "横長背景",
+            "prompt": "wide game background, readable center area, no UI",
+            "version": 1,
+            "checked": false,
+            "requestStatus": "idle",
+            "tags": [],
+            "assets": []
+          }
+        ],
+        "background": []
+      },
+      "images": [
+        {
+          "id": "image-sample-wide-background",
+          "overview": "横長背景サンプル",
+          "prompt": "wide clean training-room background, readable center area, no characters, no UI",
+          "version": 1,
+          "checked": false,
+          "requestStatus": "idle",
+          "tags": [],
+          "assets": [],
+          "refs": {
+            "master": "base-sample-game-rule",
+            "accessory": [
+              "base-sample-game-single-image"
+            ],
+            "expression": "base-sample-game-scene-static",
+            "clothing": "base-sample-game-format-wide",
+            "background": ""
+          }
+        }
+      ],
+      "videos": []
+    }
+  ],
+  "requestDirectory": "requests",
+  "outputDirectory": "outputs"
+}
