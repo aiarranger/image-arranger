@@ -15,6 +15,11 @@ const I18N = {
     kitSource: "ベース画像を選ぶ（複数選択可）",
     kitSourceHelp: "採用済みの画像から選択します（複数可。全身用＋顔色用のように組み合わせると精度が上がります）。",
     kitPartsAuto: "どのパーツに分解するか（顔・表情・角・翼・尻尾など）は、AIが画像を分析して判断します。",
+    kitRouteChoose: "作り方を選ぶ（どちらかのルートへ）",
+    routeA: "A. シートを作る",
+    routeABadge: "推奨",
+    routeB: "B. パーツに分解",
+    routeBBadge: "部分修正用",
     kitSheetTitle: "シートを作る（推奨）",
     kitSheetIntro: "選んだ参照画像から、同一性の正となるリファレンスシートを1回の生成で作ります。生成結果を採用するとマスターの正＝新規画像の既定参照になります。プロンプトはテンプレとして保存・使い回しできます（コミュニティの優れたシートプロンプトを貼ってもOK）。",
     sheetName: "シート名",
@@ -166,6 +171,11 @@ const I18N = {
     kitSource: "Pick source images (multi-select)",
     kitSourceHelp: "Choose adopted images (multiple allowed — e.g. one for structure plus one for face/color detail).",
     kitPartsAuto: "The AI decides which parts to extract (face, expressions, horns, wings, tail...) by analyzing the image.",
+    kitRouteChoose: "Choose a route (either one)",
+    routeA: "A. Create the sheet",
+    routeABadge: "Recommended",
+    routeB: "B. Decompose into parts",
+    routeBBadge: "For partial repair",
     kitSheetTitle: "Create the identity sheet (recommended)",
     kitSheetIntro: "One-shot generate the canonical reference sheet from the selected references. Adopt the result and it becomes the master canonical = default reference for new images. Prompts are saved as reusable templates (community sheet prompts welcome).",
     sheetName: "Sheet name",
@@ -918,28 +928,33 @@ function renderKit() {
             <span class="kit-source-origin">${origin === "base" ? t("base") : t("image")}</span>
           </button>`).join("") : `<p class="form-note">${t("kitNoAdopted")}</p>`}
       </div>
-      <h3 class="kit-step">2. ${t("kitSheetTitle")}</h3>
-      <p class="form-note">${t("kitSheetIntro")}</p>
-      <label class="kit-name">${t("sheetName")}<input id="sheetName" value="${escapeHtml(kit.sheetName || `${ch.name} リファレンスシート`)}"></label>
-      <label class="kit-name">${t("sheetTpl")}
-        <select id="sheetTplSelect">
-          ${sheetTemplates().map((tpl) => `<option value="${escapeHtml(tpl.id)}" ${kit.sheetTplId === tpl.id ? "selected" : ""}>${escapeHtml(tpl.name)}</option>`).join("")}
-        </select>
-      </label>
-      <label class="kit-name kit-extra">${t("prompt")}<textarea id="sheetPrompt" rows="8">${escapeHtml(kit.sheetPrompt ?? BUILTIN_SHEET_TEMPLATE.text)}</textarea></label>
-      <div class="kit-actions">
-        <button class="primary" id="sheetQueueBtn">${t("sheetQueue")}</button>
-        <button class="ghost" id="sheetSaveTplBtn">${t("sheetSaveTpl")}</button>
-      </div>
-      ${(state.requests ?? []).filter((row) => row.characterId === ch.id && isSheetQueueRow(row)).map(pendingQueueRow).join("")}
-      <h3 class="kit-step">3. ${t("kitDecomposeTitle")}</h3>
-      <p class="form-note">${t("kitDecomposeIntro")}</p>
-      <p class="form-note">${t("kitPartsAuto")}</p>
-      <label class="kit-name">${t("kitCharName")}<input id="kitCharName" value="${escapeHtml(kit.characterName || ch.name)}"></label>
-      <label class="kit-name kit-extra">${t("kitExtra")}<textarea id="kitExtra" rows="2" placeholder="${escapeHtml(t("kitExtraHelp"))}">${escapeHtml(kit.extra ?? "")}</textarea></label>
-      <div class="kit-actions"><button class="primary" id="kitAnalyzeBtn">${t("kitAnalyze")}</button></div>
-      ${(state.requests ?? []).filter((row) => row.action === "analyze" && row.characterId === ch.id).map(pendingQueueRow).join("")}
-      <h3 class="kit-step">4. ${t("kitPasteTitle")}</h3>
+      <h3 class="kit-step">2. ${t("kitRouteChoose")}</h3>
+      <div class="kit-routes">
+        <div class="kit-route">
+          <div class="kit-route-head"><strong>${t("routeA")}</strong><span class="kit-chip adopted-chip">${t("routeABadge")}</span></div>
+          <p class="form-note">${t("kitSheetIntro")}</p>
+          <label class="kit-name">${t("sheetName")}<input id="sheetName" value="${escapeHtml(kit.sheetName || `${ch.name} リファレンスシート`)}"></label>
+          <label class="kit-name">${t("sheetTpl")}
+            <select id="sheetTplSelect">
+              ${sheetTemplates().map((tpl) => `<option value="${escapeHtml(tpl.id)}" ${kit.sheetTplId === tpl.id ? "selected" : ""}>${escapeHtml(tpl.name)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="kit-name kit-extra">${t("prompt")}<textarea id="sheetPrompt" rows="8">${escapeHtml(kit.sheetPrompt ?? BUILTIN_SHEET_TEMPLATE.text)}</textarea></label>
+          <div class="kit-actions">
+            <button class="primary" id="sheetQueueBtn">${t("sheetQueue")}</button>
+            <button class="ghost" id="sheetSaveTplBtn">${t("sheetSaveTpl")}</button>
+          </div>
+          ${(state.requests ?? []).filter((row) => row.characterId === ch.id && isSheetQueueRow(row)).map(pendingQueueRow).join("")}
+        </div>
+        <div class="kit-route">
+          <div class="kit-route-head"><strong>${t("routeB")}</strong><span class="kit-chip">${t("routeBBadge")}</span></div>
+          <p class="form-note">${t("kitDecomposeIntro")}</p>
+          <p class="form-note">${t("kitPartsAuto")}</p>
+          <label class="kit-name">${t("kitCharName")}<input id="kitCharName" value="${escapeHtml(kit.characterName || ch.name)}"></label>
+          <label class="kit-name kit-extra">${t("kitExtra")}<textarea id="kitExtra" rows="2" placeholder="${escapeHtml(t("kitExtraHelp"))}">${escapeHtml(kit.extra ?? "")}</textarea></label>
+          <div class="kit-actions"><button class="primary" id="kitAnalyzeBtn">${t("kitAnalyze")}</button></div>
+          ${(state.requests ?? []).filter((row) => row.action === "analyze" && row.characterId === ch.id).map(pendingQueueRow).join("")}
+          <h4 class="kit-route-sub">${t("kitPasteTitle")}</h4>
       ${(state.kitResults ?? []).length ? state.kitResults.map((result, index) => `
         <div class="kit-result">
           <span class="kit-result-info">
@@ -971,6 +986,8 @@ function renderKit() {
           </div>
         </div>
       ` : ""}
+        </div>
+      </div>
     </div>
   `;
 }
