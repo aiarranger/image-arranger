@@ -991,11 +991,12 @@ async function handleApi(request, response, context, url) {
     const state = readState(context.stateFile, context.projectRoot, context.init);
     const body = await readBody(request);
     const requestPayload = buildRequest(state, body, context);
-    applyRequestStatus(state, requestPayload.targets, "requested", requestPayload.character);
     ensureDir(context.requestDir);
     ensureDir(context.outputDir);
     const requestPath = join(context.requestDir, `${requestPayload.requestId}.json`);
     writeJson(requestPath, requestPayload);
+    applyRequestStatus(state, requestPayload.targets, "requested", requestPayload.character);
+    recomputeRequestedStatuses(state, context);
     writeJson(context.stateFile, state);
     sendJson(response, 200, {
       ok: true,
@@ -1192,13 +1193,14 @@ async function handleApi(request, response, context, url) {
       completedAt: null,
       note: "Analysis request: the processor reads the attached image, writes part prompts as JSON, and returns them via POST /api/requests/complete (parts) or the paste-import UI. No image generation in this step.",
     };
+    ensureDir(context.requestDir);
+    const requestPath = join(context.requestDir, `${requestPayload.requestId}.json`);
+    writeJson(requestPath, requestPayload);
     applyRequestStatus(state, [
       ...requestPayload.targets,
       ...resolvedSources.slice(1).map((item) => ({ action: "analyze", entryId: item.entry.id, assetId: item.asset.id })),
     ], "requested", character.id);
-    ensureDir(context.requestDir);
-    const requestPath = join(context.requestDir, `${requestPayload.requestId}.json`);
-    writeJson(requestPath, requestPayload);
+    recomputeRequestedStatuses(state, context);
     writeJson(context.stateFile, state);
     sendJson(response, 200, {
       ok: true,
