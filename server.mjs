@@ -152,7 +152,7 @@ function materializeKitParts(character, sourceFile, parts) {
         kind: "image",
         file: sourceFile,
         name: "source-reference",
-        adopted: true,
+        adopted: false,
         prompt: "",
         sourceLicense: "",
         aiGenerated: false,
@@ -952,7 +952,7 @@ function copyAssetIntoWorkspace(context, characterId, entryId, body) {
     aiGenerated: Boolean(body.aiGenerated),
     humanReviewed: Boolean(body.humanReviewed),
     usageNotes: String(body.usageNotes ?? ""),
-    tags: [],
+    tags: body.reference ? ["source-reference"] : [],
   };
 }
 

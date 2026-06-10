@@ -318,6 +318,20 @@ test("server accepts assets on custom base categories", async () => {
     assert.equal(assetResult.ok, true);
     assert.equal(assetResult.asset.adopted, true);
     assert.match(assetResult.asset.file, /assets\/sample-character\/base-scene-rain\/scene-candidate\.png/);
+
+    const refResult = await fetch(`${baseUrl}/api/assets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: "sample-character",
+        entryId: "base-scene-rain",
+        sourceFile: png,
+        name: "scene-source",
+        reference: true,
+      }),
+    }).then((response) => response.json());
+    assert.equal(refResult.ok, true);
+    assert.deepEqual(refResult.asset.tags, ["source-reference"]);
   });
 });
 
@@ -523,7 +537,9 @@ test("base kit: analyze request, complete with parts, and paste import create ba
     assert.deepEqual(faceEntry.tags, ["base-kit"]);
     assert.equal(faceEntry.assets[0].name, "source-reference");
     assert.equal(faceEntry.assets[0].file, sourceAsset.file);
-    assert.equal(faceEntry.assets[0].adopted, true);
+    // 参照画像は「採用」の対象外（採用は生成画像だけの概念）
+    assert.equal(faceEntry.assets[0].adopted, false);
+    assert.deepEqual(faceEntry.assets[0].tags, ["source-reference"]);
     assert.equal(character.base.accessory.some((item) => item.id.startsWith("base-kit-horns")), false);
     // imported result no longer appears as pending
     assert.equal(selected.kitResults.length, 0);

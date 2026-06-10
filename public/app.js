@@ -32,6 +32,10 @@ const I18N = {
     kitChip: "分解パーツ",
     noImage: "画像未生成",
     genImages: "生成画像（候補）",
+    refRole: "参照用",
+    refImagesHelp: "この行を生成するときにAIへ添付される入力画像です。採用の対象ではありません。",
+    asReference: "参照画像として登録",
+    asReferenceHelp: "チェックすると生成時の入力（参照）として使われます。チェックしなければ生成画像（候補）として登録されます。",
     kitImported: "ベースを作成しました",
     kitImportedQueued: "ベースの先頭に追加し、画像生成をキューに登録しました",
     kitNoSource: "ベース画像を選択してください",
@@ -165,6 +169,10 @@ const I18N = {
     kitChip: "Kit part",
     noImage: "Not generated yet",
     genImages: "Generated candidates",
+    refRole: "Reference",
+    refImagesHelp: "Input images attached to the AI when generating this row. Not adoption candidates.",
+    asReference: "Register as reference image",
+    asReferenceHelp: "Checked: used as generation input. Unchecked: registered as a generated candidate.",
     kitImported: "Base entries created",
     kitImportedQueued: "Added to the top of Base and queued image generation",
     kitNoSource: "Select a source image first",
@@ -517,7 +525,12 @@ function allImageAssets() {
 }
 
 function adoptedAssets(entry) {
-  return (entry.assets ?? []).filter((asset) => asset.adopted);
+  // 採用＝生成画像（出力）にだけ適用される概念。参照画像（入力）は含めない
+  return (entry.assets ?? []).filter((asset) => asset.adopted && !isSourceRef(asset));
+}
+
+function referenceAssets(entry) {
+  return (entry.assets ?? []).filter((asset) => isSourceRef(asset) && asset.file);
 }
 
 function selectedBaseEntryRefs(entry) {
@@ -741,11 +754,13 @@ function openBaseEntry(entryId) {
   const sources = (entry.assets ?? []).filter(isSourceRef);
   const generated = (entry.assets ?? []).filter((asset) => !isSourceRef(asset));
   const requested = entry.requestStatus === "requested";
-  const assetMini = (asset) => `
+  const assetMini = (asset, withAdopt = true) => `
     <div class="entry-asset" data-open-asset="${escapeHtml(asset.id)}">
       <div class="thumb">${asset.file ? `<img src="${assetUrl(asset.file)}" alt="${escapeHtml(asset.name ?? "")}" loading="lazy">` : "—"}</div>
       <div class="entry-asset-name">${escapeHtml(asset.name ?? asset.id)}</div>
-      <label class="asset-adopt"><input type="checkbox" data-modal-adopt="${escapeHtml(asset.id)}" ${asset.adopted ? "checked" : ""}> ${t("adopt")}</label>
+      ${withAdopt
+        ? `<label class="asset-adopt"><input type="checkbox" data-modal-adopt="${escapeHtml(asset.id)}" ${asset.adopted ? "checked" : ""}> ${t("adopt")}</label>`
+        : `<span class="entry-asset-role">${t("refRole")}</span>`}
     </div>`;
   $("#modal").innerHTML = `
     <button class="close" id="closeModal" title="${t("close")}" aria-label="${t("close")}">×</button>
@@ -760,7 +775,7 @@ function openBaseEntry(entryId) {
       </label>
       <h4>${t("genImages")}</h4>
       <div class="entry-assets">${generated.length ? generated.map(assetMini).join("") : `<p class="form-note">${t("noImage")} — ${t("requestOne")} → ${t("queue")}</p>`}</div>
-      ${sources.length ? `<h4>${t("refImages")}</h4><div class="entry-assets sources">${sources.map(assetMini).join("")}</div>` : ""}
+      ${sources.length ? `<h4>${t("refImages")}</h4><p class="form-note">${t("refImagesHelp")}</p><div class="entry-assets sources">${sources.map((asset) => assetMini(asset, false)).join("")}</div>` : ""}
       <div class="entry-modal-actions">
         <button class="ghost danger" id="entryModalDelete"><i class="fa-solid fa-trash" aria-hidden="true"></i> ${t("delete")}</button>
         <button class="ghost" id="entryModalDup">${t("duplicate")}</button>
@@ -1105,6 +1120,7 @@ function renderFormModal() {
       <label>${t("sourceLicense")}<input name="sourceLicense" placeholder="User-owned / generated under service terms / CC0"><small>${t("sourceLicenseHelp")}</small></label>
       <label>${t("prompt")}<textarea name="prompt" rows="4"></textarea></label>
       <label>${t("usageNotes")}<textarea name="usageNotes" rows="3"></textarea><small>${t("usageNotesHelp")}</small></label>
+      <label class="inline"><input name="asReference" type="checkbox"> ${t("asReference")}<small>${t("asReferenceHelp")}</small></label>
       <label class="inline"><input name="aiGenerated" type="checkbox" checked> ${t("aiGenerated")}</label>
       <label class="inline"><input name="humanReviewed" type="checkbox"> ${t("humanReviewed")}</label>
       <label class="inline"><input name="adopted" type="checkbox"> ${t("adopt")}<small>${t("adoptHelp")}</small></label>
@@ -1465,6 +1481,7 @@ async function submitAssetForm(form) {
       humanReviewed: Boolean(data.get("humanReviewed")),
       usageNotes: String(data.get("usageNotes") ?? ""),
       adopted: Boolean(data.get("adopted")),
+      reference: Boolean(data.get("asReference")),
     }),
   });
   state.deck = result.state;
@@ -1756,9 +1773,11 @@ function requestTarget(entry) {
       outputDir: entry.outputDraft ? entry.outputDraft.split("/").slice(0, -1).join("/") || null : null,
     };
   }
+  const ownReferences = referenceAssets(entry).map((assetItem) => assetItem.file);
+  const ownAdopted = adoptedAssets(entry).map((assetItem) => assetItem.file).filter(Boolean);
   const refImages = state.mode === "image" && entry.useBaseRefs
     ? selectedBaseAssets(entry).map((assetItem) => assetItem.file)
-    : (entry.assets ?? []).filter((assetItem) => assetItem.adopted).map((assetItem) => assetItem.file).filter(Boolean);
+    : (ownReferences.length ? ownReferences : ownAdopted);
   return {
     action: "generate",
     entryId: entry.id,
