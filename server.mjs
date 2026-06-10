@@ -1248,13 +1248,20 @@ async function handleApi(request, response, context, url) {
   return false;
 }
 
-function serveFile(response, path) {
+function serveFile(response, path, cors = false) {
   if (!existsSync(path) || statSync(path).isDirectory()) {
     response.writeHead(404);
     response.end("Not found");
     return;
   }
-  response.writeHead(200, { "Content-Type": MIME[extname(path).toLowerCase()] ?? "application/octet-stream" });
+  const headers = { "Content-Type": MIME[extname(path).toLowerCase()] ?? "application/octet-stream" };
+  // ローカル専用サーバのため、エージェントがブラウザ内JSから素材を取得して
+  // 生成サービスへ添付できるよう /asset には CORS を許可する
+  if (cors) {
+    headers["Access-Control-Allow-Origin"] = "*";
+    headers["Access-Control-Allow-Private-Network"] = "true";
+  }
+  response.writeHead(200, headers);
   response.end(readFileSync(path));
 }
 
@@ -1353,9 +1360,20 @@ export function createImageArrangerServer(options = {}) {
     try {
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
       if (await handleApi(request, response, context, url)) return;
+      if (request.method === "OPTIONS" && url.pathname === "/asset") {
+        // Private Network Access preflight（公開サイト上のJSからローカル素材を取得するため）
+        response.writeHead(204, {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Headers": "*",
+          "Access-Control-Allow-Private-Network": "true",
+        });
+        response.end();
+        return;
+      }
       if (request.method === "GET" && url.pathname === "/asset") {
         const assetFile = url.searchParams.get("path") ?? "";
-        serveFile(response, safeResolve(context.projectRoot, assetFile));
+        serveFile(response, safeResolve(context.projectRoot, assetFile), true);
         return;
       }
       if (request.method !== "GET") {

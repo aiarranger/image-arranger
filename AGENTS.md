@@ -45,9 +45,24 @@ Same as generation, but treat `inputs.sourceAsset` / `assetFile` as the primary 
 3. Generate one video first; check frame fidelity, locked camera, single action, and no extra objects before retrying.
 4. Save into `outputDir` and register the asset.
 
+## One-time macOS Setup for Real-OS Keystrokes
+
+Agents whose browser tools use a *virtual* clipboard (paste fails with "virtual clipboard has no data") must fall back to real-OS automation, which needs two macOS permissions for the agent's host app (Cursor, Terminal, ...):
+
+1. **Automation**: approve the "wants to control Google Chrome / use AppleScript" dialog on first run.
+2. **Accessibility**: System Settings → Privacy & Security → Accessibility → enable the host app (otherwise keystrokes fail with error 1002).
+
+Windows / Linux equivalents are not established yet.
+
 ## Browser Technique for Analysis Tasks (field-tested)
 
-1. **Attaching the image**: never open the native file picker (it blocks automation). On macOS with an external Chrome, put the image on the clipboard with `osascript -e 'set the clipboard to (read (POSIX file "<absolute path>") as «class PNGf»)'`, click the composer, and paste with Cmd+V. If your environment can set `input[type=file]` directly (Playwright etc.), that also works. Wait for the thumbnail spinner to finish before continuing.
+1. **Attaching the image**: never open the native file picker (it blocks automation). In-page `fetch` of local files is blocked by the service's CSP, and virtual-clipboard paste fails. The reliable route is **real clipboard + real keystroke** (field-tested 2026-06-10):
+   1. `osascript -e 'set the clipboard to (read (POSIX file "<absolute path>") as «class PNGf»)'`
+   2. Navigate your working tab to a unique URL first (e.g. `https://chatgpt.com/?agent-work=1`), then use AppleScript to activate exactly that tab (scan windows/tabs for the URL marker) — otherwise the keystroke can land in another tab of the same site.
+   3. Click the composer with your browser tool to focus it.
+   4. `osascript -e 'tell application "System Events" to keystroke "v" using command down'`
+   5. Wait for the thumbnail spinner to finish before continuing. Repeat per image for multiple references.
+   If your environment can set `input[type=file]` directly (Playwright etc.), that also works (it does not open the native dialog).
 2. **Entering the prompt**: copy it via `pbcopy < file` and paste; do not retype long prompts.
 3. **Waiting**: extended-thinking models can take 5–15 minutes. Poll with light text reads every 30–60 s; do not reload or resend.
 4. **Collecting the JSON**: click the code block's built-in copy button and read the system clipboard (`pbpaste`), or read the `pre code` textContent from the DOM. `navigator.clipboard.writeText` from injected JS can fail due to focus constraints.
