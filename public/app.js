@@ -609,6 +609,7 @@ function statusClass(entry) {
 
 function statusBadge(entry) {
   const status = statusClass(entry);
+  if (status === "idle") return "";
   return `<span class="badge ${status}">${t(status)}</span>`;
 }
 
