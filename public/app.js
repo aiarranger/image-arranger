@@ -776,7 +776,7 @@ function openBaseEntry(entryId) {
         <textarea id="entryModalPrompt" rows="8">${escapeHtml(entry.prompt ?? "")}</textarea>
       </label>
       <h4>${t("genImages")}</h4>
-      <div class="entry-assets">${generated.length ? generated.map(assetMini).join("") : `<p class="form-note">${t("noImage")} — ${t("requestOne")} → ${t("queue")}</p>`}</div>
+      <div class="entry-assets">${generated.length ? generated.map((asset) => assetMini(asset, true)).join("") : `<p class="form-note">${t("noImage")} — ${t("requestOne")} → ${t("queue")}</p>`}</div>
       ${sources.length ? `<h4>${t("sourceImages")}</h4><p class="form-note">${t("refImagesHelp")}</p><div class="entry-assets sources">${sources.map((asset) => assetMini(asset, false)).join("")}</div>` : ""}
       <div class="entry-modal-actions">
         <button class="ghost danger" id="entryModalDelete"><i class="fa-solid fa-trash" aria-hidden="true"></i> ${t("delete")}</button>
