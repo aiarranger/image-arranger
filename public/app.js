@@ -31,6 +31,8 @@ const I18N = {
     kitQueueAfter: "取り込んだパーツの画像生成をすぐキューに登録する",
     kitChip: "分解パーツ",
     noImage: "画像未生成",
+    promptShown: "この画像を生成したプロンプト",
+    promptNext: "プロンプト（次の生成用）",
     genImages: "生成画像（候補）",
     refRole: "元画像",
     sourceImages: "元画像（生成入力）",
@@ -169,6 +171,8 @@ const I18N = {
     kitQueueAfter: "Queue image generation for the imported parts right away",
     kitChip: "Kit part",
     noImage: "Not generated yet",
+    promptShown: "Prompt that generated this image",
+    promptNext: "Prompt (for the next generation)",
     genImages: "Generated candidates",
     refRole: "Source",
     sourceImages: "Source images (generation input)",
@@ -788,8 +792,12 @@ function openEntryModal(entryId, shownAssetId = null) {
               : `<label class="asset-adopt"><input type="checkbox" id="entryModalAdoptShown" ${shown.adopted ? "checked" : ""}> ${t("adopt")}</label>
                  <button class="ghost small" id="entryModalAssetDetail">${t("editImprovePrompt")}</button>`}
           </div>` : ""}
-        <label class="emodal-prompt">${t("prompt")}
-          <textarea id="entryModalPrompt" rows="6">${escapeHtml(entry.prompt ?? "")}</textarea>
+        ${shown && !isSourceRef(shown) ? `
+        <label class="emodal-prompt">${t("promptShown")}
+          <textarea id="entryModalAssetPrompt" rows="5">${escapeHtml(shown.prompt ?? "")}</textarea>
+        </label>` : ""}
+        <label class="emodal-prompt emodal-prompt-next">${t("promptNext")}
+          <textarea id="entryModalPrompt" rows="${shown && !isSourceRef(shown) && (shown.prompt ?? "").trim() ? 3 : 6}">${escapeHtml(entry.prompt ?? "")}</textarea>
         </label>
         ${isImage ? `
           <label class="base-ref-toggle" title="${escapeHtml(t("useBaseRefsHelp"))}">
@@ -819,6 +827,9 @@ function openEntryModal(entryId, shownAssetId = null) {
   const commitFields = () => {
     entry.overview = $("#entryModalTitle").value;
     entry.prompt = $("#entryModalPrompt").value;
+    if (shown && !isSourceRef(shown) && $("#entryModalAssetPrompt")) {
+      shown.prompt = $("#entryModalAssetPrompt").value;
+    }
   };
   $("#entryModalSave").onclick = async () => {
     commitFields();
