@@ -15,6 +15,23 @@ const I18N = {
     kitSource: "ベース画像を選ぶ（複数選択可）",
     kitSourceHelp: "採用済みの画像から選択します（複数可。全身用＋顔色用のように組み合わせると精度が上がります）。",
     kitPartsAuto: "どのパーツに分解するか（顔・表情・角・翼・尻尾など）は、AIが画像を分析して判断します。",
+    kitRouteChoose: "作り方を選ぶ（どちらかのルートへ）",
+    routeA: "A. シートを作る",
+    routeABadge: "推奨",
+    routeB: "B. パーツに分解",
+    routeBBadge: "部分修正用",
+    kitSheetTitle: "シートを作る（推奨）",
+    kitSheetIntro: "選んだ参照画像から、同一性の正となるリファレンスシートを1回の生成で作ります。生成結果を採用するとマスターの正＝新規画像の既定参照になります。プロンプトはテンプレとして保存・使い回しできます（コミュニティの優れたシートプロンプトを貼ってもOK）。",
+    sheetName: "シート名",
+    sheetTpl: "プロンプトテンプレ",
+    sheetTplBuiltin: "標準テンプレ（内蔵）",
+    sheetSaveTpl: "テンプレとして保存",
+    sheetTplSaved: "テンプレを保存しました",
+    sheetQueue: "シート生成を依頼",
+    sheetQueued: "シート生成をキューに登録しました。「依頼文コピー」でエージェントへ。",
+    sheetNeedPrompt: "シートのプロンプトを入力してください",
+    kitDecomposeTitle: "パーツに分解（シートの部分修正用）",
+    kitDecomposeIntro: "シートの一部だけ直したいとき（角の形・翼の構造など）に使います。パーツ単体の高精細な正を作って改善し、直したパーツを参照に付けてシートを再生成すると、シート全体を崩さず部分更新できます。",
     kitCharName: "キャラクター名",
     kitAnalyze: "分析を依頼",
     kitAnalyzeQueued: "分析依頼を登録しました。下の「依頼文コピー」でエージェントに渡してください。",
@@ -33,8 +50,10 @@ const I18N = {
     noImage: "画像未生成",
     allLabel: "すべて",
     adoptOneHelp: "採用＝この行の正。チェックすると他の候補の採用は自動で外れます（履歴として残ります）。",
+    entryFile: "生成済みファイル（任意）",
+    entryFileHelp: "ファイルを選択すると workspace の正しい場所へコピーされ、この素材の生成画像として登録されます（既定で採用＝正になります）。",
     newEntryRefs: "参照する採用画像（任意・複数可）",
-    newEntryRefsHelp: "選んだ画像はこのエントリの元画像（生成入力）として添付され、キュー登録時にAIへ渡されます。",
+    newEntryRefsHelp: "選んだ画像は元画像（生成入力・リンク式）として添付されます。マスターの正は既定で選択済み（クリックで外せます）。参照は2〜4枚が適正で、多すぎると精度が落ちます。",
     kitNoAdopted: "採用済みの画像がありません。ベース／画像タブのカードで「採用」にチェックを入れると、ここに表示されます。",
     promptShown: "この画像を生成したプロンプト",
     promptNext: "プロンプト（次の生成用）",
@@ -89,7 +108,7 @@ const I18N = {
     assetName: "素材名",
     sourceLicense: "素材ライセンス/利用根拠",
     assetFormIntro: "生成済み画像ファイルを候補素材として登録します。",
-    sourceFileHelp: "ChatGPT などで作成済みの画像ファイルのパスを指定します。",
+    sourceFileHelp: "ファイルを選択すると workspace の正しい場所へコピーされます。",
     assetNameHelp: "一覧に表示する短い名前です。空欄ならファイル名を使います。",
     sourceLicenseHelp: "生成サービス名、利用条件、または自作であることを残します。",
     usageNotesHelp: "使いどころ、修正待ち、採用理由などを短く記録します。",
@@ -154,6 +173,23 @@ const I18N = {
     kitSource: "Pick source images (multi-select)",
     kitSourceHelp: "Choose adopted images (multiple allowed — e.g. one for structure plus one for face/color detail).",
     kitPartsAuto: "The AI decides which parts to extract (face, expressions, horns, wings, tail...) by analyzing the image.",
+    kitRouteChoose: "Choose a route (either one)",
+    routeA: "A. Create the sheet",
+    routeABadge: "Recommended",
+    routeB: "B. Decompose into parts",
+    routeBBadge: "For partial repair",
+    kitSheetTitle: "Create the identity sheet (recommended)",
+    kitSheetIntro: "One-shot generate the canonical reference sheet from the selected references. Adopt the result and it becomes the master canonical = default reference for new images. Prompts are saved as reusable templates (community sheet prompts welcome).",
+    sheetName: "Sheet name",
+    sheetTpl: "Prompt template",
+    sheetTplBuiltin: "Built-in template",
+    sheetSaveTpl: "Save as template",
+    sheetTplSaved: "Template saved",
+    sheetQueue: "Queue sheet generation",
+    sheetQueued: "Sheet generation queued. Use 'Copy agent prompt' to hand it off.",
+    sheetNeedPrompt: "Enter the sheet prompt",
+    kitDecomposeTitle: "Decompose into parts (for partial sheet repair)",
+    kitDecomposeIntro: "Use when one part of the sheet needs fixing (horn shape, wing structure...). Generate a high-detail canonical for just that part, improve it, then regenerate the sheet with the fixed part attached as a reference.",
     kitCharName: "Character name",
     kitAnalyze: "Request analysis",
     kitAnalyzeQueued: "Analysis request queued. Use 'Copy agent prompt' below to hand it off.",
@@ -172,8 +208,10 @@ const I18N = {
     noImage: "Not generated yet",
     allLabel: "All",
     adoptOneHelp: "Adopted = the canonical image for this row. Checking it un-adopts the other candidates (kept as history).",
+    entryFile: "Existing generated file (optional)",
+    entryFileHelp: "Pick a file and it is copied into the workspace and registered as this entry's generated image (adopted by default).",
     newEntryRefs: "Adopted images to reference (optional, multiple)",
-    newEntryRefsHelp: "Selected images are attached as source images (generation inputs) and sent to the AI when queued.",
+    newEntryRefsHelp: "Selections are attached as linked source images. Master canonicals are pre-selected (click to remove). 2-4 references work best; too many dilute accuracy.",
     kitNoAdopted: "No adopted images yet. Check 'Adopt' on cards in the Base / Image tabs to make them selectable here.",
     promptShown: "Prompt that generated this image",
     promptNext: "Prompt (for the next generation)",
@@ -228,7 +266,7 @@ const I18N = {
     assetName: "Asset name",
     sourceLicense: "Source license / usage basis",
     assetFormIntro: "Register an existing generated image file as an asset candidate.",
-    sourceFileHelp: "Path to an image file already generated with ChatGPT or another service.",
+    sourceFileHelp: "Pick a file; it is copied into the workspace.",
     assetNameHelp: "Short display name. Leave blank to use the file name.",
     sourceLicenseHelp: "Record the service, usage terms, or user-owned source.",
     usageNotesHelp: "Short notes such as use case, pending fixes, or adoption reason.",
@@ -821,6 +859,52 @@ function renderListToolbar() {
   `;
 }
 
+const BUILTIN_SHEET_TEMPLATE = {
+  id: "builtin-identity-sheet",
+  name: "標準テンプレ（内蔵）",
+  text: [
+    "参照画像をキャラクターデザインの正として使用し、AI画像生成・i2i・動画生成で同一性を維持するための「AI可読型キャラクターリファレンスシート」を1枚作成してください。",
+    "",
+    "Create exactly ONE high-resolution reference sheet image. This is not a poster, not concept art, not a finished illustration — it is a practical production reference document.",
+    "",
+    "Faithfully preserve the character's identity from the attached reference image(s): face, eyes, hairstyle, hair colors, body proportions, silhouette, outfit design, colors, and attached body parts (horns, wings, tails, etc. are anatomy, not accessories). Do not redesign. Do not average into a generic face.",
+    "",
+    "Include, in an organized grid layout:",
+    "- Full-body front, back, and side views (neutral standing pose)",
+    "- Face close-up (front) with precise eye design",
+    "- Expression variations (smile / neutral / angry / surprised)",
+    "- Hair structure (front / side / back) with highlight and streak placement",
+    "- Outfit reference (front and back) with fabric and fastener details",
+    "- Attached body parts with natural attachment points",
+    "- Color palette swatches with HEX codes for hair, eyes, skin, and outfit",
+    "- Short AI-control annotations (e.g. \"do not shift hair hue\", \"keep shadow saturation low\")",
+    "",
+    "Style: clean cel-style anime rendering, white background, high readability, like a professional anime production design sheet. No dramatic lighting, no heavy painting, no watermark, no logo. One image only — no A/B variants.",
+  ].join("\n"),
+};
+
+function sheetTemplates() {
+  return [BUILTIN_SHEET_TEMPLATE, ...(state.deck?.promptTemplates ?? [])];
+}
+
+function isSheetQueueRow(row) {
+  return row.action === "generate" && ((findEntry(row.entryId)?.tags ?? []).includes("identity-sheet"));
+}
+
+function pendingQueueRow(row) {
+  return `
+    <div class="kit-result kit-pending">
+      <span class="kit-result-info">
+        <strong>${escapeHtml(row.overview || row.entryId)}</strong>
+        <small>${t("requested")} ・ ${escapeHtml(formatDateTime(row.requestedAt))} ・ ${escapeHtml(row.requestId)}</small>
+      </span>
+      <span class="kit-actions">
+        <button class="ghost small" data-copy-agent="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}"><i class="fa-solid fa-robot" aria-hidden="true"></i> ${t("copyAgentPrompt")}</button>
+        <button class="ghost small danger" data-cancel-queue="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}">${t("cancelRequest")}</button>
+      </span>
+    </div>`;
+}
+
 function renderKit() {
   const ch = character();
   const kit = state.kit;
@@ -848,23 +932,33 @@ function renderKit() {
             <span class="kit-source-origin">${origin === "base" ? t("base") : t("image")}</span>
           </button>`).join("") : `<p class="form-note">${t("kitNoAdopted")}</p>`}
       </div>
-      <h3 class="kit-step">2. ${t("kitAnalyze")}</h3>
-      <p class="form-note">${t("kitPartsAuto")}</p>
-      <label class="kit-name">${t("kitCharName")}<input id="kitCharName" value="${escapeHtml(kit.characterName || ch.name)}"></label>
-      <label class="kit-name kit-extra">${t("kitExtra")}<textarea id="kitExtra" rows="2" placeholder="${escapeHtml(t("kitExtraHelp"))}">${escapeHtml(kit.extra ?? "")}</textarea></label>
-      <div class="kit-actions"><button class="primary" id="kitAnalyzeBtn">${t("kitAnalyze")}</button></div>
-      ${(state.requests ?? []).filter((row) => row.action === "analyze" && row.characterId === ch.id).map((row) => `
-        <div class="kit-result kit-pending">
-          <span class="kit-result-info">
-            <strong>${escapeHtml(row.overview || row.entryId)}</strong>
-            <small>${t("requested")} ・ ${escapeHtml(formatDateTime(row.requestedAt))} ・ ${escapeHtml(row.requestId)}</small>
-          </span>
-          <span class="kit-actions">
-            <button class="ghost small" data-copy-agent="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}"><i class="fa-solid fa-robot" aria-hidden="true"></i> ${t("copyAgentPrompt")}</button>
-            <button class="ghost small danger" data-cancel-queue="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}">${t("cancelRequest")}</button>
-          </span>
-        </div>`).join("")}
-      <h3 class="kit-step">3. ${t("kitPasteTitle")}</h3>
+      <h3 class="kit-step">2. ${t("kitRouteChoose")}</h3>
+      <div class="kit-routes">
+        <div class="kit-route">
+          <div class="kit-route-head"><strong>${t("routeA")}</strong><span class="kit-chip adopted-chip">${t("routeABadge")}</span></div>
+          <p class="form-note">${t("kitSheetIntro")}</p>
+          <label class="kit-name">${t("sheetName")}<input id="sheetName" value="${escapeHtml(kit.sheetName || `${ch.name} リファレンスシート`)}"></label>
+          <label class="kit-name">${t("sheetTpl")}
+            <select id="sheetTplSelect">
+              ${sheetTemplates().map((tpl) => `<option value="${escapeHtml(tpl.id)}" ${kit.sheetTplId === tpl.id ? "selected" : ""}>${escapeHtml(tpl.name)}</option>`).join("")}
+            </select>
+          </label>
+          <label class="kit-name kit-extra">${t("prompt")}<textarea id="sheetPrompt" rows="8">${escapeHtml(kit.sheetPrompt ?? BUILTIN_SHEET_TEMPLATE.text)}</textarea></label>
+          <div class="kit-actions">
+            <button class="primary" id="sheetQueueBtn">${t("sheetQueue")}</button>
+            <button class="ghost" id="sheetSaveTplBtn">${t("sheetSaveTpl")}</button>
+          </div>
+          ${(state.requests ?? []).filter((row) => row.characterId === ch.id && isSheetQueueRow(row)).map(pendingQueueRow).join("")}
+        </div>
+        <div class="kit-route">
+          <div class="kit-route-head"><strong>${t("routeB")}</strong><span class="kit-chip">${t("routeBBadge")}</span></div>
+          <p class="form-note">${t("kitDecomposeIntro")}</p>
+          <p class="form-note">${t("kitPartsAuto")}</p>
+          <label class="kit-name">${t("kitCharName")}<input id="kitCharName" value="${escapeHtml(kit.characterName || ch.name)}"></label>
+          <label class="kit-name kit-extra">${t("kitExtra")}<textarea id="kitExtra" rows="2" placeholder="${escapeHtml(t("kitExtraHelp"))}">${escapeHtml(kit.extra ?? "")}</textarea></label>
+          <div class="kit-actions"><button class="primary" id="kitAnalyzeBtn">${t("kitAnalyze")}</button></div>
+          ${(state.requests ?? []).filter((row) => row.action === "analyze" && row.characterId === ch.id).map(pendingQueueRow).join("")}
+          <h4 class="kit-route-sub">${t("kitPasteTitle")}</h4>
       ${(state.kitResults ?? []).length ? state.kitResults.map((result, index) => `
         <div class="kit-result">
           <span class="kit-result-info">
@@ -896,6 +990,8 @@ function renderKit() {
           </div>
         </div>
       ` : ""}
+        </div>
+      </div>
     </div>
   `;
 }
@@ -1022,6 +1118,8 @@ function renderFormModal() {
       ${categoryField}
       <label>${t("assetName")}<input name="overview" required value="${escapeHtml(form.draftOverview ?? "")}" placeholder="${state.mode === "video" ? "fish-jump-loop" : "new asset prompt"}"></label>
       <label>${t("prompt")}<textarea name="prompt" rows="7">${escapeHtml(form.draftPrompt ?? "")}</textarea></label>
+      <label>${t("entryFile")}<input type="file" name="entryFileUpload" accept=".png,.jpg,.jpeg,.webp,.gif,.mp4,.webm"><small>${t("entryFileHelp")}</small></label>
+      <label class="inline"><input name="entryFileAdopt" type="checkbox" checked> ${t("adopt")}<small>${t("adoptOneHelp")}</small></label>
       ${refPicker}
       ${state.mode === "video" ? `
         <label>${t("start")}<select name="startFrame"><option value="">未設定</option>${optionList(imageAssets)}</select></label>
@@ -1038,7 +1136,7 @@ function renderFormModal() {
     body = `
       <p class="form-note">${escapeHtml(entry?.overview ?? form.entryId)}</p>
       <p class="form-note">${t("assetFormIntro")}</p>
-      <label>${t("sourceFile")} <span class="required">${t("required")}</span><input name="sourceFile" required placeholder="/Users/.../Downloads/generated.png"><small>${t("sourceFileHelp")}</small></label>
+      <label>${t("sourceFile")} <span class="required">${t("required")}</span><input type="file" name="sourceFileUpload" required accept=".png,.jpg,.jpeg,.webp,.gif,.mp4,.webm"><small>${t("sourceFileHelp")}</small></label>
       <label>${t("assetName")}<input name="name" placeholder="candidate-a"><small>${t("assetNameHelp")}</small></label>
       <label>${t("sourceLicense")}<input name="sourceLicense" placeholder="User-owned / generated under service terms / CC0"><small>${t("sourceLicenseHelp")}</small></label>
       <label>${t("prompt")}<textarea name="prompt" rows="4"></textarea></label>
@@ -1229,6 +1327,13 @@ function openEditCharacterForm() {
 
 function openEntryForm() {
   state.form = { type: "entry", title: `${t("newEntry")} / ${t(state.mode)}`, category: "master" };
+  if (state.mode === "image") {
+    // 既定参照＝マスターカテゴリの正（同一性の核）。パーツは必要なときだけ手動追加する
+    const masterIds = new Set((character().base?.master ?? []).map((entry) => entry.id));
+    state.form.refSel = adoptedImagePool()
+      .filter(({ origin, entry, asset }) => origin === "base" && masterIds.has(entry.id) && asset.kind !== "video")
+      .map(({ entry, asset }) => ({ entryId: entry.id, assetId: asset.id, file: asset.file, name: asset.name ?? asset.id }));
+  }
   render();
 }
 
@@ -1292,7 +1397,7 @@ function createEntryFromForm(form) {
       tags: [],
       assets: [],
     });
-    return;
+    return id;
   }
   if (state.mode === "video") {
     const id = makeUniqueId(ids, `video-${slug(overview)}`);
@@ -1310,7 +1415,7 @@ function createEntryFromForm(form) {
       outputDraft,
       assets: [],
     });
-    return;
+    return id;
   }
   const id = makeUniqueId(ids, `image-${slug(overview)}`);
   const refSel = state.form?.refSel ?? [];
@@ -1337,6 +1442,7 @@ function createEntryFromForm(form) {
       linkEntryId: row.entryId,
     })),
   });
+  return id;
 }
 
 async function submitCharacterForm(form) {
@@ -1376,10 +1482,41 @@ async function deleteCurrentCharacter() {
   toast(t("characterDeleted"));
 }
 
+async function uploadAssetFile(entryId, file, name = "") {
+  const params = new URLSearchParams({
+    characterId: state.characterId,
+    entryId,
+    filename: file.name,
+    name,
+  });
+  const response = await fetch(`/api/assets/upload?${params}`, { method: "POST", body: file });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || "upload failed");
+  }
+  return response.json();
+}
+
 async function submitEntryForm(form) {
-  createEntryFromForm(form);
+  const data = new FormData(form);
+  const entryFileAdopt = Boolean(data.get("entryFileAdopt"));
+  const file = form.querySelector('input[name="entryFileUpload"]')?.files?.[0] ?? null;
+  const newId = createEntryFromForm(form);
   state.form = null;
   await saveDeck(false);
+  if (file && newId) {
+    const result = await uploadAssetFile(newId, file);
+    state.deck = result.state;
+    normalizeDeck();
+    if (entryFileAdopt) {
+      const entry = findEntry(newId);
+      const asset = entry?.assets?.find((item) => item.id === result.asset.id);
+      if (entry && asset) {
+        setAdopted(entry, asset, true);
+        await saveDeck(false);
+      }
+    }
+  }
   render();
   toast(`${t("newEntry")} saved`);
 }
@@ -1401,23 +1538,31 @@ async function submitImproveBatchForm(form) {
 
 async function submitAssetForm(form) {
   const data = new FormData(form);
-  const result = await api("/api/assets", {
-    method: "POST",
-    body: JSON.stringify({
-      characterId: state.characterId,
-      entryId: state.form.entryId,
-      sourceFile: String(data.get("sourceFile") ?? ""),
-      name: String(data.get("name") ?? ""),
-      prompt: String(data.get("prompt") ?? ""),
-      sourceLicense: String(data.get("sourceLicense") ?? ""),
-      aiGenerated: Boolean(data.get("aiGenerated")),
-      humanReviewed: Boolean(data.get("humanReviewed")),
-      usageNotes: String(data.get("usageNotes") ?? ""),
-      adopted: Boolean(data.get("adopted")),
-      reference: Boolean(data.get("asReference")),
-    }),
-  });
+  const file = form.querySelector('input[name="sourceFileUpload"]')?.files?.[0] ?? null;
+  if (!file) {
+    toast(t("sourceFileHelp"));
+    return;
+  }
+  const entryId = state.form.entryId;
+  const result = await uploadAssetFile(entryId, file, String(data.get("name") ?? "").trim());
   state.deck = result.state;
+  normalizeDeck();
+  const entry = findEntry(entryId);
+  const asset = entry?.assets?.find((item) => item.id === result.asset.id);
+  if (asset) {
+    asset.prompt = String(data.get("prompt") ?? "");
+    asset.sourceLicense = String(data.get("sourceLicense") ?? "");
+    asset.aiGenerated = Boolean(data.get("aiGenerated"));
+    asset.humanReviewed = Boolean(data.get("humanReviewed"));
+    asset.usageNotes = String(data.get("usageNotes") ?? "");
+    if (Boolean(data.get("asReference"))) {
+      asset.tags = [...new Set([...(asset.tags ?? []), "source-reference"])];
+      asset.adopted = false;
+    } else if (Boolean(data.get("adopted"))) {
+      setAdopted(entry, asset, true);
+    }
+    await saveDeck(false);
+  }
   state.form = null;
   render();
   toast(t("assetAdded"));
@@ -1534,6 +1679,33 @@ function bind() {
   if ($("#kitExtra")) $("#kitExtra").oninput = () => { state.kit.extra = $("#kitExtra").value; };
   if ($("#kitJson")) $("#kitJson").oninput = () => { state.kit.json = $("#kitJson").value; };
   if ($("#kitAnalyzeBtn")) $("#kitAnalyzeBtn").onclick = () => requestKitAnalysis().catch((error) => toast(error.message));
+  if ($("#sheetName")) $("#sheetName").onchange = () => { state.kit.sheetName = $("#sheetName").value; };
+  if ($("#sheetPrompt")) $("#sheetPrompt").oninput = () => { state.kit.sheetPrompt = $("#sheetPrompt").value; };
+  if ($("#sheetTplSelect")) {
+    $("#sheetTplSelect").onchange = () => {
+      const tpl = sheetTemplates().find((item) => item.id === $("#sheetTplSelect").value);
+      if (!tpl) return;
+      state.kit.sheetTplId = tpl.id;
+      state.kit.sheetPrompt = tpl.text;
+      render();
+    };
+  }
+  if ($("#sheetQueueBtn")) $("#sheetQueueBtn").onclick = () => requestSheetGeneration().catch((error) => toast(error.message));
+  if ($("#sheetSaveTplBtn")) {
+    $("#sheetSaveTplBtn").onclick = async () => {
+      const text = ($("#sheetPrompt")?.value ?? "").trim();
+      if (!text) { toast(t("sheetNeedPrompt")); return; }
+      const name = prompt(t("sheetSaveTpl"), "");
+      if (!name) return;
+      state.deck.promptTemplates = state.deck.promptTemplates ?? [];
+      const tplId = makeUniqueId(new Set(sheetTemplates().map((item) => item.id)), `tpl-${slug(name)}`);
+      state.deck.promptTemplates.push({ id: tplId, name, text });
+      state.kit.sheetTplId = tplId;
+      await saveDeck(false);
+      render();
+      toast(t("sheetTplSaved"));
+    };
+  }
   if ($("#kitParseBtn")) $("#kitParseBtn").onclick = openKitPreviewFromPaste;
   if ($("#kitCreateBtn")) $("#kitCreateBtn").onclick = () => importSelectedKitParts().catch((error) => toast(error.message));
   if ($("#kitQueueAfter")) $("#kitQueueAfter").onchange = () => { if (state.kit.preview) state.kit.preview.queueAfter = $("#kitQueueAfter").checked; };
@@ -1755,9 +1927,11 @@ function improvePrompt(asset, entry) {
   const instruction = String(asset.improvementPrompt ?? "").trim()
     || "Improve quality, readability, and asset extraction while preserving the useful composition and original intent.";
   return [
-    "Improve the existing generated asset. Use the attached source asset as the primary reference.",
+    "Improve the existing generated asset.",
+    "The FIRST attached image is the asset to improve — keep its composition and intent.",
+    "Any OTHER attached images are the original identity references (the character's canonical design): match face, colors, proportions, and attached body parts to them.",
     instruction,
-    "Keep it usable as a game asset. No text, no logo, no watermark, no UI unless explicitly requested.",
+    "Keep it usable as a game asset. No text, no logo, no watermark, no UI unless explicitly requested. Create exactly ONE image.",
     basePrompt ? `Original prompt:\n${basePrompt}` : "",
   ].filter(Boolean).join("\n\n");
 }
@@ -1804,6 +1978,75 @@ async function enqueueTargets(targets, saveBeforeRequest = true) {
   await loadQueue(false);
   render();
   toast(`${t("requestDone")}\n${result.requestFile}`);
+}
+
+async function requestSheetGeneration() {
+  const kit = state.kit;
+  if (!kit.sources.length) {
+    toast(t("kitNoSource"));
+    return;
+  }
+  const promptText = ($("#sheetPrompt")?.value ?? "").trim();
+  if (!promptText) {
+    toast(t("sheetNeedPrompt"));
+    return;
+  }
+  const ch = character();
+  const name = ($("#sheetName")?.value ?? "").trim() || `${ch.name} リファレンスシート`;
+  const ids = entryIds(ch);
+  const id = makeUniqueId(ids, `base-sheet-${slug(name)}`);
+  const refFiles = [];
+  const assets = kit.sources.map((sel, index) => {
+    const srcAsset = findEntry(sel.entryId)?.assets?.find((item) => item.id === sel.assetId);
+    const resolved = srcAsset ? (resolveReferenceFile(srcAsset) || srcAsset.file) : "";
+    if (resolved) refFiles.push(resolved);
+    return {
+      id: `asset-${id}-src-${index}`,
+      kind: "image",
+      file: srcAsset?.file ?? "",
+      name: srcAsset?.name ?? "source",
+      adopted: false,
+      prompt: "",
+      sourceLicense: "",
+      aiGenerated: true,
+      humanReviewed: true,
+      usageNotes: "元画像（リンク参照：キュー登録時にリンク先の最新の採用画像へ解決）",
+      tags: ["source-reference"],
+      linkEntryId: sel.entryId,
+    };
+  });
+  ch.base.master = ch.base.master ?? [];
+  ch.base.master.unshift({
+    id,
+    overview: name,
+    prompt: promptText,
+    version: 1,
+    checked: false,
+    requestStatus: "idle",
+    tags: ["identity-sheet"],
+    assets,
+  });
+  await saveDeck(false);
+  const queueResult = await api("/api/requests", {
+    method: "POST",
+    body: JSON.stringify({
+      characterId: state.characterId,
+      mode: "base",
+      targets: [{
+        action: "generate",
+        entryId: id,
+        overview: name,
+        prompt: promptText,
+        inputs: { startFrame: null, endFrame: null, refImages: [...new Set(refFiles)] },
+        outputDir: null,
+      }],
+    }),
+  });
+  state.deck = queueResult.state;
+  normalizeDeck();
+  await loadQueue(false);
+  render();
+  toast(t("sheetQueued"));
 }
 
 async function requestKitAnalysis() {
@@ -1951,8 +2194,10 @@ ${refs}
    - 画像の添付: ネイティブのファイル選択ダイアログを開かない。
      osascript -e 'set the clipboard to (read (POSIX file "<絶対パス>") as «class PNGf»)'
      → 対象タブ前面化 → 入力欄クリック → System Events の実 Cmd+V。複数画像は1枚ずつ繰り返す。
-   - プロンプトの入力: クリップボードを使わない（画像とテキストの切替で失敗しやすい）。
-     ページ内JSで挿入する: 入力欄(div[contenteditable])を focus → document.execCommand("insertText", false, "<プロンプト全文>")。
+   - プロンプトの入力（この順に試し、送信前に入力欄へ全文反映を必ず確認。空のまま送信しない）:
+     ①ブラウザツールのテキスト入力API（type/fill） ②ページ内JSの document.execCommand("insertText", ...)
+     ③argv渡しosascriptでテキストを実クリップボードへ→pbpasteで検証→入力欄クリック→実Cmd+V（画像添付が全部終わってから）。
+   - 開始時、入力欄に前回の未送信添付が残っていたら×で消してから始める。
    - 添付のスピナー消滅を確認したら、プロンプト挿入→送信まで間を置かず一気に行う（確認スクショは送信前後の2回で十分）。
    - 応答は5〜15分かかることがある。30〜60秒間隔の軽い読み取りでポーリングし、リロードや再送信をしない。
 4. 返答の JSON コードブロック（{"character","parts":[{"key","label","category","prompt"}]}）を取り出す。
@@ -1982,9 +2227,9 @@ ${refs}
 1. curl -s ${origin}/api/requests で上記 requestId / targetIndex の行がまだあることを確認。無ければ停止して報告。
 2. 該当行の prompt をそのまま使い、参照画像は次をすべて添付する（projectRoot からの相対パス・1枚ずつ実Cmd+V）:
 ${refs}
-${isImprove ? "   改善元（inputs.sourceAsset）を主参照として扱い、improvementPrompt を改善意図として優先する。他の参照は同一性維持用。\n" : ""}   プロンプトの入力はクリップボードを使わず、ページ内JSで挿入する:
-   入力欄(div[contenteditable])を focus → document.execCommand("insertText", false, "<プロンプト全文>")。
-   添付完了→プロンプト挿入→送信は間を置かず一気に行う。
+${isImprove ? "   改善元（inputs.sourceAsset）を主参照として扱い、improvementPrompt を改善意図として優先する。他の参照は同一性維持用。\n" : ""}   プロンプトの入力（この順に試し、送信前に入力欄へ全文反映を必ず確認。空のまま送信しない）:
+   ①ブラウザツールのテキスト入力API ②ページ内JS insertText ③argv渡しosascript→pbpaste検証→実Cmd+V（画像添付完了後）。
+   開始時、入力欄に前回の未送信添付が残っていたら×で消してから始める。添付完了→挿入→送信は一気に行う。
 3. 1 target = 1成果物。複数案・グリッド・A/B比較・コンタクトシートを作らない。
    作業タブは1つだけ使い回す（targetごとに新しいタブ/ウィンドウを開かず、同じタブで「新しいチャット」）。
 4. コンテンツポリシー等で拒否された場合: ①同一プロンプトで1回だけ再送 ②デザインを変えない最小限の表現修正で1回再送

@@ -3,6 +3,7 @@
 import { createServer } from "node:http";
 import {
   copyFileSync,
+  createWriteStream,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -1239,6 +1240,58 @@ async function handleApi(request, response, context, url) {
       kitResults: listKitResults(context),
       state,
     });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/assets/upload") {
+    const state = readState(context.stateFile, context.projectRoot, context.init);
+    const character = findCharacter(state, url.searchParams.get("characterId"));
+    const targetEntry = findEntryInCharacter(character, url.searchParams.get("entryId"));
+    if (!targetEntry) throw new HttpError(404, "Prompt entry was not found");
+    const filename = url.searchParams.get("filename") || "upload.png";
+    const ext = extname(filename).toLowerCase();
+    if (!ASSET_EXTENSIONS.has(ext)) throw new HttpError(400, "Unsupported asset file type");
+    const assetName = safeSlug(url.searchParams.get("name") || basename(filename, ext), "asset");
+    const destinationDir = join(context.assetDir, safeSlug(character.id, "character"), safeSlug(targetEntry.id, "entry"));
+    ensureDir(destinationDir);
+    let destination = join(destinationDir, `${assetName}${ext}`);
+    let suffix = 1;
+    while (existsSync(destination)) {
+      suffix += 1;
+      destination = join(destinationDir, `${assetName}-${suffix}${ext}`);
+    }
+    await new Promise((resolveUpload, rejectUpload) => {
+      const stream = createWriteStream(destination);
+      let size = 0;
+      request.on("data", (chunk) => {
+        size += chunk.length;
+        if (size > MAX_ASSET_BYTES) {
+          stream.destroy();
+          request.destroy();
+          rejectUpload(new HttpError(413, "Asset file is too large"));
+        }
+      });
+      request.pipe(stream);
+      stream.on("finish", resolveUpload);
+      stream.on("error", rejectUpload);
+      request.on("error", rejectUpload);
+    });
+    const newAsset = {
+      id: `asset-${safeSlug(targetEntry.id)}-${randomUUID().slice(0, 8)}`,
+      kind: ext === ".mp4" || ext === ".webm" ? "video" : "image",
+      file: toPosixPath(relative(context.projectRoot, destination)),
+      name: url.searchParams.get("name") || basename(destination, ext),
+      adopted: false,
+      prompt: "",
+      sourceLicense: "",
+      aiGenerated: true,
+      humanReviewed: true,
+      usageNotes: "",
+      tags: [],
+    };
+    targetEntry.assets = [...(targetEntry.assets ?? []), newAsset];
+    state.updatedAt = nowIso();
+    writeJson(context.stateFile, state);
+    sendJson(response, 200, { ok: true, asset: newAsset, state });
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/assets") {

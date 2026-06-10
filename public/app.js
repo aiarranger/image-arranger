@@ -51,7 +51,7 @@ const I18N = {
     allLabel: "すべて",
     adoptOneHelp: "採用＝この行の正。チェックすると他の候補の採用は自動で外れます（履歴として残ります）。",
     entryFile: "生成済みファイル（任意）",
-    entryFileHelp: "手元にある生成画像/動画のパスを指定すると、entry 作成と同時にこの素材の生成画像として登録されます（既定で採用＝正になります）。",
+    entryFileHelp: "ファイルを選択すると workspace の正しい場所へコピーされ、この素材の生成画像として登録されます（既定で採用＝正になります）。",
     newEntryRefs: "参照する採用画像（任意・複数可）",
     newEntryRefsHelp: "選んだ画像は元画像（生成入力・リンク式）として添付されます。マスターの正は既定で選択済み（クリックで外せます）。参照は2〜4枚が適正で、多すぎると精度が落ちます。",
     kitNoAdopted: "採用済みの画像がありません。ベース／画像タブのカードで「採用」にチェックを入れると、ここに表示されます。",
@@ -108,7 +108,7 @@ const I18N = {
     assetName: "素材名",
     sourceLicense: "素材ライセンス/利用根拠",
     assetFormIntro: "生成済み画像ファイルを候補素材として登録します。",
-    sourceFileHelp: "ChatGPT などで作成済みの画像ファイルのパスを指定します。",
+    sourceFileHelp: "ファイルを選択すると workspace の正しい場所へコピーされます。",
     assetNameHelp: "一覧に表示する短い名前です。空欄ならファイル名を使います。",
     sourceLicenseHelp: "生成サービス名、利用条件、または自作であることを残します。",
     usageNotesHelp: "使いどころ、修正待ち、採用理由などを短く記録します。",
@@ -209,7 +209,7 @@ const I18N = {
     allLabel: "All",
     adoptOneHelp: "Adopted = the canonical image for this row. Checking it un-adopts the other candidates (kept as history).",
     entryFile: "Existing generated file (optional)",
-    entryFileHelp: "Provide a path to an image/video you already have and it is registered as this entry's generated image (adopted by default).",
+    entryFileHelp: "Pick a file and it is copied into the workspace and registered as this entry's generated image (adopted by default).",
     newEntryRefs: "Adopted images to reference (optional, multiple)",
     newEntryRefsHelp: "Selections are attached as linked source images. Master canonicals are pre-selected (click to remove). 2-4 references work best; too many dilute accuracy.",
     kitNoAdopted: "No adopted images yet. Check 'Adopt' on cards in the Base / Image tabs to make them selectable here.",
@@ -266,7 +266,7 @@ const I18N = {
     assetName: "Asset name",
     sourceLicense: "Source license / usage basis",
     assetFormIntro: "Register an existing generated image file as an asset candidate.",
-    sourceFileHelp: "Path to an image file already generated with ChatGPT or another service.",
+    sourceFileHelp: "Pick a file; it is copied into the workspace.",
     assetNameHelp: "Short display name. Leave blank to use the file name.",
     sourceLicenseHelp: "Record the service, usage terms, or user-owned source.",
     usageNotesHelp: "Short notes such as use case, pending fixes, or adoption reason.",
@@ -1118,7 +1118,7 @@ function renderFormModal() {
       ${categoryField}
       <label>${t("assetName")}<input name="overview" required value="${escapeHtml(form.draftOverview ?? "")}" placeholder="${state.mode === "video" ? "fish-jump-loop" : "new asset prompt"}"></label>
       <label>${t("prompt")}<textarea name="prompt" rows="7">${escapeHtml(form.draftPrompt ?? "")}</textarea></label>
-      <label>${t("entryFile")}<input name="entryFile" placeholder="/Users/.../Downloads/generated.png"><small>${t("entryFileHelp")}</small></label>
+      <label>${t("entryFile")}<input type="file" name="entryFileUpload" accept=".png,.jpg,.jpeg,.webp,.gif,.mp4,.webm"><small>${t("entryFileHelp")}</small></label>
       <label class="inline"><input name="entryFileAdopt" type="checkbox" checked> ${t("adopt")}<small>${t("adoptOneHelp")}</small></label>
       ${refPicker}
       ${state.mode === "video" ? `
@@ -1136,7 +1136,7 @@ function renderFormModal() {
     body = `
       <p class="form-note">${escapeHtml(entry?.overview ?? form.entryId)}</p>
       <p class="form-note">${t("assetFormIntro")}</p>
-      <label>${t("sourceFile")} <span class="required">${t("required")}</span><input name="sourceFile" required placeholder="/Users/.../Downloads/generated.png"><small>${t("sourceFileHelp")}</small></label>
+      <label>${t("sourceFile")} <span class="required">${t("required")}</span><input type="file" name="sourceFileUpload" required accept=".png,.jpg,.jpeg,.webp,.gif,.mp4,.webm"><small>${t("sourceFileHelp")}</small></label>
       <label>${t("assetName")}<input name="name" placeholder="candidate-a"><small>${t("assetNameHelp")}</small></label>
       <label>${t("sourceLicense")}<input name="sourceLicense" placeholder="User-owned / generated under service terms / CC0"><small>${t("sourceLicenseHelp")}</small></label>
       <label>${t("prompt")}<textarea name="prompt" rows="4"></textarea></label>
@@ -1482,28 +1482,40 @@ async function deleteCurrentCharacter() {
   toast(t("characterDeleted"));
 }
 
+async function uploadAssetFile(entryId, file, name = "") {
+  const params = new URLSearchParams({
+    characterId: state.characterId,
+    entryId,
+    filename: file.name,
+    name,
+  });
+  const response = await fetch(`/api/assets/upload?${params}`, { method: "POST", body: file });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || "upload failed");
+  }
+  return response.json();
+}
+
 async function submitEntryForm(form) {
   const data = new FormData(form);
-  const entryFile = String(data.get("entryFile") ?? "").trim();
   const entryFileAdopt = Boolean(data.get("entryFileAdopt"));
+  const file = form.querySelector('input[name="entryFileUpload"]')?.files?.[0] ?? null;
   const newId = createEntryFromForm(form);
   state.form = null;
   await saveDeck(false);
-  if (entryFile && newId) {
-    const result = await api("/api/assets", {
-      method: "POST",
-      body: JSON.stringify({
-        characterId: state.characterId,
-        entryId: newId,
-        sourceFile: entryFile,
-        name: "",
-        adopted: entryFileAdopt,
-        aiGenerated: true,
-        humanReviewed: true,
-      }),
-    });
+  if (file && newId) {
+    const result = await uploadAssetFile(newId, file);
     state.deck = result.state;
     normalizeDeck();
+    if (entryFileAdopt) {
+      const entry = findEntry(newId);
+      const asset = entry?.assets?.find((item) => item.id === result.asset.id);
+      if (entry && asset) {
+        setAdopted(entry, asset, true);
+        await saveDeck(false);
+      }
+    }
   }
   render();
   toast(`${t("newEntry")} saved`);
@@ -1526,23 +1538,31 @@ async function submitImproveBatchForm(form) {
 
 async function submitAssetForm(form) {
   const data = new FormData(form);
-  const result = await api("/api/assets", {
-    method: "POST",
-    body: JSON.stringify({
-      characterId: state.characterId,
-      entryId: state.form.entryId,
-      sourceFile: String(data.get("sourceFile") ?? ""),
-      name: String(data.get("name") ?? ""),
-      prompt: String(data.get("prompt") ?? ""),
-      sourceLicense: String(data.get("sourceLicense") ?? ""),
-      aiGenerated: Boolean(data.get("aiGenerated")),
-      humanReviewed: Boolean(data.get("humanReviewed")),
-      usageNotes: String(data.get("usageNotes") ?? ""),
-      adopted: Boolean(data.get("adopted")),
-      reference: Boolean(data.get("asReference")),
-    }),
-  });
+  const file = form.querySelector('input[name="sourceFileUpload"]')?.files?.[0] ?? null;
+  if (!file) {
+    toast(t("sourceFileHelp"));
+    return;
+  }
+  const entryId = state.form.entryId;
+  const result = await uploadAssetFile(entryId, file, String(data.get("name") ?? "").trim());
   state.deck = result.state;
+  normalizeDeck();
+  const entry = findEntry(entryId);
+  const asset = entry?.assets?.find((item) => item.id === result.asset.id);
+  if (asset) {
+    asset.prompt = String(data.get("prompt") ?? "");
+    asset.sourceLicense = String(data.get("sourceLicense") ?? "");
+    asset.aiGenerated = Boolean(data.get("aiGenerated"));
+    asset.humanReviewed = Boolean(data.get("humanReviewed"));
+    asset.usageNotes = String(data.get("usageNotes") ?? "");
+    if (Boolean(data.get("asReference"))) {
+      asset.tags = [...new Set([...(asset.tags ?? []), "source-reference"])];
+      asset.adopted = false;
+    } else if (Boolean(data.get("adopted"))) {
+      setAdopted(entry, asset, true);
+    }
+    await saveDeck(false);
+  }
   state.form = null;
   render();
   toast(t("assetAdded"));

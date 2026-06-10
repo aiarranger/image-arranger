@@ -615,6 +615,27 @@ test("error reporting marks targets and deck entries, allowing retry", async () 
   });
 });
 
+test("binary upload registers the file into workspace assets", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const entryId = state.characters[0].images[0].id;
+    const body = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+    const uploaded = await fetch(
+      `${baseUrl}/api/assets/upload?characterId=sample-character&entryId=${encodeURIComponent(entryId)}&filename=${encodeURIComponent("My Sheet.png")}`,
+      { method: "POST", body },
+    ).then((response) => response.json());
+    assert.equal(uploaded.ok, true);
+    assert.match(uploaded.asset.file, /assets\/sample-character\/.+\/My-Sheet\.png$/);
+    const absolute = join(context.projectRoot, uploaded.asset.file);
+    assert.deepEqual([...readFileSync(absolute)], [...body]);
+    const entry = uploaded.state.characters[0].images.find((item) => item.id === entryId);
+    assert.equal(entry.assets.at(-1).id, uploaded.asset.id);
+
+    const bad = await fetch(`${baseUrl}/api/assets/upload?characterId=sample-character&entryId=${encodeURIComponent(entryId)}&filename=evil.exe`, { method: "POST", body });
+    assert.equal(bad.status, 400);
+  });
+});
+
 test("doctor passes public sample workspace", () => {
   const temp = mkdtempSync(join(tmpdir(), "image-arranger-doctor-"));
   const result = runDoctor({
