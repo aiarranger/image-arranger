@@ -1965,6 +1965,12 @@ function improvePrompt(asset, entry) {
 
 function improveTarget({ entry, asset }) {
   const service = asset.kind === "video" ? "vidu" : "chatgpt";
+  // 改善元を主参照に、元の生成で使った元画像（＋ベース参照合成の採用画像）も同一性維持のため添付する
+  const originalRefs = [
+    ...referenceAssets(entry).map((item) => item.file),
+    ...(entry.useBaseRefs ? selectedBaseAssets(entry).map((item) => item.file) : []),
+  ];
+  const refImages = [...new Set([asset.file, ...originalRefs].filter(Boolean))];
   return {
     action: "improve",
     entryId: entry.id,
@@ -1979,7 +1985,7 @@ function improveTarget({ entry, asset }) {
     inputs: {
       startFrame: null,
       endFrame: null,
-      refImages: asset.file ? [asset.file] : [],
+      refImages,
       sourceAsset: asset.file ?? null,
     },
     outputDir: null,
@@ -2146,10 +2152,12 @@ function agentPromptFor(item) {
 3. ChatGPT を開き、次の画像（projectRoot からの相対パス）を添付して、該当行の prompt を一字一句そのまま送信する:
 ${refs}
    ブラウザ操作の注意（実機検証済み）:
-   - ネイティブのファイル選択ダイアログを開かない。macOS の外部 Chrome では
+   - 画像の添付: ネイティブのファイル選択ダイアログを開かない。
      osascript -e 'set the clipboard to (read (POSIX file "<絶対パス>") as «class PNGf»)'
-     で画像をクリップボードに載せ、入力欄をクリックして Cmd+V で貼り付ける。
-   - サムネイルのアップロード完了（スピナー消滅）を待ってから、プロンプトを pbcopy → Cmd+V で貼り付けて送信する。
+     → 対象タブ前面化 → 入力欄クリック → System Events の実 Cmd+V。複数画像は1枚ずつ繰り返す。
+   - プロンプトの入力: クリップボードを使わない（画像とテキストの切替で失敗しやすい）。
+     ページ内JSで挿入する: 入力欄(div[contenteditable])を focus → document.execCommand("insertText", false, "<プロンプト全文>")。
+   - 添付のスピナー消滅を確認したら、プロンプト挿入→送信まで間を置かず一気に行う（確認スクショは送信前後の2回で十分）。
    - 応答は5〜15分かかることがある。30〜60秒間隔の軽い読み取りでポーリングし、リロードや再送信をしない。
 4. 返答の JSON コードブロック（{"character","parts":[{"key","label","category","prompt"}]}）を取り出す。
    コードブロック右上の「コピーする」ボタンをクリックして取り出すのが確実（clipboard API はフォーカス制約で失敗しうる）。
@@ -2176,9 +2184,12 @@ ${refs}
 
 手順（前提が満たせない場合は回避策を取らず停止して報告すること）:
 1. curl -s ${origin}/api/requests で上記 requestId / targetIndex の行がまだあることを確認。無ければ停止して報告。
-2. 該当行の prompt をそのまま使い、参照画像は次のみ添付する（projectRoot からの相対パス）:
+2. 該当行の prompt をそのまま使い、参照画像は次をすべて添付する（projectRoot からの相対パス・1枚ずつ実Cmd+V）:
 ${refs}
-${isImprove ? "   改善元（inputs.sourceAsset）を主参照として扱い、improvementPrompt を改善意図として優先する。\n" : ""}3. 1 target = 1成果物。複数案・グリッド・A/B比較・コンタクトシートを作らない。
+${isImprove ? "   改善元（inputs.sourceAsset）を主参照として扱い、improvementPrompt を改善意図として優先する。他の参照は同一性維持用。\n" : ""}   プロンプトの入力はクリップボードを使わず、ページ内JSで挿入する:
+   入力欄(div[contenteditable])を focus → document.execCommand("insertText", false, "<プロンプト全文>")。
+   添付完了→プロンプト挿入→送信は間を置かず一気に行う。
+3. 1 target = 1成果物。複数案・グリッド・A/B比較・コンタクトシートを作らない。
    作業タブは1つだけ使い回す（targetごとに新しいタブ/ウィンドウを開かず、同じタブで「新しいチャット」）。
 4. コンテンツポリシー等で拒否された場合: ①同一プロンプトで1回だけ再送 ②デザインを変えない最小限の表現修正で1回再送
    ③それでも失敗したら error 報告して次へ:
