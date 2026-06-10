@@ -404,14 +404,13 @@ test("server updates characters and cascades queued targets on delete", async ()
   });
 });
 
-test("analyze prompt lists parts and JSON contract", () => {
-  const prompt = composeAnalyzePrompt("Sample Character", [
-    { key: "face-front", label: "顔アップ（正面）", category: "master", hint: "exact eye shape" },
-    { key: "horns", label: "角", category: "accessory" },
-  ]);
+test("analyze prompt lets the AI choose parts from the vocabulary", () => {
+  const prompt = composeAnalyzePrompt("Sample Character");
   assert.match(prompt, /画像生成は不要です/);
+  assert.match(prompt, /YOU decide which parts to include/);
   assert.match(prompt, /key: face-front/);
-  assert.match(prompt, /key: horns/);
+  assert.match(prompt, /key: wings/);
+  assert.match(prompt, /Skip vocabulary parts that do not apply/);
   assert.match(prompt, /"character": "Sample Character"/);
   assert.match(prompt, /exactly ONE isolated reference image/);
 });
@@ -449,11 +448,12 @@ test("base kit: analyze request, complete with parts, and paste import create ba
         characterId: "sample-character",
         sourceEntryId: entryId,
         sourceAssetId: sourceAsset.id,
-        parts: presets.parts.slice(0, 2),
       }),
     }).then((response) => response.json());
     assert.equal(analyze.ok, true);
     assert.equal(analyze.request.targets[0].action, "analyze");
+    assert.equal(analyze.request.targets[0].parts.length, presets.parts.length);
+    assert.match(analyze.request.targets[0].prompt, /YOU decide which parts to include/);
     assert.equal(analyze.request.service, "chatgpt");
     assert.deepEqual(analyze.request.targets[0].inputs.refImages, [sourceAsset.file]);
     assert.match(analyze.request.targets[0].prompt, /画像分析タスク/);

@@ -77,18 +77,27 @@ const BASE_KIT_PARTS = [
   { key: "palette", label: "カラーパレット", labelEn: "Color palette", category: "accessory", hint: "color swatch grid of the character's main colors, swatches only, no text" },
 ];
 
-export function composeAnalyzePrompt(characterName, parts) {
+export function composeAnalyzePrompt(characterName, parts = BASE_KIT_PARTS) {
   const lines = (parts ?? []).map((part) => `- key: ${part.key} / label: ${part.label} / category: ${part.category}${part.hint ? ` / focus: ${part.hint}` : ""}`);
   return [
     "画像生成は不要です。これは画像分析タスクです。",
     "",
-    "Analyze the attached character image carefully and write image-generation prompts",
-    `for building a reusable character identity kit for ${JSON.stringify(String(characterName ?? ""))}.`,
+    "Analyze the attached character image carefully and build the part list for a reusable",
+    `character identity kit for ${JSON.stringify(String(characterName ?? ""))}.`,
     "",
-    "For each part listed below, describe THIS character's actual visual features",
-    "precisely (exact colors, shapes, proportions, attachment points, materials),",
-    "in generation-ready English:",
+    "YOU decide which parts to include, based on what actually exists in this image and",
+    "what matters for keeping this character consistent across future generations.",
+    "Use this standard vocabulary as a guide (key / label / category / focus):",
     ...lines,
+    "",
+    "Rules for choosing parts:",
+    "- Skip vocabulary parts that do not apply to this character (e.g. no wings -> no wings part).",
+    "- Add parts NOT in the vocabulary if this character has other identity-critical features",
+    "  (unique body parts, signature markings, etc.). Use category \"accessory\" for attached",
+    "  features and props, \"master\" only for whole-identity references.",
+    "",
+    "For each chosen part, describe THIS character's actual visual features precisely",
+    "(exact colors, shapes, proportions, attachment points, materials), in generation-ready English.",
     "",
     "Return ONLY one JSON code block in this exact shape:",
     "{",
@@ -1069,7 +1078,7 @@ async function handleApi(request, response, context, url) {
     const sourceEntry = findEntryInCharacter(character, body.sourceEntryId);
     const sourceAsset = sourceEntry?.assets?.find((item) => item.id === body.sourceAssetId);
     if (!sourceEntry || !sourceAsset?.file) throw new HttpError(404, "Source asset was not found");
-    const parts = (Array.isArray(body.parts) ? body.parts : [])
+    const requestedParts = (Array.isArray(body.parts) ? body.parts : [])
       .map((part) => ({
         key: safeSlug(part.key ?? part.label, "part"),
         label: String(part.label ?? part.key ?? "").trim(),
@@ -1077,7 +1086,7 @@ async function handleApi(request, response, context, url) {
         hint: String(part.hint ?? ""),
       }))
       .filter((part) => part.label);
-    if (!parts.length) throw new HttpError(400, "At least one part is required");
+    const parts = requestedParts.length ? requestedParts : BASE_KIT_PARTS;
     const characterName = String(body.characterName ?? character.name ?? "").trim() || character.name;
     const requestId = `req_${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}_${randomUUID().slice(0, 8)}`;
     const requestPayload = {

@@ -14,7 +14,7 @@ const I18N = {
     kitIntro: "1枚のベース画像から、キャラクター一貫性のためのパーツ別ベース（顔・表情・角・翼・尻尾など）を作ります。画像分析はChatGPT等への依頼としてキューに登録され、返ってきたJSONを取り込むとベースが自動作成されます。",
     kitSource: "ベース画像を選ぶ",
     kitSourceHelp: "登録済みの画像から選択します。新しい画像は各タブの「素材追加」から登録してください。",
-    kitParts: "分解するパーツを選ぶ",
+    kitPartsAuto: "どのパーツに分解するか（顔・表情・角・翼・尻尾など）は、AIが画像を分析して判断します。",
     kitCharName: "キャラクター名",
     kitAnalyze: "分析を依頼",
     kitAnalyzeQueued: "分析依頼をキューに登録しました。処理後、結果JSONを下の取り込み欄へ。",
@@ -23,7 +23,6 @@ const I18N = {
     kitImport: "取り込んでベースを作成",
     kitImported: "ベースを作成しました",
     kitNoSource: "ベース画像を選択してください",
-    kitNoParts: "パーツを1つ以上選択してください",
     request: "キューに登録",
     requestOne: "キュー登録",
     addCharacter: "素材パターン追加",
@@ -134,7 +133,7 @@ const I18N = {
     kitIntro: "Build per-part character bases (face, expressions, horns, wings, tail...) from one key image. The analysis is queued as a request for ChatGPT or another service; paste the returned JSON to create the base entries automatically.",
     kitSource: "Pick a source image",
     kitSourceHelp: "Choose from registered assets. Register new files via 'Add asset' on any row.",
-    kitParts: "Choose parts to extract",
+    kitPartsAuto: "The AI decides which parts to extract (face, expressions, horns, wings, tail...) by analyzing the image.",
     kitCharName: "Character name",
     kitAnalyze: "Request analysis",
     kitAnalyzeQueued: "Analysis request queued. Paste the resulting JSON below after processing.",
@@ -143,7 +142,6 @@ const I18N = {
     kitImport: "Import and create bases",
     kitImported: "Base entries created",
     kitNoSource: "Select a source image first",
-    kitNoParts: "Select at least one part",
     request: "Queue selected",
     requestOne: "Queue row",
     addCharacter: "Add asset pattern",
@@ -775,9 +773,7 @@ function renderListToolbar() {
 function renderKit() {
   const ch = character();
   const kit = state.kit;
-  if (!kit.parts) kit.parts = new Set(state.kitPresets.map((part) => part.key));
   const assets = allImageAssets().filter((asset) => asset.file && asset.kind !== "video");
-  const partLabel = (part) => state.lang === "ja" ? part.label : (part.labelEn ?? part.label);
   return `
     <div class="kit">
       <p class="kit-intro">${t("kitIntro")}</p>
@@ -793,15 +789,8 @@ function renderKit() {
             <span class="kit-source-name">${escapeHtml(asset.name ?? asset.id)}</span>
           </button>`).join("") : `<div class="empty">${t("noRows")}</div>`}
       </div>
-      <h3 class="kit-step">2. ${t("kitParts")}</h3>
-      <div class="kit-parts">
-        ${state.kitPresets.map((part) => `
-          <label class="kit-part ${kit.parts.has(part.key) ? "selected" : ""}">
-            <input type="checkbox" data-kit-part="${escapeHtml(part.key)}" ${kit.parts.has(part.key) ? "checked" : ""}>
-            <span>${escapeHtml(partLabel(part))}</span>
-            <small>${escapeHtml(catText(part.category))}</small>
-          </label>`).join("")}
-      </div>
+      <h3 class="kit-step">2. ${t("kitAnalyze")}</h3>
+      <p class="form-note">${t("kitPartsAuto")}</p>
       <label class="kit-name">${t("kitCharName")}<input id="kitCharName" value="${escapeHtml(kit.characterName || ch.name)}"></label>
       <div class="kit-actions"><button class="primary" id="kitAnalyzeBtn">${t("kitAnalyze")}</button></div>
       <h3 class="kit-step">3. ${t("kitPasteTitle")}</h3>
@@ -1395,13 +1384,6 @@ function bind() {
       render();
     };
   });
-  document.querySelectorAll("[data-kit-part]").forEach((input) => {
-    input.onchange = () => {
-      if (input.checked) state.kit.parts.add(input.dataset.kitPart);
-      else state.kit.parts.delete(input.dataset.kitPart);
-      render();
-    };
-  });
   if ($("#kitCharName")) $("#kitCharName").onchange = () => { state.kit.characterName = $("#kitCharName").value; };
   if ($("#kitJson")) $("#kitJson").oninput = () => { state.kit.json = $("#kitJson").value; };
   if ($("#kitAnalyzeBtn")) $("#kitAnalyzeBtn").onclick = () => requestKitAnalysis().catch((error) => toast(error.message));
@@ -1669,11 +1651,6 @@ async function requestKitAnalysis() {
     toast(t("kitNoSource"));
     return;
   }
-  const parts = state.kitPresets.filter((part) => kit.parts?.has(part.key));
-  if (!parts.length) {
-    toast(t("kitNoParts"));
-    return;
-  }
   const result = await api("/api/base-kit/analyze", {
     method: "POST",
     body: JSON.stringify({
@@ -1681,7 +1658,6 @@ async function requestKitAnalysis() {
       sourceEntryId: kit.sourceEntryId,
       sourceAssetId: kit.sourceAssetId,
       characterName: ($("#kitCharName")?.value ?? "").trim() || character().name,
-      parts,
     }),
   });
   state.deck = result.state;
