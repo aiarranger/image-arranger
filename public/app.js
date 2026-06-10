@@ -17,7 +17,7 @@ const I18N = {
     kitPartsAuto: "どのパーツに分解するか（顔・表情・角・翼・尻尾など）は、AIが画像を分析して判断します。",
     kitCharName: "キャラクター名",
     kitAnalyze: "分析を依頼",
-    kitAnalyzeQueued: "分析依頼をキューに登録しました。キュータブの「依頼文コピー」からエージェント依頼文を取得できます。",
+    kitAnalyzeQueued: "分析依頼を登録しました。下の「依頼文コピー」でエージェントに渡してください。",
     kitExtra: "追加で分けてほしい要素（任意）",
     kitExtraHelp: "基本はAIが判断します。「靴も別パーツに」「胸の紋章を分けて」など、追加の指定があれば書いてください。",
     kitPasteTitle: "分析結果の取り込み",
@@ -145,7 +145,7 @@ const I18N = {
     kitPartsAuto: "The AI decides which parts to extract (face, expressions, horns, wings, tail...) by analyzing the image.",
     kitCharName: "Character name",
     kitAnalyze: "Request analysis",
-    kitAnalyzeQueued: "Analysis request queued. Use 'Copy agent prompt' on the Queue tab to hand it off.",
+    kitAnalyzeQueued: "Analysis request queued. Use 'Copy agent prompt' below to hand it off.",
     kitExtra: "Extra elements to split out (optional)",
     kitExtraHelp: "The AI decides by default. Add requests like 'split the shoes' or 'separate the chest emblem' if needed.",
     kitPasteTitle: "Import analysis result",
@@ -820,6 +820,17 @@ function renderKit() {
       <label class="kit-name">${t("kitCharName")}<input id="kitCharName" value="${escapeHtml(kit.characterName || ch.name)}"></label>
       <label class="kit-name kit-extra">${t("kitExtra")}<textarea id="kitExtra" rows="2" placeholder="${escapeHtml(t("kitExtraHelp"))}">${escapeHtml(kit.extra ?? "")}</textarea></label>
       <div class="kit-actions"><button class="primary" id="kitAnalyzeBtn">${t("kitAnalyze")}</button></div>
+      ${(state.requests ?? []).filter((row) => row.action === "analyze" && row.characterId === ch.id).map((row) => `
+        <div class="kit-result kit-pending">
+          <span class="kit-result-info">
+            <strong>${escapeHtml(row.overview || row.entryId)}</strong>
+            <small>${t("requested")} ・ ${escapeHtml(formatDateTime(row.requestedAt))} ・ ${escapeHtml(row.requestId)}</small>
+          </span>
+          <span class="kit-actions">
+            <button class="ghost small" data-copy-agent="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}"><i class="fa-solid fa-robot" aria-hidden="true"></i> ${t("copyAgentPrompt")}</button>
+            <button class="ghost small danger" data-cancel-queue="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}">${t("cancelRequest")}</button>
+          </span>
+        </div>`).join("")}
       <h3 class="kit-step">3. ${t("kitPasteTitle")}</h3>
       ${(state.kitResults ?? []).length ? state.kitResults.map((result, index) => `
         <div class="kit-result">
