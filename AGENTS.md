@@ -63,14 +63,24 @@ Windows / Linux equivalents are not established yet.
    4. `osascript -e 'tell application "System Events" to keystroke "v" using command down'`
    5. Wait for the thumbnail spinner to finish before continuing. Repeat per image for multiple references.
    If your environment can set `input[type=file]` directly (Playwright etc.), that also works (it does not open the native dialog).
-2. **Entering the prompt**: do NOT use the clipboard (switching between image and text clipboards is slow and failure-prone — empty pastes and lost focus were observed in field runs). Insert via in-page JS instead (newlines preserved):
+2. **Entering the prompt** — try in this order, and ALWAYS verify the full text appears in the composer before sending (never send empty); if one tier fails, move to the next:
+   1. Your browser tool's native text-input API (type/fill), if available.
+   2. In-page JS (only in environments with real page-context JS; some agents' JS sandboxes cannot see `document.execCommand`):
 
-   ```js
-   const ed = document.querySelector('div[contenteditable="true"]');
-   ed.focus();
-   document.execCommand("insertText", false, "<full prompt>");
-   ```
+      ```js
+      const ed = document.querySelector('div[contenteditable="true"]');
+      ed.focus();
+      document.execCommand("insertText", false, "<full prompt>");
+      ```
 
+   3. Real text clipboard (deterministic last resort): set it via argv-style osascript (piped `pbcopy` can silently produce an empty clipboard), verify with `pbpaste`, then click the composer and send a real Cmd+V. Do this only AFTER all image attachments are done (it overwrites the clipboard).
+
+      ```bash
+      osascript -e 'on run argv' -e 'set the clipboard to item 1 of argv' -e 'end run' "$(cat /tmp/prompt.txt)"
+      pbpaste | head -c 80
+      ```
+
+   On start/resume, if the composer still holds unsent attachments from a previous interrupted run, remove them (×) before starting.
 3. **Tempo**: once the attachment spinner finishes, insert the prompt and send immediately in one go; verify with at most one screenshot before and after sending.
 4. **Waiting**: extended-thinking models can take 5–15 minutes. Poll with light text reads every 30–60 s; do not reload or resend.
 4. **Collecting the JSON**: click the code block's built-in copy button and read the system clipboard (`pbpaste`), or read the `pre code` textContent from the DOM. `navigator.clipboard.writeText` from injected JS can fail due to focus constraints.

@@ -2129,8 +2129,10 @@ ${refs}
    - 画像の添付: ネイティブのファイル選択ダイアログを開かない。
      osascript -e 'set the clipboard to (read (POSIX file "<絶対パス>") as «class PNGf»)'
      → 対象タブ前面化 → 入力欄クリック → System Events の実 Cmd+V。複数画像は1枚ずつ繰り返す。
-   - プロンプトの入力: クリップボードを使わない（画像とテキストの切替で失敗しやすい）。
-     ページ内JSで挿入する: 入力欄(div[contenteditable])を focus → document.execCommand("insertText", false, "<プロンプト全文>")。
+   - プロンプトの入力（この順に試し、送信前に入力欄へ全文反映を必ず確認。空のまま送信しない）:
+     ①ブラウザツールのテキスト入力API（type/fill） ②ページ内JSの document.execCommand("insertText", ...)
+     ③argv渡しosascriptでテキストを実クリップボードへ→pbpasteで検証→入力欄クリック→実Cmd+V（画像添付が全部終わってから）。
+   - 開始時、入力欄に前回の未送信添付が残っていたら×で消してから始める。
    - 添付のスピナー消滅を確認したら、プロンプト挿入→送信まで間を置かず一気に行う（確認スクショは送信前後の2回で十分）。
    - 応答は5〜15分かかることがある。30〜60秒間隔の軽い読み取りでポーリングし、リロードや再送信をしない。
 4. 返答の JSON コードブロック（{"character","parts":[{"key","label","category","prompt"}]}）を取り出す。
@@ -2160,9 +2162,9 @@ ${refs}
 1. curl -s ${origin}/api/requests で上記 requestId / targetIndex の行がまだあることを確認。無ければ停止して報告。
 2. 該当行の prompt をそのまま使い、参照画像は次をすべて添付する（projectRoot からの相対パス・1枚ずつ実Cmd+V）:
 ${refs}
-${isImprove ? "   改善元（inputs.sourceAsset）を主参照として扱い、improvementPrompt を改善意図として優先する。他の参照は同一性維持用。\n" : ""}   プロンプトの入力はクリップボードを使わず、ページ内JSで挿入する:
-   入力欄(div[contenteditable])を focus → document.execCommand("insertText", false, "<プロンプト全文>")。
-   添付完了→プロンプト挿入→送信は間を置かず一気に行う。
+${isImprove ? "   改善元（inputs.sourceAsset）を主参照として扱い、improvementPrompt を改善意図として優先する。他の参照は同一性維持用。\n" : ""}   プロンプトの入力（この順に試し、送信前に入力欄へ全文反映を必ず確認。空のまま送信しない）:
+   ①ブラウザツールのテキスト入力API ②ページ内JS insertText ③argv渡しosascript→pbpaste検証→実Cmd+V（画像添付完了後）。
+   開始時、入力欄に前回の未送信添付が残っていたら×で消してから始める。添付完了→挿入→送信は一気に行う。
 3. 1 target = 1成果物。複数案・グリッド・A/B比較・コンタクトシートを作らない。
    作業タブは1つだけ使い回す（targetごとに新しいタブ/ウィンドウを開かず、同じタブで「新しいチャット」）。
 4. コンテンツポリシー等で拒否された場合: ①同一プロンプトで1回だけ再送 ②デザインを変えない最小限の表現修正で1回再送
