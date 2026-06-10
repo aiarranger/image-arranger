@@ -66,6 +66,10 @@ const I18N = {
     kitImported: "ベースを作成しました",
     kitImportedQueued: "ベースの先頭に追加し、画像生成をキューに登録しました",
     kitNoSource: "ベース画像を選択してください",
+    improveMode: "改善の強さ",
+    improveModeTweak: "微調整（この画像を活かして直す）",
+    improveModeRebuild: "作り直し（正に合わせて描き直す）",
+    improveModeHelp: "同一性のズレ（顔の形・角の大きさ等）を直すときは「作り直し」を選んでください。微調整は元画像に強くアンカーされるため、ズレ自体は直りにくくなります。",
     copyAgentPrompt: "依頼文コピー",
     copiedAgentPrompt: "エージェント依頼文をコピーしました。Codex / Claude Code 等にそのまま貼り付けてください。",
     request: "キューに登録",
@@ -224,6 +228,10 @@ const I18N = {
     kitImported: "Base entries created",
     kitImportedQueued: "Added to the top of Base and queued image generation",
     kitNoSource: "Select a source image first",
+    improveMode: "Improvement strength",
+    improveModeTweak: "Tweak (keep this image)",
+    improveModeRebuild: "Rebuild (redraw to match canon)",
+    improveModeHelp: "Pick Rebuild to fix identity drift (face shape, horn size...). Tweak anchors strongly to the source image, so the drift itself rarely changes.",
     copyAgentPrompt: "Copy agent prompt",
     copiedAgentPrompt: "Agent prompt copied. Paste it into Codex / Claude Code or another agent.",
     request: "Queue selected",
@@ -1922,10 +1930,20 @@ async function requestEntries(entries) {
   await enqueueTargets(entries.map(requestTarget));
 }
 
-function improvePrompt(asset, entry) {
+function improvePrompt(asset, entry, mode = "tweak") {
   const basePrompt = asset.prompt || (state.mode === "image" ? composedPrompt(entry) : entry.prompt) || "";
   const instruction = String(asset.improvementPrompt ?? "").trim()
     || "Improve quality, readability, and asset extraction while preserving the useful composition and original intent.";
+  if (mode === "rebuild") {
+    return [
+      "Recreate this asset so it correctly matches the character's canonical design.",
+      "The attached identity reference image(s) are the GROUND TRUTH for face, colors, proportions, and attached body parts — match them precisely.",
+      "The LAST attached image is the previous attempt: use it ONLY for composition, framing, and intent. Do NOT copy its incorrect details.",
+      instruction,
+      "Keep it usable as a game asset. No text, no logo, no watermark, no UI unless explicitly requested. Create exactly ONE image.",
+      basePrompt ? `Original prompt:\n${basePrompt}` : "",
+    ].filter(Boolean).join("\n\n");
+  }
   return [
     "Improve the existing generated asset.",
     "The FIRST attached image is the asset to improve — keep its composition and intent.",
@@ -1939,8 +1957,11 @@ function improvePrompt(asset, entry) {
 function improveTarget({ entry, asset }) {
   const service = asset.kind === "video" ? "vidu" : "chatgpt";
   // 改善元を主参照に、元の生成で使った元画像（＋ベース参照合成の採用画像）も同一性維持のため添付する
+  const mode = asset.improveMode === "rebuild" ? "rebuild" : "tweak";
   const originalRefs = referenceAssets(entry).map((item) => resolveReferenceFile(item));
-  const refImages = [...new Set([asset.file, ...originalRefs].filter(Boolean))];
+  const refImages = mode === "rebuild"
+    ? [...new Set([...originalRefs, asset.file].filter(Boolean))]
+    : [...new Set([asset.file, ...originalRefs].filter(Boolean))];
   return {
     action: "improve",
     entryId: entry.id,
@@ -1948,7 +1969,7 @@ function improveTarget({ entry, asset }) {
     assetName: asset.name ?? asset.id,
     assetFile: asset.file ?? "",
     overview: `${entry.overview} / ${asset.name ?? asset.id}`,
-    prompt: improvePrompt(asset, entry),
+    prompt: improvePrompt(asset, entry, mode),
     basePrompt: asset.prompt || (state.mode === "image" ? composedPrompt(entry) : entry.prompt) || "",
     improvementPrompt: asset.improvementPrompt ?? "",
     service,
@@ -2289,6 +2310,12 @@ function openAsset(assetId, entryId) {
         <label class="modal-field">${t("improvePrompt")}
           <textarea id="assetImprovePrompt" rows="5">${escapeHtml(asset.improvementPrompt ?? "")}</textarea>
         </label>
+        <div class="modal-field improve-mode">
+          ${t("improveMode")}
+          <label><input type="radio" name="improveMode" value="tweak" ${asset.improveMode !== "rebuild" ? "checked" : ""}> ${t("improveModeTweak")}</label>
+          <label><input type="radio" name="improveMode" value="rebuild" ${asset.improveMode === "rebuild" ? "checked" : ""}> ${t("improveModeRebuild")}</label>
+          <small>${t("improveModeHelp")}</small>
+        </div>
         <div class="modal-actions">
           <button class="ghost danger" id="deleteAssetBtn" type="button"><i class="fa-solid fa-trash" aria-hidden="true"></i> ${t("deleteAsset")}</button>
           <button class="ghost" id="saveImprovePrompt" type="button">${t("saveImprovePrompt")}</button>
@@ -2300,14 +2327,17 @@ function openAsset(assetId, entryId) {
   $("#modal").classList.add("open");
   $("#closeModal").onclick = () => $("#modal").classList.remove("open");
   $("#deleteAssetBtn").onclick = () => deleteAsset(entry, asset);
+  const readImproveMode = () => document.querySelector('input[name="improveMode"]:checked')?.value ?? "tweak";
   $("#saveImprovePrompt").onclick = async () => {
     asset.improvementPrompt = $("#assetImprovePrompt").value;
+    asset.improveMode = readImproveMode();
     await saveDeck(false);
     render();
     toast(t("saveImprovePrompt"));
   };
   $("#queueImproveAsset").onclick = async () => {
     asset.improvementPrompt = $("#assetImprovePrompt").value;
+    asset.improveMode = readImproveMode();
     await enqueueTargets([improveTarget({ entry, asset })]);
     $("#modal").classList.remove("open");
   };
