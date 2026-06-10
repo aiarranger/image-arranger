@@ -83,8 +83,10 @@ export function composeAnalyzePrompt(characterName, parts = BASE_KIT_PARTS, extr
   return [
     "画像生成は不要です。これは画像分析タスクです。",
     "",
-    "Analyze the attached character image carefully and build the part list for a reusable",
+    "Analyze the attached character image(s) carefully and build the part list for a reusable",
     `character identity kit for ${JSON.stringify(String(characterName ?? ""))}.`,
+    "If multiple images are attached, they all depict the same character; use them together",
+    "(e.g. one for overall structure, another for face or color details).",
     "",
     "YOU decide which parts to include, based on what actually exists in this image and",
     "what matters for keeping this character consistent across future generations.",
@@ -133,7 +135,8 @@ export function parseKitParts(value) {
   return Array.isArray(parsed?.parts) ? parsed.parts : [];
 }
 
-function materializeKitParts(character, sourceFile, parts) {
+function materializeKitParts(character, sourceFiles, parts) {
+  const files = (Array.isArray(sourceFiles) ? sourceFiles : [sourceFiles]).filter(Boolean);
   const created = [];
   const existingIds = new Set(collectEntries(character).map((item) => item.id));
   for (const part of parts ?? []) {
@@ -146,12 +149,12 @@ function materializeKitParts(character, sourceFile, parts) {
     existingIds.add(id);
     const item = entry(id, label, prompt);
     item.tags = ["base-kit"];
-    if (sourceFile) {
+    for (const [index, file] of files.entries()) {
       item.assets.push({
-        id: `asset-${safeSlug(id)}-source`,
+        id: `asset-${safeSlug(id)}-source${index ? `-${index}` : ""}`,
         kind: "image",
-        file: sourceFile,
-        name: "source-reference",
+        file,
+        name: files.length > 1 ? `source-reference-${index + 1}` : "source-reference",
         adopted: false,
         prompt: "",
         sourceLicense: "",
@@ -658,6 +661,7 @@ function listKitResults(context) {
         sourceEntryId: target.entryId ?? "",
         sourceAssetId: target.assetId ?? "",
         sourceFile: target.inputs?.sourceAsset ?? target.assetFile ?? "",
+        sourceFiles: target.inputs?.sourceAssets ?? target.inputs?.refImages ?? [],
         completedAt: target.completedAt ?? "",
         parts: target.analysisParts,
       });
@@ -1122,9 +1126,19 @@ async function handleApi(request, response, context, url) {
     const state = readState(context.stateFile, context.projectRoot, context.init);
     const body = await readBody(request);
     const character = findCharacter(state, body.characterId);
-    const sourceEntry = findEntryInCharacter(character, body.sourceEntryId);
-    const sourceAsset = sourceEntry?.assets?.find((item) => item.id === body.sourceAssetId);
-    if (!sourceEntry || !sourceAsset?.file) throw new HttpError(404, "Source asset was not found");
+    const selections = Array.isArray(body.sources) && body.sources.length
+      ? body.sources
+      : [{ entryId: body.sourceEntryId, assetId: body.sourceAssetId }];
+    const resolvedSources = [];
+    for (const selection of selections) {
+      const selEntry = findEntryInCharacter(character, selection.entryId);
+      const selAsset = selEntry?.assets?.find((item) => item.id === selection.assetId);
+      if (selEntry && selAsset?.file) resolvedSources.push({ entry: selEntry, asset: selAsset });
+    }
+    if (!resolvedSources.length) throw new HttpError(404, "Source asset was not found");
+    const sourceEntry = resolvedSources[0].entry;
+    const sourceAsset = resolvedSources[0].asset;
+    const sourceFiles = resolvedSources.map((item) => item.asset.file);
     const requestedParts = (Array.isArray(body.parts) ? body.parts : [])
       .map((part) => ({
         key: safeSlug(part.key ?? part.label, "part"),
@@ -1158,7 +1172,7 @@ async function handleApi(request, response, context, url) {
         parts,
         extraRequest,
         expects: "json",
-        inputs: { startFrame: null, endFrame: null, refImages: [sourceAsset.file], sourceAsset: sourceAsset.file },
+        inputs: { startFrame: null, endFrame: null, refImages: sourceFiles, sourceAsset: sourceAsset.file, sourceAssets: sourceFiles },
         outputDir: null,
         status: "requested",
         results: [],
@@ -1167,7 +1181,10 @@ async function handleApi(request, response, context, url) {
       completedAt: null,
       note: "Analysis request: the processor reads the attached image, writes part prompts as JSON, and returns them via POST /api/requests/complete (parts) or the paste-import UI. No image generation in this step.",
     };
-    applyRequestStatus(state, requestPayload.targets, "requested", character.id);
+    applyRequestStatus(state, [
+      ...requestPayload.targets,
+      ...resolvedSources.slice(1).map((item) => ({ action: "analyze", entryId: item.entry.id, assetId: item.asset.id })),
+    ], "requested", character.id);
     ensureDir(context.requestDir);
     const requestPath = join(context.requestDir, `${requestPayload.requestId}.json`);
     writeJson(requestPath, requestPayload);
@@ -1192,9 +1209,14 @@ async function handleApi(request, response, context, url) {
       throw new HttpError(400, "Invalid analysis JSON");
     }
     if (!parts.length) throw new HttpError(400, "Analysis JSON has no parts");
-    const sourceEntry = body.sourceEntryId ? findEntryInCharacter(character, body.sourceEntryId) : null;
-    const sourceAsset = sourceEntry?.assets?.find((item) => item.id === body.sourceAssetId);
-    const created = materializeKitParts(character, sourceAsset?.file ?? String(body.sourceFile ?? ""), parts);
+    let sourceFiles = Array.isArray(body.sourceFiles) ? body.sourceFiles.filter(Boolean) : [];
+    if (!sourceFiles.length) {
+      const sourceEntry = body.sourceEntryId ? findEntryInCharacter(character, body.sourceEntryId) : null;
+      const sourceAsset = sourceEntry?.assets?.find((item) => item.id === body.sourceAssetId);
+      const fallback = sourceAsset?.file ?? String(body.sourceFile ?? "");
+      sourceFiles = fallback ? [fallback] : [];
+    }
+    const created = materializeKitParts(character, sourceFiles, parts);
     if (!created.length) throw new HttpError(400, "Analysis JSON has no usable parts (label and prompt are required)");
     if (body.requestId && Number.isInteger(Number(body.targetIndex))) {
       markKitResultImported(context, String(body.requestId), Number(body.targetIndex));

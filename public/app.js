@@ -12,8 +12,8 @@ const I18N = {
     generate: "生成",
     analyze: "分析",
     kitIntro: "1枚のベース画像から、キャラクター一貫性のためのパーツ別ベース（顔・表情・角・翼・尻尾など）を作ります。画像分析はChatGPT等への依頼としてキューに登録され、返ってきたJSONを取り込むとベースが自動作成されます。",
-    kitSource: "ベース画像を選ぶ",
-    kitSourceHelp: "採用済みの画像から選択します（カードの「採用」チェックでここに表示されます）。",
+    kitSource: "ベース画像を選ぶ（複数選択可）",
+    kitSourceHelp: "採用済みの画像から選択します（複数可。全身用＋顔色用のように組み合わせると精度が上がります）。",
     kitPartsAuto: "どのパーツに分解するか（顔・表情・角・翼・尻尾など）は、AIが画像を分析して判断します。",
     kitCharName: "キャラクター名",
     kitAnalyze: "分析を依頼",
@@ -150,8 +150,8 @@ const I18N = {
     generate: "Generate",
     analyze: "Analyze",
     kitIntro: "Build per-part character bases (face, expressions, horns, wings, tail...) from one key image. The analysis is queued as a request for ChatGPT or another service; paste the returned JSON to create the base entries automatically.",
-    kitSource: "Pick a source image",
-    kitSourceHelp: "Choose from adopted images (check 'Adopt' on a card to make it selectable here).",
+    kitSource: "Pick source images (multi-select)",
+    kitSourceHelp: "Choose adopted images (multiple allowed — e.g. one for structure plus one for face/color detail).",
     kitPartsAuto: "The AI decides which parts to extract (face, expressions, horns, wings, tail...) by analyzing the image.",
     kitCharName: "Character name",
     kitAnalyze: "Request analysis",
@@ -300,7 +300,7 @@ const state = {
   form: null,
   requests: [],
   toastTimer: null,
-  kit: { sourceEntryId: "", sourceAssetId: "", characterName: "", extra: "", json: "", preview: null },
+  kit: { sources: [], characterName: "", extra: "", json: "", preview: null },
   kitPresets: [],
   kitResults: [],
   projectRoot: "",
@@ -1000,7 +1000,7 @@ function renderKit() {
       </div>
       <div class="kit-sources">
         ${pool.length ? pool.map(({ asset, entry, origin }) => `
-          <button class="kit-source ${kit.sourceAssetId === asset.id ? "selected" : ""}"
+          <button class="kit-source ${kit.sources.some((s) => s.assetId === asset.id) ? "selected" : ""}"
             data-kit-source-entry="${escapeHtml(entry.id)}"
             data-kit-source-asset="${escapeHtml(asset.id)}"
             title="${escapeHtml(`${asset.name ?? asset.id} / ${entry.overview}`)}">
@@ -1658,8 +1658,10 @@ function bind() {
   });
   document.querySelectorAll("[data-kit-source-asset]").forEach((button) => {
     button.onclick = () => {
-      state.kit.sourceEntryId = button.dataset.kitSourceEntry;
-      state.kit.sourceAssetId = button.dataset.kitSourceAsset;
+      const sel = { entryId: button.dataset.kitSourceEntry, assetId: button.dataset.kitSourceAsset };
+      const index = state.kit.sources.findIndex((s) => s.assetId === sel.assetId);
+      if (index >= 0) state.kit.sources.splice(index, 1);
+      else state.kit.sources.push(sel);
       render();
     };
   });
@@ -1951,7 +1953,7 @@ async function enqueueTargets(targets, saveBeforeRequest = true) {
 
 async function requestKitAnalysis() {
   const kit = state.kit;
-  if (!kit.sourceAssetId) {
+  if (!kit.sources.length) {
     toast(t("kitNoSource"));
     return;
   }
@@ -1959,8 +1961,7 @@ async function requestKitAnalysis() {
     method: "POST",
     body: JSON.stringify({
       characterId: state.characterId,
-      sourceEntryId: kit.sourceEntryId,
-      sourceAssetId: kit.sourceAssetId,
+      sources: kit.sources,
       characterName: ($("#kitCharName")?.value ?? "").trim() || character().name,
       extraRequest: ($("#kitExtra")?.value ?? state.kit.extra ?? "").trim(),
     }),
@@ -1996,12 +1997,13 @@ function openKitPreviewFromPaste() {
     toast(t("kitPasteHelp"));
     return;
   }
+  const pasteSourceFiles = state.kit.sources
+    .map((sel) => findEntry(sel.entryId)?.assets?.find((item) => item.id === sel.assetId)?.file)
+    .filter(Boolean);
   state.kit.preview = {
     origin: "paste",
     characterId: state.characterId,
-    sourceEntryId: state.kit.sourceEntryId,
-    sourceAssetId: state.kit.sourceAssetId,
-    sourceFile: "",
+    sourceFiles: pasteSourceFiles,
     requestId: null,
     targetIndex: null,
     parts: parts.map((part) => ({ part, checked: true })),
@@ -2015,9 +2017,7 @@ function openKitPreviewFromResult(index) {
   state.kit.preview = {
     origin: "request",
     characterId: result.characterId || state.characterId,
-    sourceEntryId: result.sourceEntryId,
-    sourceAssetId: result.sourceAssetId,
-    sourceFile: result.sourceFile,
+    sourceFiles: (result.sourceFiles ?? []).length ? result.sourceFiles : [result.sourceFile].filter(Boolean),
     requestId: result.requestId,
     targetIndex: result.targetIndex,
     parts: result.parts.map((part) => ({ part, checked: true })),
@@ -2038,9 +2038,7 @@ async function importSelectedKitParts() {
     method: "POST",
     body: JSON.stringify({
       characterId,
-      sourceEntryId: preview.sourceEntryId ?? "",
-      sourceAssetId: preview.sourceAssetId ?? "",
-      sourceFile: preview.sourceFile ?? "",
+      sourceFiles: preview.sourceFiles ?? [],
       requestId: preview.requestId,
       targetIndex: preview.targetIndex,
       parts,
@@ -2049,9 +2047,7 @@ async function importSelectedKitParts() {
   state.deck = result.state;
   const queueAfter = preview.queueAfter !== false;
   if (queueAfter && result.created.length) {
-    const sourceFile = preview.sourceFile
-      || findEntry(preview.sourceEntryId)?.assets?.find((item) => item.id === preview.sourceAssetId)?.file
-      || "";
+    const refFiles = (preview.sourceFiles ?? []).filter(Boolean);
     const queueResult = await api("/api/requests", {
       method: "POST",
       body: JSON.stringify({
@@ -2062,7 +2058,7 @@ async function importSelectedKitParts() {
           entryId: entryInfo.id,
           overview: entryInfo.overview,
           prompt: entryInfo.prompt,
-          inputs: { startFrame: null, endFrame: null, refImages: sourceFile ? [sourceFile] : [] },
+          inputs: { startFrame: null, endFrame: null, refImages: refFiles },
           outputDir: null,
         })),
       }),
