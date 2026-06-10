@@ -461,11 +461,6 @@ function normalizeState(state) {
     }
     character.images = character.images ?? [];
     character.videos = character.videos ?? [];
-    for (const imageItem of character.images) {
-      if (typeof imageItem.useBaseRefs !== "boolean") {
-        imageItem.useBaseRefs = legacyWorkflow === "character";
-      }
-    }
     for (const entryItem of collectEntries(character)) {
       for (const assetItem of entryItem.assets ?? []) {
         assetItem.sourceLicense = assetItem.sourceLicense ?? "";

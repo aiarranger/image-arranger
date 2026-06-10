@@ -14,7 +14,7 @@ image-arranger gives that workflow structure:
 
 - **Create kit** — start from one key image, queue an analysis request, and get per-part base prompts (face close-up, expression sheet, horns, wings, tail, outfit...) imported back as structured base entries.
 - **Base** — manage per-part reference entries with candidate assets; mark only approved candidates as adopted.
-- **Image** — compose generation prompts from selected base parts plus a per-row prompt; adopted base images become the request's reference images.
+- **Image** — one prompt per output image. Attach adopted images as source inputs; they are stored as links and resolve to each linked entry's *current* canonical image at queue time.
 - **Video** — point start/end frames at adopted images for image-to-video services.
 - **Queue** — every request is a JSON file a human or agent can process; edit, cancel, or complete requests from the UI.
 
@@ -90,7 +90,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: keep it dependency-fr
 
 - **素材作成**：キー画像1枚から分析依頼をキューに登録し、パーツ別（顔・表情差分・角・翼・尻尾・衣装など）の生成プロンプトJSONを取り込むと、ベースが自動作成されます
 - **ベース**：パーツ別リファレンスを候補管理し、承認したものだけ「採用」に
-- **画像**：選択したベースのプロンプト＋行プロンプトを合成。採用画像が参照画像になります
+- **画像**：1プロンプト＝1アウトプット。採用済み画像を元画像（生成入力）として添付でき、リンク先の最新の「正」にキュー時解決されます
 - **動画**：採用画像を start/end フレームに指定して image-to-video へ
 - **キュー**：依頼はすべて JSON ファイル。人間でもコーディングエージェント（[AGENTS.md](AGENTS.md) 参照）でも処理できます
 

@@ -35,7 +35,6 @@ test("default seed state is public-safe sample data", () => {
   assert.equal(state.schema, "image-arranger.v1");
   assert.equal(character.id, "sample-character");
   assert.equal(character.workflow, "character");
-  assert.equal(character.images[0].useBaseRefs, true);
   assert.ok(character.images.some((entry) => entry.id === "image-sample-character-studio-smile"));
   assert.doesNotMatch(JSON.stringify(state), /Fishing Fitness|Punching Arranger|\/Users\//);
 });
