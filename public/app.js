@@ -34,7 +34,7 @@ const I18N = {
     allLabel: "すべて",
     adoptOneHelp: "採用＝この行の正。チェックすると他の候補の採用は自動で外れます（履歴として残ります）。",
     newEntryRefs: "参照する採用画像（任意・複数可）",
-    newEntryRefsHelp: "選んだ画像はこのエントリの元画像（生成入力）として添付され、キュー登録時にAIへ渡されます。",
+    newEntryRefsHelp: "選んだ画像は元画像（生成入力・リンク式）として添付されます。マスターの正は既定で選択済み（クリックで外せます）。参照は2〜4枚が適正で、多すぎると精度が落ちます。",
     kitNoAdopted: "採用済みの画像がありません。ベース／画像タブのカードで「採用」にチェックを入れると、ここに表示されます。",
     promptShown: "この画像を生成したプロンプト",
     promptNext: "プロンプト（次の生成用）",
@@ -173,7 +173,7 @@ const I18N = {
     allLabel: "All",
     adoptOneHelp: "Adopted = the canonical image for this row. Checking it un-adopts the other candidates (kept as history).",
     newEntryRefs: "Adopted images to reference (optional, multiple)",
-    newEntryRefsHelp: "Selected images are attached as source images (generation inputs) and sent to the AI when queued.",
+    newEntryRefsHelp: "Selections are attached as linked source images. Master canonicals are pre-selected (click to remove). 2-4 references work best; too many dilute accuracy.",
     kitNoAdopted: "No adopted images yet. Check 'Adopt' on cards in the Base / Image tabs to make them selectable here.",
     promptShown: "Prompt that generated this image",
     promptNext: "Prompt (for the next generation)",
@@ -1229,6 +1229,13 @@ function openEditCharacterForm() {
 
 function openEntryForm() {
   state.form = { type: "entry", title: `${t("newEntry")} / ${t(state.mode)}`, category: "master" };
+  if (state.mode === "image") {
+    // 既定参照＝マスターカテゴリの正（同一性の核）。パーツは必要なときだけ手動追加する
+    const masterIds = new Set((character().base?.master ?? []).map((entry) => entry.id));
+    state.form.refSel = adoptedImagePool()
+      .filter(({ origin, entry, asset }) => origin === "base" && masterIds.has(entry.id) && asset.kind !== "video")
+      .map(({ entry, asset }) => ({ entryId: entry.id, assetId: asset.id, file: asset.file, name: asset.name ?? asset.id }));
+  }
   render();
 }
 
