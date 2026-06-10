@@ -32,6 +32,8 @@ const I18N = {
     kitChip: "分解パーツ",
     noImage: "画像未生成",
     allLabel: "すべて",
+    newEntryRefs: "参照する採用画像（任意・複数可）",
+    newEntryRefsHelp: "選んだ画像はこのエントリの元画像（生成入力）として添付され、キュー登録時にAIへ渡されます。",
     kitNoAdopted: "採用済みの画像がありません。ベース／画像タブのカードで「採用」にチェックを入れると、ここに表示されます。",
     promptShown: "この画像を生成したプロンプト",
     promptNext: "プロンプト（次の生成用）",
@@ -103,7 +105,7 @@ const I18N = {
     improve: "改善",
     improveSelected: "改善対象",
     improvePrompt: "改善指示",
-    editImprovePrompt: "指示入力",
+    editImprovePrompt: "この画像を改善",
     saveImprovePrompt: "改善指示を保存",
     queueImprove: "改善を登録",
     duplicate: "複製",
@@ -170,6 +172,8 @@ const I18N = {
     kitChip: "Kit part",
     noImage: "Not generated yet",
     allLabel: "All",
+    newEntryRefs: "Adopted images to reference (optional, multiple)",
+    newEntryRefsHelp: "Selected images are attached as source images (generation inputs) and sent to the AI when queued.",
     kitNoAdopted: "No adopted images yet. Check 'Adopt' on cards in the Base / Image tabs to make them selectable here.",
     promptShown: "Prompt that generated this image",
     promptNext: "Prompt (for the next generation)",
@@ -241,7 +245,7 @@ const I18N = {
     improve: "Improve",
     improveSelected: "Improve",
     improvePrompt: "Improvement instructions",
-    editImprovePrompt: "Instructions",
+    editImprovePrompt: "Improve this image",
     saveImprovePrompt: "Save instructions",
     queueImprove: "Queue improvement",
     duplicate: "Duplicate",
@@ -1165,10 +1169,25 @@ function renderFormModal() {
       ? `<input type="hidden" name="category" value="${escapeHtml(form.category ?? "master")}">
          <p class="form-note">${t("category")}: ${catText(form.category ?? "master")}</p>`
       : "";
+    const refPool = state.mode === "image" ? adoptedImagePool().filter((item) => item.asset.kind !== "video") : [];
+    const refPicker = state.mode === "image" ? `
+      <div class="form-note"><strong>${t("newEntryRefs")}</strong><br>${t("newEntryRefsHelp")}</div>
+      <div class="kit-sources form-ref-pool">
+        ${refPool.length ? refPool.map(({ asset, entry, origin }) => `
+          <button type="button" class="kit-source ${(form.refSel ?? []).some((row) => row.assetId === asset.id) ? "selected" : ""}"
+            data-form-ref-entry="${escapeHtml(entry.id)}" data-form-ref-asset="${escapeHtml(asset.id)}"
+            data-form-ref-file="${escapeHtml(asset.file)}" data-form-ref-name="${escapeHtml(asset.name ?? asset.id)}"
+            title="${escapeHtml(entry.overview)}">
+            <span class="thumb"><img src="${assetUrl(asset.file)}" loading="lazy" alt=""></span>
+            <span class="kit-source-name">${escapeHtml(entry.overview || asset.name || asset.id)}</span>
+            <span class="kit-source-origin">${origin === "base" ? t("base") : t("image")}</span>
+          </button>`).join("") : `<p class="form-note">${t("kitNoAdopted")}</p>`}
+      </div>` : "";
     body = `
       ${categoryField}
-      <label>${t("assetName")}<input name="overview" required placeholder="${state.mode === "video" ? "fish-jump-loop" : "new asset prompt"}"></label>
-      <label>${t("prompt")}<textarea name="prompt" rows="7"></textarea></label>
+      <label>${t("assetName")}<input name="overview" required value="${escapeHtml(form.draftOverview ?? "")}" placeholder="${state.mode === "video" ? "fish-jump-loop" : "new asset prompt"}"></label>
+      <label>${t("prompt")}<textarea name="prompt" rows="7">${escapeHtml(form.draftPrompt ?? "")}</textarea></label>
+      ${refPicker}
       ${state.mode === "video" ? `
         <label>${t("start")}<select name="startFrame"><option value="">未設定</option>${optionList(imageAssets)}</select></label>
         <label>${t("end")}<select name="endFrame"><option value="">未設定</option>${optionList(imageAssets)}</select></label>
@@ -1460,6 +1479,7 @@ function createEntryFromForm(form) {
     return;
   }
   const id = makeUniqueId(ids, `image-${slug(overview)}`);
+  const refSel = state.form?.refSel ?? [];
   ch.images.push({
     id,
     overview,
@@ -1468,7 +1488,19 @@ function createEntryFromForm(form) {
     checked: false,
     requestStatus: "idle",
     tags: [],
-    assets: [],
+    assets: refSel.map((row, index) => ({
+      id: `asset-${id}-src-${index}`,
+      kind: "image",
+      file: row.file,
+      name: row.name || "source-reference",
+      adopted: false,
+      prompt: "",
+      sourceLicense: "",
+      aiGenerated: true,
+      humanReviewed: true,
+      usageNotes: "新規作成時に選択した元画像（生成入力）",
+      tags: ["source-reference"],
+    })),
     useBaseRefs: false,
     refs: defaultBaseRefs(ch),
   });
@@ -1826,6 +1858,27 @@ function bind() {
   });
   document.querySelectorAll(".asset").forEach((card) => {
     card.onclick = () => openAsset(card.dataset.assetId, card.dataset.entryId);
+  });
+  document.querySelectorAll("[data-form-ref-asset]").forEach((button) => {
+    button.onclick = () => {
+      if (!state.form) return;
+      const formEl = $("#activeForm");
+      if (formEl) {
+        const data = new FormData(formEl);
+        state.form.draftOverview = String(data.get("overview") ?? "");
+        state.form.draftPrompt = String(data.get("prompt") ?? "");
+      }
+      state.form.refSel = state.form.refSel ?? [];
+      const index = state.form.refSel.findIndex((row) => row.assetId === button.dataset.formRefAsset);
+      if (index >= 0) state.form.refSel.splice(index, 1);
+      else state.form.refSel.push({
+        entryId: button.dataset.formRefEntry,
+        assetId: button.dataset.formRefAsset,
+        file: button.dataset.formRefFile,
+        name: button.dataset.formRefName,
+      });
+      render();
+    };
   });
   if ($("#activeForm")) $("#activeForm").onsubmit = handleFormSubmit;
   if ($("#closeForm")) $("#closeForm").onclick = closeForm;

@@ -1085,3 +1085,7 @@ textarea.prompt {
   font-size: 9.5px;
   padding: 1px 7px;
 }
+
+.form-ref-pool { max-height: 280px; overflow-y: auto; }
+.form-ref-pool .kit-source { width: 108px; }
+.form-ref-pool .kit-source .thumb { width: 90px; height: 90px; }
