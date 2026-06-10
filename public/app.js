@@ -134,10 +134,6 @@ const I18N = {
     applyCommonImprove: "共通指示で登録",
     editIndividually: "個別に調整",
     batchImproveNote: "共通指示でまとめて登録できます。個別に調整する場合は素材カードを開いてください。",
-    imageCount: "画像",
-    videoCount: "動画",
-    assetCount: "素材",
-    pendingCount: "依頼中",
   },
   en: {
     title: "Image / Video Prompt Manager",
@@ -274,10 +270,6 @@ const I18N = {
     applyCommonImprove: "Queue with shared instructions",
     editIndividually: "Edit individually",
     batchImproveNote: "Add shared instructions here, or open each asset card to edit individually.",
-    imageCount: "Images",
-    videoCount: "Videos",
-    assetCount: "Assets",
-    pendingCount: "Queued",
   },
 };
 
@@ -1060,22 +1052,6 @@ function renderRows() {
   `;
 }
 
-function renderStats() {
-  const ch = character();
-  const entries = [...allBaseEntries(ch), ...ch.images, ...ch.videos];
-  const assets = entries.reduce((sum, entry) => sum + (entry.assets?.length ?? 0), 0);
-  const videos = ch.videos.length;
-  const requested = entries.filter((entry) => entry.requestStatus === "requested").length;
-  return `
-    <div class="summary">
-      <div class="stat"><span>${t("imageCount")}</span><strong>${ch.images.length}</strong></div>
-      <div class="stat"><span>${t("videoCount")}</span><strong>${videos}</strong></div>
-      <div class="stat"><span>${t("assetCount")}</span><strong>${assets}</strong></div>
-      <div class="stat"><span>${t("pendingCount")}</span><strong>${requested}</strong></div>
-    </div>
-  `;
-}
-
 function renderQueue() {
   const filter = state.filter.toLowerCase();
   const rows = (state.requests ?? []).filter((item) => {
@@ -1255,7 +1231,6 @@ function render() {
           <button class="primary" id="requestBtn" ${queueCount ? "" : "disabled"}>${requestLabel}</button>
         `}
       </div>
-      ${renderStats()}
       <section class="panel">
         <div class="panel-head">
           <h2>${escapeHtml(ch.name)} / ${t(state.mode)}</h2>
