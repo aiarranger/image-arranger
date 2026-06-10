@@ -962,6 +962,57 @@ textarea.prompt {
 .kit-part-row small { color: var(--muted); font-size: 10.5px; }
 .kit-part-row .kit-part-prompt { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.kit-chip { background: var(--soft); color: var(--purple); border-radius: 999px; padding: 2px 10px; font-size: 11px; white-space: nowrap; }
+.kit-chip { background: rgba(109, 99, 138, 0.12); color: var(--muted); border-radius: 999px; padding: 2px 10px; font-size: 11px; white-space: nowrap; }
 .kit-queue-after { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin: 8px 0; cursor: pointer; }
 .kit-queue-after input[type="checkbox"] { width: auto; flex: none; margin: 0; }
+
+
+/* ---- base tab: compact card grid ---- */
+.bgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.bcard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--panel-strong);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.bcard:hover { border-color: var(--purple); box-shadow: 0 2px 10px rgba(155, 125, 255, 0.18); }
+.bcard.selected { border-color: var(--purple); background: var(--soft); }
+.bcard-check { position: absolute; top: 10px; left: 10px; z-index: 2; background: rgba(255,255,255,.9); border-radius: 6px; padding: 2px 4px; line-height: 1; }
+.bcard-check input[type="checkbox"] { width: auto; flex: none; margin: 0; display: block; }
+.bcard-thumb { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: #f1eff9; display: flex; align-items: center; justify-content: center; }
+.bcard-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.bcard-thumb .no-image { color: var(--muted); font-size: 11.5px; }
+.bcard-title { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bcard-meta { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.bcard-meta .badge, .bcard-meta .kit-chip { font-size: 10px; padding: 1px 8px; }
+
+/* ---- base entry detail modal ---- */
+.entry-modal {
+  width: min(880px, 92vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.entry-modal-head { display: flex; align-items: center; gap: 10px; }
+.entry-modal-head .title-input { flex: 1; font-size: 15px; font-weight: 700; }
+.entry-modal-prompt { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.entry-modal-prompt textarea { width: 100%; border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; font-family: var(--mono); resize: vertical; }
+.entry-modal h4 { margin: 4px 0 0; font-size: 13px; }
+.entry-assets { display: flex; gap: 10px; flex-wrap: wrap; }
+.entry-assets.sources .entry-asset { opacity: .85; }
+.entry-asset { width: 132px; border: 1px solid var(--line); border-radius: 10px; padding: 6px; cursor: pointer; background: var(--panel-strong); }
+.entry-asset:hover { border-color: var(--purple); }
+.entry-asset .thumb { width: 118px; height: 118px; border-radius: 6px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #f1eff9; }
+.entry-asset .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.entry-asset-name { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 4px 0 2px; }
+.entry-modal-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 12px; }

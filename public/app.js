@@ -30,6 +30,8 @@ const I18N = {
     kitPickOne: "取り込むパーツを1つ以上選択してください",
     kitQueueAfter: "取り込んだパーツの画像生成をすぐキューに登録する",
     kitChip: "分解パーツ",
+    noImage: "画像未生成",
+    genImages: "生成画像（候補）",
     kitImported: "ベースを作成しました",
     kitImportedQueued: "ベースの先頭に追加し、画像生成をキューに登録しました",
     kitNoSource: "ベース画像を選択してください",
@@ -161,6 +163,8 @@ const I18N = {
     kitPickOne: "Select at least one part to import",
     kitQueueAfter: "Queue image generation for the imported parts right away",
     kitChip: "Kit part",
+    noImage: "Not generated yet",
+    genImages: "Generated candidates",
     kitImported: "Base entries created",
     kitImportedQueued: "Added to the top of Base and queued image generation",
     kitNoSource: "Select a source image first",
@@ -709,23 +713,112 @@ function deleteEntryButton(entry) {
   return `<button class="icon danger" data-delete="${escapeHtml(entry.id)}" title="${t("delete")}" aria-label="${t("delete")}"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>`;
 }
 
-function baseRow(entry) {
+function isSourceRef(asset) {
+  return (asset?.tags ?? []).includes("source-reference") || asset?.name === "source-reference";
+}
+
+function baseCard(entry) {
+  const generated = (entry.assets ?? []).filter((asset) => !isSourceRef(asset));
+  const main = generated.find((asset) => asset.adopted && asset.file) ?? generated.find((asset) => asset.file);
+  const requested = entry.requestStatus === "requested";
   return `
-    <div class="row ${entry.checked ? "selected" : ""}" data-row-id="${escapeHtml(entry.id)}">
-      <div class="row-top">
-        <input class="check" type="checkbox" data-check="${escapeHtml(entry.id)}" ${entry.checked ? "checked" : ""} ${entry.requestStatus === "requested" ? "disabled" : ""}>
-        <input class="title-input" data-title="${escapeHtml(entry.id)}" value="${escapeHtml(entry.overview)}">
-        ${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}
-        ${statusBadge(entry)}
-        ${rowQueueButton(entry)}
-        <button class="ghost small" data-add-asset="${escapeHtml(entry.id)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${t("addAsset")}</button>
-        ${duplicateButton(entry)}
-        ${deleteEntryButton(entry)}
+    <div class="bcard ${entry.checked ? "selected" : ""}" data-open-entry="${escapeHtml(entry.id)}" title="${escapeHtml(entry.overview)}">
+      <label class="bcard-check">
+        <input type="checkbox" data-check="${escapeHtml(entry.id)}" ${entry.checked ? "checked" : ""} ${requested ? "disabled" : ""}>
+      </label>
+      <div class="bcard-thumb">
+        ${main ? `<img src="${assetUrl(main.file)}" alt="${escapeHtml(entry.overview)}" loading="lazy">` : `<span class="no-image">${t("noImage")}</span>`}
       </div>
-      ${promptBlock(entry)}
-      <div class="assets">${(entry.assets ?? []).map((asset) => assetCard(asset, entry)).join("")}</div>
+      <div class="bcard-title">${escapeHtml(entry.overview)}</div>
+      <div class="bcard-meta">${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}${statusBadge(entry)}</div>
     </div>
   `;
+}
+
+function openBaseEntry(entryId) {
+  const entry = findEntry(entryId);
+  if (!entry) return;
+  const sources = (entry.assets ?? []).filter(isSourceRef);
+  const generated = (entry.assets ?? []).filter((asset) => !isSourceRef(asset));
+  const requested = entry.requestStatus === "requested";
+  const assetMini = (asset) => `
+    <div class="entry-asset" data-open-asset="${escapeHtml(asset.id)}">
+      <div class="thumb">${asset.file ? `<img src="${assetUrl(asset.file)}" alt="${escapeHtml(asset.name ?? "")}" loading="lazy">` : "—"}</div>
+      <div class="entry-asset-name">${escapeHtml(asset.name ?? asset.id)}</div>
+      <label class="asset-adopt"><input type="checkbox" data-modal-adopt="${escapeHtml(asset.id)}" ${asset.adopted ? "checked" : ""}> ${t("adopt")}</label>
+    </div>`;
+  $("#modal").innerHTML = `
+    <button class="close" id="closeModal" title="${t("close")}" aria-label="${t("close")}">×</button>
+    <div class="entry-modal">
+      <div class="entry-modal-head">
+        <input class="title-input" id="entryModalTitle" value="${escapeHtml(entry.overview)}">
+        ${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}
+        ${statusBadge(entry)}
+      </div>
+      <label class="entry-modal-prompt">${t("prompt")}
+        <textarea id="entryModalPrompt" rows="8">${escapeHtml(entry.prompt ?? "")}</textarea>
+      </label>
+      <h4>${t("genImages")}</h4>
+      <div class="entry-assets">${generated.length ? generated.map(assetMini).join("") : `<p class="form-note">${t("noImage")} — ${t("requestOne")} → ${t("queue")}</p>`}</div>
+      ${sources.length ? `<h4>${t("refImages")}</h4><div class="entry-assets sources">${sources.map(assetMini).join("")}</div>` : ""}
+      <div class="entry-modal-actions">
+        <button class="ghost danger" id="entryModalDelete"><i class="fa-solid fa-trash" aria-hidden="true"></i> ${t("delete")}</button>
+        <button class="ghost" id="entryModalDup">${t("duplicate")}</button>
+        <button class="ghost" id="entryModalAddAsset">${t("addAsset")}</button>
+        <button class="ghost" id="entryModalSave">${t("save")}</button>
+        ${requested
+          ? `<button class="primary" id="entryModalCancelReq">${t("cancelRequest")}</button>`
+          : `<button class="primary" id="entryModalQueue">${t("requestOne")}</button>`}
+      </div>
+    </div>`;
+  $("#modal").classList.add("open");
+  const closeModal = () => $("#modal").classList.remove("open");
+  $("#closeModal").onclick = closeModal;
+  $("#modal").onclick = (event) => { if (event.target.id === "modal") closeModal(); };
+  $("#entryModalSave").onclick = async () => {
+    entry.overview = $("#entryModalTitle").value;
+    entry.prompt = $("#entryModalPrompt").value;
+    await saveDeck(false);
+    render();
+    toast(t("save"));
+  };
+  $("#entryModalDelete").onclick = () => { closeModal(); deleteEntry(entry.id); };
+  $("#entryModalDup").onclick = async () => {
+    duplicateEntry(entry.id);
+    closeModal();
+    await saveDeck(false);
+    render();
+  };
+  $("#entryModalAddAsset").onclick = () => { closeModal(); openAssetForm(entry.id); };
+  if ($("#entryModalQueue")) {
+    $("#entryModalQueue").onclick = async () => {
+      entry.overview = $("#entryModalTitle").value;
+      entry.prompt = $("#entryModalPrompt").value;
+      closeModal();
+      await requestEntries([entry]);
+    };
+  }
+  if ($("#entryModalCancelReq")) {
+    $("#entryModalCancelReq").onclick = async () => {
+      closeModal();
+      await cancelTargets([{ action: "generate", entryId: entry.id }]);
+    };
+  }
+  document.querySelectorAll("[data-modal-adopt]").forEach((input) => {
+    input.onclick = (event) => event.stopPropagation();
+    input.onchange = () => {
+      const asset = (entry.assets ?? []).find((item) => item.id === input.dataset.modalAdopt);
+      if (!asset) return;
+      asset.adopted = input.checked;
+      saveDeck(false).catch((error) => toast(error.message));
+    };
+  });
+  document.querySelectorAll("[data-open-asset]").forEach((card) => {
+    card.onclick = (event) => {
+      if (event.target.closest("label")) return;
+      openAsset(card.dataset.openAsset, entry.id);
+    };
+  });
 }
 
 function imageRow(entry) {
@@ -786,7 +879,7 @@ function renderBase() {
           <div class="group-title">${catText(category)}</div>
           <button class="ghost small" data-add-base-category="${escapeHtml(category)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${catText(category)}を追加</button>
         </div>
-        ${filtered.length ? filtered.map(baseRow).join("") : `<div class="empty">${t("noRows")}</div>`}
+        ${filtered.length ? `<div class="bgrid">${filtered.map(baseCard).join("")}</div>` : `<div class="empty">${t("noRows")}</div>`}
       </div>
     `;
   }).join("");
@@ -1450,6 +1543,15 @@ function bind() {
   });
   document.querySelectorAll("[data-add-base-category]").forEach((button) => {
     button.onclick = () => openBaseCategoryForm(button.dataset.addBaseCategory);
+  });
+  document.querySelectorAll("[data-open-entry]").forEach((card) => {
+    card.onclick = (event) => {
+      if (event.target.closest(".bcard-check")) return;
+      openBaseEntry(card.dataset.openEntry);
+    };
+  });
+  document.querySelectorAll(".bcard-check").forEach((label) => {
+    label.onclick = (event) => event.stopPropagation();
   });
   document.querySelectorAll("[data-kit-source-asset]").forEach((button) => {
     button.onclick = () => {
