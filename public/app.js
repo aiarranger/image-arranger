@@ -859,10 +859,16 @@ function openEntryModal(entryId, shownAssetId = null) {
   });
 }
 
-function frameCard(label, assetId) {
+function frameCard(label, assetId, entryId, field) {
   const found = allImageAssets().find((asset) => asset.id === assetId);
-  const image = found?.file ? `<img src="${assetUrl(found.file)}" alt="${escapeHtml(found.name)}" loading="lazy">` : "<span>missing</span>";
-  return `<div class="frame-card"><div class="thumb">${image}</div><div class="label">${label}: ${escapeHtml(found?.name ?? assetId ?? "未設定")}</div></div>`;
+  const image = found?.file
+    ? `<img src="${assetUrl(found.file)}" alt="${escapeHtml(found.name)}" loading="lazy">`
+    : `<span>${assetId ? "missing" : "未設定"}</span>`;
+  const options = allImageAssets().map((item) => ({ value: item.id, label: `${item.name ?? item.id} / ${item.entry.overview}` }));
+  return `<div class="frame-card"><div class="thumb">${image}</div><div class="label">${label}</div>
+    <select class="frame-select" data-frame-entry="${escapeHtml(entryId)}" data-frame-field="${escapeHtml(field)}">
+      <option value="">未設定</option>${optionList(options, assetId ?? "")}
+    </select></div>`;
 }
 
 function videoRow(entry) {
@@ -879,8 +885,8 @@ function videoRow(entry) {
       </div>
       ${promptBlock(entry)}
       <div class="frame-pair">
-        ${frameCard(t("start"), entry.startFrame)}
-        ${frameCard(t("end"), entry.endFrame)}
+        ${frameCard(t("start"), entry.startFrame, entry.id, "startFrame")}
+        ${frameCard(t("end"), entry.endFrame, entry.id, "endFrame")}
         <div class="output"><strong>${t("output")}</strong><br>${escapeHtml(entry.outputDraft ?? "")}</div>
       </div>
       <div class="assets">${(entry.assets ?? []).map((asset) => assetCard(asset, entry)).join("")}</div>
@@ -1777,6 +1783,15 @@ function bind() {
       if (!main) return;
       setAdopted(entry, main, input.checked);
       saveDeck(false).catch((error) => toast(error.message));
+      render();
+    };
+  });
+  document.querySelectorAll("[data-frame-field]").forEach((select) => {
+    select.onchange = async () => {
+      const entry = findEntry(select.dataset.frameEntry);
+      if (!entry) return;
+      entry[select.dataset.frameField] = select.value;
+      await saveDeck(false).catch((error) => toast(error.message));
       render();
     };
   });
