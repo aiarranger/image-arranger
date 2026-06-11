@@ -106,10 +106,10 @@ depends_on:
 
 | # | タスク | 担当 | 対象 | 完了条件 | 状態 |
 |---|--------|------|------|---------|------|
-| P0-AUTO-1 | CONTRIBUTINGの矛盾修正＋ToS免責 | 🤖 | CONTRIBUTING.md:25, README.md, AGENTS.md冒頭 | 下記受け入れ条件 | ⏳ |
-| P0-AUTO-2 | Node版ガード（22+要求の明示） | 🤖 | scripts/process-queue.mjs 冒頭, scripts/agent-browser.mjs:92 | Node20で明確メッセージ＋clean exit | ⏳ |
-| P0-AUTO-3 | ポート既定の4217統一 | 🤖 | scripts/process-queue.mjs:31, AGENTS.md:15,18 | 全箇所4217 | ⏳ |
-| P0-AUTO-4 | READMEに「Scripted processing(optional)」節 | 🤖 | README.md | 2コマンド＋免責＋プラットフォーム明記 | ⏳ |
+| P0-AUTO-1 | CONTRIBUTINGの矛盾修正＋ToS免責 | 🤖 | CONTRIBUTING.md:25, README.md, AGENTS.md冒頭 | 下記受け入れ条件 | ✅ |
+| P0-AUTO-2 | Node版ガード（22+要求の明示） | 🤖 | scripts/process-queue.mjs 冒頭, scripts/agent-browser.mjs:92 | Node20で明確メッセージ＋clean exit | ✅ |
+| P0-AUTO-3 | ポート既定の4217統一 | 🤖 | scripts/process-queue.mjs:31, AGENTS.md:15,18 | 全箇所4217 | ✅ |
+| P0-AUTO-4 | READMEに「Scripted processing(optional)」節 | 🤖 | README.md | 2コマンド＋免責＋プラットフォーム明記 | ✅ |
 
 **P0-AUTO-1 受け入れ条件**（根拠: レビュー C3）:
 - `CONTRIBUTING.md:25` を「**サーバ本体は**いかなるサービスも呼ばない/自動化しない。自動化ドライバは `scripts/` に**ユーザー操作・免責付き**のツールとして存在する」に修正。
@@ -130,11 +130,11 @@ depends_on:
 
 | # | タスク | 担当 | 対象 | 完了条件 | 状態 |
 |---|--------|------|------|---------|------|
-| P0-PKG-1 | 依存ゼロ package.json 作成 | 🤖 | （新規）package.json, server.mjs先頭(shebang) | 下記受け入れ条件 | ⏳ |
-| P0-PKG-2 | CONTRIBUTING/CIに scripts/ の --check 追加 | 🤖 | CONTRIBUTING.md:9-14, .github/workflows/ci.yml | 4ファイル全部 --check | ⏳ |
-| P0-PKG-3 | CIマトリクス(Node 20/22/24) | 🤖 | .github/workflows/ci.yml | matrix.node-version:[20,22,24] | ⏳ |
-| P0-PKG-4 | CHANGELOG.md 作成 | 🤖 | （新規）CHANGELOG.md | Keep a Changelog形式・Unreleased節 | ⏳ |
-| P0-PKG-5 | config.json を .gitignore | 🤖 | .gitignore | `config.json` 追加 | ⏳ |
+| P0-PKG-1 | 依存ゼロ package.json 作成 | 🤖 | （新規）package.json, server.mjs先頭(shebang) | 下記受け入れ条件 | ✅ |
+| P0-PKG-2 | CONTRIBUTING/CIに scripts/ の --check 追加 | 🤖 | CONTRIBUTING.md:9-14, .github/workflows/ci.yml | 4ファイル全部 --check | ✅ |
+| P0-PKG-3 | CIマトリクス(Node 20/22/24) | 🤖 | .github/workflows/ci.yml | matrix.node-version:[20,22,24] | ✅ |
+| P0-PKG-4 | CHANGELOG.md 作成 | 🤖 | （新規）CHANGELOG.md | Keep a Changelog形式・Unreleased節 | ✅ |
+| P0-PKG-5 | config.json を .gitignore | 🤖 | .gitignore | `config.json` 追加 | ✅ |
 | P0-PKG-6 | npm名 `image-arranger` 確保 | 👤 | npmjs.com | 名前予約済み | ⏳ |
 
 **P0-PKG-1 受け入れ条件**（根拠: レビュー H9, 批評役で名前空きを確認）:
@@ -175,7 +175,7 @@ depends_on:
 
 | # | タスク | 担当 | 対象 | 完了条件 | 状態 |
 |---|--------|------|------|---------|------|
-| P0-VIS-1 | サンプルにプレースホルダ画像同梱 | 🤖 | server.mjs(`--init sample`), examples/sample-deck.json | 候補/採用/canonicalが初回可視 | ⏳ |
+| P0-VIS-1 | サンプルにプレースホルダ画像同梱 | 🤖 | server.mjs(`--init sample`), examples/sample-deck.json | 候補/採用/canonicalが初回可視 | ✅ |
 | P0-VIS-2 | デモGIF録画（中核ループ60-90秒） | 👤 | （新規）docs/assets/demo.gif | URL投入→生成→採用の一巡 | ⏳ |
 | P0-VIS-3 | スクショ3枚撮影 | 👤 | （新規）docs/assets/*.png | Base採用/Imageタブ/run-log | ⏳ |
 | P0-VIS-4 | README冒頭にGIF/スクショ挿入 | 🤖 | README.md | タグライン直下にGIF | ⏳ |
@@ -215,19 +215,19 @@ depends_on:
   ✅ P0-SEC-6 referenceUrl scheme (🤖)
   ✅ P0-SEC-7 テスト+文書 (🤖)
 ⏳ 自動化の正直化
-  ⏳ P0-AUTO-1 CONTRIBUTING+免責 (🤖)
-  ⏳ P0-AUTO-2 Node22ガード (🤖)
-  ⏳ P0-AUTO-3 ポート4217統一 (🤖)
-  ⏳ P0-AUTO-4 README自動化節 (🤖)
+  ✅ P0-AUTO-1 CONTRIBUTING+免責 (🤖)
+  ✅ P0-AUTO-2 Node22ガード (🤖)
+  ✅ P0-AUTO-3 ポート4217統一 (🤖)
+  ✅ P0-AUTO-4 README自動化節 (🤖)
 ⏳ パッケージング
-  ⏳ P0-PKG-1 package.json (🤖)
-  ⏳ P0-PKG-2 CI/CONTRIBUTING --check (🤖)
-  ⏳ P0-PKG-3 CIマトリクス (🤖)
-  ⏳ P0-PKG-4 CHANGELOG (🤖)
-  ⏳ P0-PKG-5 .gitignore config.json (🤖)
+  ✅ P0-PKG-1 package.json (🤖)
+  ✅ P0-PKG-2 CI/CONTRIBUTING --check (🤖)
+  ✅ P0-PKG-3 CIマトリクス (🤖)
+  ✅ P0-PKG-4 CHANGELOG (🤖)
+  ✅ P0-PKG-5 .gitignore config.json (🤖)
   ⏳ P0-PKG-6 npm名確保 (👤)
 ⏳ ビジュアル
-  ⏳ P0-VIS-1 サンプル画像 (🤖)
+  ✅ P0-VIS-1 サンプル画像 (🤖)
   ⏳ P0-VIS-2 デモGIF (👤)
   ⏳ P0-VIS-3 スクショ (👤)
   ⏳ P0-VIS-4 README挿入 (🤖)
