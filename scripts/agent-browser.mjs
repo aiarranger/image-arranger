@@ -243,7 +243,50 @@ export async function waitFor(page, expression, { timeoutMs = 30000, intervalMs 
 // one-place fix; every step verifies its own outcome via the DOM.
 // ---------------------------------------------------------------------------
 
-const COMPOSER = `document.querySelector('#prompt-textarea') ?? document.querySelector('main div[contenteditable="true"]')`;
+// ---------------------------------------------------------------------------
+// CENTRALIZED SELECTORS. Every CSS selector / regex the automation depends on
+// lives here so a ChatGPT UI change is a one-place fix. SELECTORS.md (repo
+// root) documents each entry and how to patch it. The self-test below
+// (selectorSelfTest) probes the "core" entries against the live page so
+// `--check` can report breakage with an actionable message instead of failing
+// obscurely deep in the pipeline.
+//
+// Each core entry is an ordered list of CSS selector candidates: the first one
+// that matches an element on the page wins. Listing fallbacks (e.g. a stable
+// data-testid plus a structural CSS path) keeps the driver working across
+// minor UI revisions and is locale-agnostic by construction.
+// ---------------------------------------------------------------------------
+
+export const SELECTORS = {
+  // Where the user's prompt is typed. ChatGPT uses a contenteditable div with
+  // id #prompt-textarea; the structural fallback covers id renames.
+  composer: ['#prompt-textarea', 'main div[contenteditable="true"]'],
+  // Hidden <input type=file> that DOM.setFileInputFiles targets to attach
+  // reference images. There is exactly one on the composer.
+  fileInput: ['input[type="file"]'],
+  // The "send" button. data-testid is the stable signal; aria-label fallbacks
+  // cover both JP and EN labels.
+  sendButton: ['[data-testid="send-button"]', 'button[aria-label*="Send"]', 'button[aria-label*="送信"]'],
+  // One container per message turn in the conversation transcript.
+  conversationTurn: ['[data-testid^="conversation-turn-"]', 'article'],
+};
+
+// Structural signals used by REPLY_STATE / error / login detection. These are
+// not "must exist on every page" elements, so they are kept out of the
+// self-test's core set, but are documented in SELECTORS.md.
+export const SIGNALS = {
+  // Present while the assistant is streaming a response.
+  stopButton: '[data-testid="stop-button"]',
+  // The image-generation action overlay that marks a finished render.
+  imageGenOverlay: '[data-testid^="image-gen-overlay"]',
+  // Marks a turn as the user's (so its attachments are never mistaken for a
+  // deliverable). Locale-independent.
+  userMessage: '[data-testid*="user-message"]',
+  // Hosts that serve real generated/uploaded image bytes (vs. UI sprites).
+  imageSrc: /backend-api|estuary|oaiusercontent|files\.openai|^blob:/,
+};
+
+const COMPOSER = `(${JSON.stringify(SELECTORS.composer)}.map((s) => document.querySelector(s)).find(Boolean) ?? null)`;
 
 export async function openChat({ cdpPort = DEFAULTS.cdpPort, chatUrl = DEFAULTS.chatUrl } = {}) {
   const page = await openPage(chatUrl, { cdpPort });
@@ -256,10 +299,25 @@ export async function checkLogin(page, { timeoutMs = 20000 } = {}) {
   let state = "unknown";
   while (Date.now() - startedAt < timeoutMs) {
     state = await evaluate(page, `(() => {
-      // A logged-out chatgpt.com still shows a composer, so the reliable
-      // signal is the header login/signup buttons.
+      // A logged-out chatgpt.com still shows a composer, so the composer alone
+      // is not a reliable "logged in" signal. Detect logout STRUCTURALLY and
+      // locale-agnostically, then confirm login via the composer.
+      //
+      // 1) The auth buttons link to /auth/login and /auth/* (or carry
+      //    data-testid hooks) regardless of UI language.
+      const authLink = document.querySelector(
+        'a[href*="/auth/login"], a[href*="/auth/signup"], [data-testid="login-button"], [data-testid*="signup"]',
+      );
+      if (authLink) return "logged-out";
+      // 2) The login wall sometimes redirects the URL itself.
+      if (/\\/auth\\/(login|signup)/.test(location.pathname)) return "logged-out";
+      // 3) Locale text fallback (broadened beyond JP/EN) only if structure was
+      //    inconclusive — covers a few common ChatGPT UI languages.
       const header = (document.querySelector('header')?.innerText ?? "");
-      if (/ログイン|Log in|Sign up|サインアップ/.test(header)) return "logged-out";
+      if (/\\b(Log ?in|Sign ?up)\\b|ログイン|サインアップ|Anmelden|Iniciar sesión|Se connecter|Accedi|로그인|登录|登入/i.test(header)) {
+        return "logged-out";
+      }
+      // Confirmed logged in only when the composer is present.
       if (${COMPOSER}) return "ok";
       return "unknown";
     })()`);
@@ -269,6 +327,46 @@ export async function checkLogin(page, { timeoutMs = 20000 } = {}) {
   return state;
 }
 
+// ---------------------------------------------------------------------------
+// Selector self-test. Probes the CENTRALIZED SELECTORS core entries against the
+// live ChatGPT page (after login). Never throws on a missing element — it
+// reports which entries matched and which did not, so `--check` can print one
+// clear, actionable message pointing at SELECTORS.md when ChatGPT's UI shifts.
+// ---------------------------------------------------------------------------
+
+export async function selectorSelfTest(page) {
+  // Evaluate every candidate list in-page; report the first matching selector
+  // per entry (or null). Wrapped in try/catch so a page-side error degrades to
+  // "not found" rather than crashing the probe.
+  const results = await evaluate(page, `(() => {
+    const groups = ${JSON.stringify(SELECTORS)};
+    const out = {};
+    for (const [name, candidates] of Object.entries(groups)) {
+      let matched = null;
+      for (const selector of candidates) {
+        try {
+          if (document.querySelector(selector)) { matched = selector; break; }
+        } catch (e) { /* invalid selector on this build — try the next */ }
+      }
+      out[name] = { ok: matched !== null, matched, candidates };
+    }
+    return out;
+  })()`).catch((error) => ({ __error: error.message }));
+
+  if (results && results.__error) {
+    return {
+      ok: false,
+      pageError: results.__error,
+      checks: [],
+      missing: Object.keys(SELECTORS),
+    };
+  }
+
+  const checks = Object.entries(results).map(([name, r]) => ({ name, ...r }));
+  const missing = checks.filter((c) => !c.ok).map((c) => c.name);
+  return { ok: missing.length === 0, checks, missing };
+}
+
 export async function attachImages(page, files, { timeoutMs = 90000 } = {}) {
   if (!files.length) return 0;
   for (const file of files) {
@@ -276,7 +374,7 @@ export async function attachImages(page, files, { timeoutMs = 90000 } = {}) {
   }
   const before = await evaluate(page, `document.querySelectorAll('form img').length`);
   const { root } = await page.send("DOM.getDocument", { depth: 1 });
-  const { nodeId } = await page.send("DOM.querySelector", { nodeId: root.nodeId, selector: 'input[type="file"]' });
+  const { nodeId } = await page.send("DOM.querySelector", { nodeId: root.nodeId, selector: SELECTORS.fileInput[0] });
   if (!nodeId) throw new Error("file input was not found on the page");
   await page.send("DOM.setFileInputFiles", { files, nodeId });
   // Wait until every upload finished: thumbnail count reached and no spinner.
@@ -310,8 +408,8 @@ export async function setPrompt(page, prompt) {
 
 export async function sendMessage(page) {
   const clicked = await evaluate(page, `(() => {
-    const button = document.querySelector('[data-testid="send-button"]')
-      ?? document.querySelector('button[aria-label*="送信"], button[aria-label*="Send"]');
+    const candidates = ${JSON.stringify(SELECTORS.sendButton)};
+    const button = candidates.map((s) => document.querySelector(s)).find(Boolean);
     if (!button || button.disabled) return false;
     button.click();
     return true;
@@ -321,26 +419,66 @@ export async function sendMessage(page) {
   await waitFor(page, `((${COMPOSER})?.innerText ?? "").trim().length === 0`, { timeoutMs: 15000, label: "composer cleared after send" });
 }
 
-const ERROR_TEXT = /画像を生成できませんでした|コンテンツポリシー|利用規約に違反|wasn['’]t able to generate|can['’]t (?:create|generate) (?:that|this) image|content policy/i;
+// Locale-neutral generation-failure detection. We do NOT rely on UI language:
+// the primary signal is structural (the image never lands and no overlay
+// appears), and this regex is only a fast-path that recognizes refusal copy
+// across several common ChatGPT locales. It is intentionally broad; the
+// pipeline already retries, so an occasional false positive just costs a retry.
+const ERROR_TEXT = new RegExp([
+  // English
+  "wasn['’]t able to (?:generate|create)", "can['’]t (?:create|generate) (?:that|this|the) image",
+  "unable to (?:generate|create)", "content polic(?:y|ies)", "against (?:our|the) (?:usage|content) polic",
+  "violates? (?:our|the)", "I (?:can['’]t|cannot) help (?:with|create)",
+  // Japanese
+  "画像を生成できませんでした", "生成できません", "コンテンツポリシー", "利用規約に違反", "ポリシーに違反",
+  // Spanish / French / German / Portuguese / Italian / Korean / Chinese
+  "no (?:puedo|pude) (?:generar|crear)", "política de contenido",
+  "je ne peux pas (?:générer|créer)", "politique de contenu",
+  "kann (?:dieses|das) Bild nicht", "Richtlinien?",
+  "não (?:posso|consigo) (?:gerar|criar)",
+  "non posso (?:generare|creare)",
+  "이미지를 (?:생성|만들) 수 없", "콘텐츠 정책",
+  "无法(?:生成|创建)", "違反内容政策|内容政策",
+].join("|"), "i");
 
 // Reads the conversation state. ChatGPT renders turns as
-// [data-testid^="conversation-turn-"]; a finished generated image carries an
-// alt like 「生成された画像：…」 and an image-gen action overlay. Reference
-// thumbnails live inside the (collapsible) user message, so exclude them.
+// [data-testid^="conversation-turn-"] (CSS fallback: <article>). Finished
+// renders are detected STRUCTURALLY and locale-agnostically:
+//   1) The image lives in an ASSISTANT turn (not the user's turn — reference
+//      thumbnails there are never deliverables) and its src is served from a
+//      real content host (SIGNALS.imageSrc).
+//   2) An image-gen action overlay (SIGNALS.imageGenOverlay) marks a finished
+//      render; the caller uses it to skip the stabilization wait.
+//   3) Last-resort heuristics only when structure is ambiguous: a localized
+//      generated-image alt prefix (list, not JP-only) OR naturalWidth > 600.
 const REPLY_STATE = `(() => {
-  const streaming = Boolean(document.querySelector('[data-testid="stop-button"]'));
-  const overlay = Boolean(document.querySelector('[data-testid^="image-gen-overlay"]'));
-  const turns = [...document.querySelectorAll('[data-testid^="conversation-turn-"], article')];
+  const turnSel = ${JSON.stringify(SELECTORS.conversationTurn.join(", "))};
+  const imgSrcRe = ${SIGNALS.imageSrc.toString()};
+  // Localized alt prefixes for a finished generated image across locales. Used
+  // only as a soft signal; never required.
+  const GEN_ALT = ["生成された画像", "Generated image", "Imagen generada", "Image générée",
+    "Generiertes Bild", "Imagem gerada", "Immagine generata", "생성된 이미지", "生成的图片", "生成的圖片"];
+
+  const streaming = Boolean(document.querySelector('${SIGNALS.stopButton}'));
+  const overlay = Boolean(document.querySelector('${SIGNALS.imageGenOverlay}'));
+  const turns = [...document.querySelectorAll(turnSel)];
   const last = turns[turns.length - 1];
   const text = (last?.innerText ?? "").slice(0, 1500);
+
   const images = [...document.querySelectorAll('main img')]
-    .filter((img) => /backend-api|estuary|oaiusercontent|files\\.openai|^blob:/.test(img.src))
+    .filter((img) => imgSrcRe.test(img.src))
     .filter((img) => !img.closest('form'))
     .filter((img) => {
-      // Reference attachments live in the user's turn — never deliverables.
-      const turn = img.closest('[data-testid^="conversation-turn-"], article');
-      if (turn && turn.querySelector('[data-testid*="user-message"]')) return false;
-      return (img.alt ?? "").startsWith("生成された画像") || img.naturalWidth > 600;
+      // STRUCTURAL: a deliverable lives in an assistant turn, not the user's.
+      const turn = img.closest(turnSel);
+      if (turn && turn.querySelector('${SIGNALS.userMessage}')) return false;
+      // If we positively identified an assistant turn, the structural signal is
+      // enough — accept regardless of alt language or size.
+      if (turn) return true;
+      // No turn container resolved (markup drift): fall back to soft signals.
+      const alt = img.alt ?? "";
+      if (GEN_ALT.some((p) => alt.startsWith(p))) return true;
+      return img.naturalWidth > 600;
     })
     .map((img) => img.src);
   return { streaming, overlay, turns: turns.length, text, images };
