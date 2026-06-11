@@ -1,0 +1,63 @@
+name: Bug report
+description: Something in the server, UI, or queue processor is broken.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please run `--doctor` first and paste its output below — it
+        catches many environment issues. Never paste secrets, cookies, or absolute local
+        paths you do not want public.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+      placeholder: I expected X, but Y happened.
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Exact command
+      description: The exact command you ran (redact private workspace paths).
+      placeholder: node server.mjs --workspace ./workspace/demo --init sample --port 4217
+    validations:
+      required: true
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+      description: Output of `node --version`. The server needs 20+; the queue processor needs 22+.
+      placeholder: v22.13.1
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: --doctor output
+      description: Output of `node server.mjs --workspace <ws> --init sample --doctor`.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: agent-logs
+    attributes:
+      label: agent-logs excerpt (queue-processor bugs only)
+      description: >
+        If this is a `scripts/process-queue.mjs` bug, paste the relevant excerpt from
+        `agent-logs/run-*/log.md` (redact any account email or content visible in screenshots).
+      render: text
+    validations:
+      required: false

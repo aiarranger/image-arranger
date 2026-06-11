@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest an improvement that fits the local-first, zero-dependency philosophy.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        image-arranger stays dependency-free, local-first, and never calls a generation
+        service itself. Proposals that keep generation external and add no runtime npm
+        dependencies are easiest to accept.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow problem are you hitting? Who does it affect?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about, and why this one.
+    validations:
+      required: false
+  - type: checkboxes
+    id: philosophy
+    attributes:
+      label: Fits the philosophy
+      options:
+        - label: Keeps generation external (the server does not call a generation service).
+        - label: Adds no runtime npm dependencies and no build step.

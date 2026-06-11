@@ -4,6 +4,8 @@ This guide is for a human operator or a coding agent (Claude Code, Codex, etc.) 
 
 image-arranger never operates ChatGPT, Vidu, or any generation service directly. The processor reads a request file, performs the work in the generation service's normal UI (or via its own tooling), saves the results, and reports completion back.
 
+The stable, supported interface is the request-file contract — see [docs/request-spec.md](docs/request-spec.md) for every field, the completion-API payload shapes, the compatibility promise, and how to write a driver for another service. A non-agent operator can also process a request entirely by hand: see [Process a request by hand](README.md#process-a-request-by-hand-no-agent-needed) in the README. Scripted processing is **macOS-tested** (cross-platform by design); the keystroke fallback is **macOS-only**.
+
 ## Scripted Processing (preferred)
 
 > **Disclaimer**: the bundled automation driver operates **your** browser with **your** account at **your** responsibility, and may conflict with a generation service's terms of service — review them before use. The stable, supported interface is the request-file contract described in this document; the driver is an optional, replaceable convenience.
@@ -96,7 +98,9 @@ Same as generation, but treat `inputs.sourceAsset` / `assetFile` as the primary 
 
 ## Manual Browser Fallback (only when the script cannot be repaired)
 
-## One-time macOS Setup for Real-OS Keystrokes
+Use this only when the scripted processor itself cannot be repaired and you must drive the generation service's web UI by hand. The keystroke techniques below are **macOS-only**. The deep, field-tested browser steps live in [docs/manual-fallback.md](docs/manual-fallback.md) to keep this file scannable; this section covers only the one-time setup.
+
+### One-time macOS Setup for Real-OS Keystrokes
 
 Agents whose browser tools use a *virtual* clipboard (paste fails with "virtual clipboard has no data") must fall back to real-OS automation, which needs two macOS permissions for the agent's host app (Cursor, Terminal, ...):
 
@@ -105,37 +109,9 @@ Agents whose browser tools use a *virtual* clipboard (paste fails with "virtual 
 
 Windows / Linux equivalents are not established yet.
 
-## Browser Technique for Analysis Tasks (field-tested)
+### Field-Tested Browser Techniques
 
-1. **Attaching the image**: never open the native file picker (it blocks automation). In-page `fetch` of local files is blocked by the service's CSP, and virtual-clipboard paste fails. The reliable route is **real clipboard + real keystroke** (field-tested 2026-06-10):
-   1. `osascript -e 'set the clipboard to (read (POSIX file "<absolute path>") as «class PNGf»)'`
-   2. Navigate your working tab to a unique URL first (e.g. `https://chatgpt.com/?agent-work=1`), then use AppleScript to activate exactly that tab (scan windows/tabs for the URL marker) — otherwise the keystroke can land in another tab of the same site.
-   3. Click the composer with your browser tool to focus it.
-   4. `osascript -e 'tell application "System Events" to keystroke "v" using command down'`
-   5. Wait for the thumbnail spinner to finish before continuing. Repeat per image for multiple references.
-   If your environment can set `input[type=file]` directly (Playwright etc.), that also works (it does not open the native dialog).
-2. **Entering the prompt** — try in this order, and ALWAYS verify the full text appears in the composer before sending (never send empty); if one tier fails, move to the next:
-   1. Your browser tool's native text-input API (type/fill), if available.
-   2. In-page JS (only in environments with real page-context JS; some agents' JS sandboxes cannot see `document.execCommand`):
-
-      ```js
-      const ed = document.querySelector('div[contenteditable="true"]');
-      ed.focus();
-      document.execCommand("insertText", false, "<full prompt>");
-      ```
-
-   3. Real text clipboard (deterministic last resort): set it via argv-style osascript (piped `pbcopy` can silently produce an empty clipboard), verify with `pbpaste`, then click the composer and send a real Cmd+V. Do this only AFTER all image attachments are done (it overwrites the clipboard).
-
-      ```bash
-      osascript -e 'on run argv' -e 'set the clipboard to item 1 of argv' -e 'end run' "$(cat /tmp/prompt.txt)"
-      pbpaste | head -c 80
-      ```
-
-   On start/resume, if the composer still holds unsent attachments from a previous interrupted run, remove them (×) before starting.
-3. **Tempo**: once the attachment spinner finishes, insert the prompt and send immediately in one go; verify with at most one screenshot before and after sending.
-4. **Waiting**: extended-thinking models can take 5–15 minutes. Poll with light text reads every 30–60 s; do not reload or resend.
-4. **Collecting the JSON**: click the code block's built-in copy button and read the system clipboard (`pbpaste`), or read the `pre code` textContent from the DOM. `navigator.clipboard.writeText` from injected JS can fail due to focus constraints.
-5. Validate the JSON locally before posting it to the complete API.
+The detailed attach/prompt/wait/collect procedure (real clipboard + real keystroke, prompt-insertion tiers, JSON collection) has moved to **[docs/manual-fallback.md](docs/manual-fallback.md)**. Follow it when you fall back here, and write your own steps and screenshots into an `agent-logs/run-*/` folder so the operator gets the same record.
 
 ## Base Kit Analysis (`analyze`)
 
@@ -169,7 +145,7 @@ curl -X POST http://127.0.0.1:4217/api/requests/complete \
   -d '{"requestId": "<requestId>", "targetIndex": 0, "results": [{"file": "<saved path>"}]}'
 ```
 
-Fallback — edit the request JSON directly: set the target `status` to `done`, fill `results`, and update the request `status` when no `requested` targets remain.
+Fallback — edit the request JSON directly: set the target `status` to `completed` (the same value the complete API writes), fill `results`, and update the request `status` when no `requested` targets remain.
 
 ## On Failure
 
