@@ -335,8 +335,13 @@ const REPLY_STATE = `(() => {
   const text = (last?.innerText ?? "").slice(0, 1500);
   const images = [...document.querySelectorAll('main img')]
     .filter((img) => /backend-api|estuary|oaiusercontent|files\\.openai|^blob:/.test(img.src))
-    .filter((img) => !img.closest('form') && !img.closest('[data-testid*="user-message"]'))
-    .filter((img) => (img.alt ?? "").startsWith("生成された画像") || img.naturalWidth > 600)
+    .filter((img) => !img.closest('form'))
+    .filter((img) => {
+      // Reference attachments live in the user's turn — never deliverables.
+      const turn = img.closest('[data-testid^="conversation-turn-"], article');
+      if (turn && turn.querySelector('[data-testid*="user-message"]')) return false;
+      return (img.alt ?? "").startsWith("生成された画像") || img.naturalWidth > 600;
+    })
     .map((img) => img.src);
   return { streaming, overlay, turns: turns.length, text, images };
 })()`;
