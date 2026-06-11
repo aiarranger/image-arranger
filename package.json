@@ -5,7 +5,7 @@
   "type": "module",
   "engines": { "node": ">=20" },
   "bin": { "image-arranger": "./server.mjs" },
-  "files": ["server.mjs", "public/", "scripts/", "examples/", "AGENTS.md", "README.md", "LICENSE"],
+  "files": ["server.mjs", "http-util.mjs", "prompts.mjs", "public/", "scripts/", "examples/", "AGENTS.md", "README.md", "LICENSE"],
   "repository": { "type": "git", "url": "https://github.com/aiarranger/image-arranger.git" },
   "homepage": "https://aiarranger.github.io/image-arranger/",
   "bugs": "https://github.com/aiarranger/image-arranger/issues",
