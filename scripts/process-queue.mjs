@@ -24,6 +24,7 @@ import { isAbsolute, join, resolve, basename } from "node:path";
 import {
   DEFAULTS, RunLog, ensureChrome, openChat, closePage, checkLogin,
   attachImages, setPrompt, sendMessage, waitForImageReply, downloadImage, sleep,
+  selectorSelfTest,
 } from "./agent-browser.mjs";
 
 const args = process.argv.slice(2);
@@ -31,6 +32,33 @@ function flag(name) { return args.includes(name); }
 function option(name, fallback = null) {
   const index = args.indexOf(name);
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
+}
+
+const HELP = `Scripted queue processor — drives ChatGPT's web UI over CDP to fulfill
+queued image-generation targets from a running image-arranger server.
+
+Usage:
+  node scripts/process-queue.mjs --check          one-time setup / health check
+                                                  (Chrome + login + selector self-test)
+  node scripts/process-queue.mjs                  process every queued chatgpt generate target
+  node scripts/process-queue.mjs --request <id>   process one request only
+  node scripts/process-queue.mjs --dry-run        list what would be processed (needs server)
+
+Options:
+  --server <url>     image-arranger server (default http://127.0.0.1:4217, $IMAGE_ARRANGER_SERVER)
+  --cdp-port <n>     automation Chrome CDP port (default ${DEFAULTS.cdpPort})
+  --max <n>          cap targets processed (default 20)
+  --parallel <n>     targets in flight at once, each in its own tab (default 1)
+  --keep-tabs        leave chat tabs open for inspection
+  --help, -h         show this help and exit
+
+The --check selector self-test verifies ChatGPT's UI still exposes the elements
+the automation depends on. On mismatch it prints an actionable message pointing
+at SELECTORS.md (repo root), which documents every selector and how to patch it.`;
+
+if (flag("--help") || flag("-h")) {
+  console.log(HELP);
+  process.exit(0);
 }
 
 const SERVER = (option("--server", process.env.IMAGE_ARRANGER_SERVER ?? "http://127.0.0.1:4217")).replace(/\/$/, "");
@@ -84,7 +112,7 @@ async function main() {
   const chrome = await ensureChrome({ cdpPort: CDP_PORT, log: (message) => runLog.log(message) });
   runLog.log(`automation Chrome ready (${chrome.alreadyRunning ? "already running" : "launched"}): ${chrome.version?.Browser ?? ""}`);
 
-  // Login probe (also used by --check).
+  // Login probe + selector self-test (also used by --check).
   {
     const page = await openChat({ cdpPort: CDP_PORT });
     const login = await checkLogin(page);
@@ -96,10 +124,38 @@ async function main() {
       return;
     }
     runLog.log("ChatGPT login OK");
+
+    // Selector self-test: verify the core elements the automation depends on
+    // still exist on the live page. Never throws — reports what is missing so
+    // breakage is announced clearly instead of failing deep in the pipeline.
+    const selfTest = await selectorSelfTest(page);
+    runLog.attachJson("selector self-test", selfTest);
+    for (const check of selfTest.checks ?? []) {
+      runLog.log(`selector ${check.name}: ${check.ok ? `OK (${check.matched})` : "NOT FOUND"}`, check.ok ? "info" : "warn");
+    }
+    if (!selfTest.ok) {
+      const detail = selfTest.pageError
+        ? `self-test could not run (${selfTest.pageError})`
+        : `missing selectors: ${selfTest.missing.join(", ")}`;
+      runLog.log(
+        `ChatGPT changed its UI — image-arranger's selectors need updating; see SELECTORS.md (${detail})`,
+        "error",
+      );
+      console.error(
+        "\n>>> ChatGPT changed its UI — image-arranger's selectors need updating; see SELECTORS.md <<<\n" +
+        `    ${detail}\n` +
+        "    The image-generation pipeline cannot run until the centralized selectors in\n" +
+        "    scripts/agent-browser.mjs are patched. The queue and the manual workflow are unaffected.\n",
+      );
+      await closePage(page);
+      process.exitCode = 3;
+      return;
+    }
+    runLog.log("selector self-test passed: all core elements present");
     await closePage(page);
   }
   if (flag("--check")) {
-    runLog.log("--check finished: Chrome + login are ready");
+    runLog.log("--check finished: Chrome + login + selectors are ready");
     return;
   }
 
