@@ -282,8 +282,21 @@ export const SIGNALS = {
   // Marks a turn as the user's (so its attachments are never mistaken for a
   // deliverable). Locale-independent.
   userMessage: '[data-testid*="user-message"]',
+  // Positively marks a turn as the assistant's. Preferred over the negative
+  // "not user-message" rule: when present anywhere in the conversation, a
+  // deliverable image is only accepted inside an assistant turn, so a
+  // user-uploaded reference on a matching content host can never be mistaken
+  // for the result. Locale-independent; falls back to the negative rule when
+  // ChatGPT exposes no assistant signal at all.
+  assistantMessage: '[data-message-author-role="assistant"], [data-testid*="assistant"]',
   // Hosts that serve real generated/uploaded image bytes (vs. UI sprites).
   imageSrc: /backend-api|estuary|oaiusercontent|files\.openai|^blob:/,
+  // attachImages() upload-progress probes — centralized so every ChatGPT
+  // selector lives in one place (the "every selector in one place" guarantee).
+  // Baseline thumbnail count is measured before/after setFileInputFiles.
+  uploadThumb: 'form img',
+  // Any of these inside the composer means an attachment is still uploading.
+  uploadSpinner: 'form [role="progressbar"], form svg.animate-spin, form circle[stroke-dashoffset]',
 };
 
 const COMPOSER = `(${JSON.stringify(SELECTORS.composer)}.map((s) => document.querySelector(s)).find(Boolean) ?? null)`;
@@ -334,13 +347,34 @@ export async function checkLogin(page, { timeoutMs = 20000 } = {}) {
 // clear, actionable message pointing at SELECTORS.md when ChatGPT's UI shifts.
 // ---------------------------------------------------------------------------
 
+// WARN-ONLY monitored signals: probed by the self-test and reported by --check
+// when absent, but they NEVER fail the gate / cause exit 3. Only the
+// load-bearing core SELECTORS do that. These are structural hooks that help
+// detection stay locale-neutral but have safe fallbacks if ChatGPT drops them.
+export const MONITORED_SIGNALS = {
+  userMessage: SIGNALS.userMessage,
+  imageGenOverlay: SIGNALS.imageGenOverlay,
+};
+
+// Build the warnings array from the in-page monitored-signal probe result.
+// Tolerant of a missing/odd result (keeps selectorSelfTest non-throwing).
+function monitoredSignalChecks(signalResults) {
+  const src = signalResults && typeof signalResults === "object" ? signalResults : {};
+  return Object.entries(MONITORED_SIGNALS).map(([name, selector]) => ({
+    name,
+    selector,
+    present: src[name] === true,
+  }));
+}
+
 export async function selectorSelfTest(page) {
   // Evaluate every candidate list in-page; report the first matching selector
   // per entry (or null). Wrapped in try/catch so a page-side error degrades to
-  // "not found" rather than crashing the probe.
+  // "not found" rather than crashing the probe. Returns a `{ checks: [...] }`
+  // object map so the caller can shape-guard against undefined/null results.
   const results = await evaluate(page, `(() => {
     const groups = ${JSON.stringify(SELECTORS)};
-    const out = {};
+    const checks = [];
     for (const [name, candidates] of Object.entries(groups)) {
       let matched = null;
       for (const selector of candidates) {
@@ -348,23 +382,46 @@ export async function selectorSelfTest(page) {
           if (document.querySelector(selector)) { matched = selector; break; }
         } catch (e) { /* invalid selector on this build — try the next */ }
       }
-      out[name] = { ok: matched !== null, matched, candidates };
+      checks.push({ name, ok: matched !== null, matched, candidates });
     }
-    return out;
+    return { checks };
   })()`).catch((error) => ({ __error: error.message }));
 
-  if (results && results.__error) {
+  // Probe the WARN-ONLY monitored signals separately — a failure here must not
+  // affect the core result, so it degrades to {} (all reported as absent).
+  const signalResults = await evaluate(page, `(() => {
+    const sigs = ${JSON.stringify(MONITORED_SIGNALS)};
+    const out = {};
+    for (const [name, selector] of Object.entries(sigs)) {
+      try { out[name] = Boolean(document.querySelector(selector)); }
+      catch (e) { out[name] = false; }
+    }
+    return out;
+  })()`).catch(() => ({}));
+
+  // Shape-guard: selectorSelfTest must NEVER throw (its whole job is to report
+  // breakage cleanly). `evaluate` can resolve to undefined/null even without a
+  // rejection — e.g. CDP returns no value, or the frame detached mid-probe — in
+  // which case the existing .catch does not fire. Any result that is not the
+  // expected object map degrades to a well-formed failure instead of letting
+  // Object.entries(undefined) throw and escape the function. Also report the
+  // WARN-ONLY monitored signals (userMessage, imageGenOverlay): they are
+  // surfaced by --check when absent but never fail the gate (load-bearing
+  // selectors do that).
+  const monitored = monitoredSignalChecks(signalResults);
+  if (!results || typeof results !== "object" || results.__error || !Array.isArray(results.checks)) {
     return {
       ok: false,
-      pageError: results.__error,
+      pageError: results?.__error ?? "no result",
       checks: [],
       missing: Object.keys(SELECTORS),
+      warnings: monitored,
     };
   }
 
-  const checks = Object.entries(results).map(([name, r]) => ({ name, ...r }));
+  const checks = results.checks;
   const missing = checks.filter((c) => !c.ok).map((c) => c.name);
-  return { ok: missing.length === 0, checks, missing };
+  return { ok: missing.length === 0, checks, missing, warnings: monitored };
 }
 
 export async function attachImages(page, files, { timeoutMs = 90000 } = {}) {
@@ -372,7 +429,7 @@ export async function attachImages(page, files, { timeoutMs = 90000 } = {}) {
   for (const file of files) {
     if (!existsSync(file)) throw new Error(`reference image not found: ${file}`);
   }
-  const before = await evaluate(page, `document.querySelectorAll('form img').length`);
+  const before = await evaluate(page, `document.querySelectorAll(${JSON.stringify(SIGNALS.uploadThumb)}).length`);
   const { root } = await page.send("DOM.getDocument", { depth: 1 });
   const { nodeId } = await page.send("DOM.querySelector", { nodeId: root.nodeId, selector: SELECTORS.fileInput[0] });
   if (!nodeId) throw new Error("file input was not found on the page");
@@ -381,7 +438,7 @@ export async function attachImages(page, files, { timeoutMs = 90000 } = {}) {
   const expected = before + files.length;
   await waitFor(
     page,
-    `document.querySelectorAll('form img').length >= ${expected} && !document.querySelector('form [role="progressbar"], form svg.animate-spin, form circle[stroke-dashoffset]')`,
+    `document.querySelectorAll(${JSON.stringify(SIGNALS.uploadThumb)}).length >= ${expected} && !document.querySelector(${JSON.stringify(SIGNALS.uploadSpinner)})`,
     { timeoutMs, intervalMs: 1000, label: `${files.length} attachment thumbnails` },
   );
   await sleep(1500);
@@ -424,21 +481,30 @@ export async function sendMessage(page) {
 // appears), and this regex is only a fast-path that recognizes refusal copy
 // across several common ChatGPT locales. It is intentionally broad; the
 // pipeline already retries, so an occasional false positive just costs a retry.
+// NOTE on tightening (L3): generic policy/guideline words match benign
+// assistant prose ("our content guidelines say…", "Richtlinien für…"), so they
+// only count when a refusal/violation CUE is nearby (violat…/against…/gegen…).
+// Direct refusals ("can't create that image", "no puedo generar") stay
+// standalone. Detection remains locale-aware; the pipeline retries, so the goal
+// is to drop obvious false positives without losing genuine refusal coverage.
 const ERROR_TEXT = new RegExp([
-  // English
+  // English — direct refusals (standalone)
   "wasn['’]t able to (?:generate|create)", "can['’]t (?:create|generate) (?:that|this|the) image",
-  "unable to (?:generate|create)", "content polic(?:y|ies)", "against (?:our|the) (?:usage|content) polic",
-  "violates? (?:our|the)", "I (?:can['’]t|cannot) help (?:with|create)",
-  // Japanese
-  "画像を生成できませんでした", "生成できません", "コンテンツポリシー", "利用規約に違反", "ポリシーに違反",
+  "unable to (?:generate|create)", "I (?:can['’]t|cannot) help (?:with|create)",
+  // English — policy/guideline only with a violation/against cue nearby
+  "against (?:our|the) (?:usage|content) polic(?:y|ies)?",
+  "violat\\w* [^.]*(?:polic|guideline|content|usage)",
+  "(?:polic|guideline|content)\\w* [^.]*violat",
+  // Japanese — direct refusals stay standalone; policy needs the 違反 cue
+  "画像を生成できませんでした", "生成できません", "(?:利用規約|コンテンツポリシー|ポリシー)に違反",
   // Spanish / French / German / Portuguese / Italian / Korean / Chinese
-  "no (?:puedo|pude) (?:generar|crear)", "política de contenido",
-  "je ne peux pas (?:générer|créer)", "politique de contenu",
-  "kann (?:dieses|das) Bild nicht", "Richtlinien?",
+  "no (?:puedo|pude) (?:generar|crear)", "(?:viola|contra) [^.]*(?:política|directrices)",
+  "je ne peux pas (?:générer|créer)", "(?:viole|contre) [^.]*(?:politique|règles)",
+  "kann (?:dieses|das) Bild nicht", "(?:verstößt|gegen) [^.]*Richtlinien",
   "não (?:posso|consigo) (?:gerar|criar)",
   "non posso (?:generare|creare)",
-  "이미지를 (?:생성|만들) 수 없", "콘텐츠 정책",
-  "无法(?:生成|创建)", "違反内容政策|内容政策",
+  "이미지를 (?:생성|만들) 수 없", "(?:정책|콘텐츠 정책)(?:을|를)? ?위반",
+  "无法(?:生成|创建)", "违反[^。]*(?:政策|内容政策)",
 ].join("|"), "i");
 
 // Reads the conversation state. ChatGPT renders turns as
@@ -465,16 +531,34 @@ const REPLY_STATE = `(() => {
   const last = turns[turns.length - 1];
   const text = (last?.innerText ?? "").slice(0, 1500);
 
+  // PREFER a positive assistant-turn signal. If ChatGPT exposes one anywhere in
+  // the conversation, we trust it and accept an image only when its turn is an
+  // assistant turn — so a user-uploaded reference image (matching content host,
+  // not in a <form>) can never be mistaken for the deliverable, even if the
+  // user-message testid was dropped/renamed. Only when NO assistant signal
+  // exists at all do we fall back to the looser "not user-message" rule.
+  const hasAssistantSignal = Boolean(document.querySelector('${SIGNALS.assistantMessage}'));
+
   const images = [...document.querySelectorAll('main img')]
     .filter((img) => imgSrcRe.test(img.src))
     .filter((img) => !img.closest('form'))
     .filter((img) => {
       // STRUCTURAL: a deliverable lives in an assistant turn, not the user's.
       const turn = img.closest(turnSel);
-      if (turn && turn.querySelector('${SIGNALS.userMessage}')) return false;
-      // If we positively identified an assistant turn, the structural signal is
-      // enough — accept regardless of alt language or size.
-      if (turn) return true;
+      if (hasAssistantSignal) {
+        // Positive signal available: require the image to sit in an assistant
+        // turn. This is strictly safer than the negative rule below.
+        if (turn && turn.querySelector('${SIGNALS.assistantMessage}')) return true;
+        // A turn that is the assistant's would have matched above; a turn that
+        // is the user's (or any non-assistant turn) is rejected here.
+        if (turn) return false;
+        // No turn container resolved (markup drift): fall through to soft signals.
+      } else {
+        // FALLBACK (no assistant signal anywhere): the legacy negative rule —
+        // accept any non-user turn.
+        if (turn && turn.querySelector('${SIGNALS.userMessage}')) return false;
+        if (turn) return true;
+      }
       // No turn container resolved (markup drift): fall back to soft signals.
       const alt = img.alt ?? "";
       if (GEN_ALT.some((p) => alt.startsWith(p))) return true;

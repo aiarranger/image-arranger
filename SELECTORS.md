@@ -90,11 +90,46 @@ stable polls so a progressive preview is not grabbed mid-generation.
 
 ### `userMessage` — `[data-testid*="user-message"]`
 Marks a turn as the user's. Locale-independent. Images inside a user turn are
-reference attachments and are **never** treated as deliverables.
+reference attachments and are **never** treated as deliverables. **Monitored
+signal** (see below): WARN-ONLY in the self-test.
 
-### `imageSrc` — regex `backend-api|estuary|oaiusercontent|files.openai|^blob:`
+### `assistantMessage` — `[data-message-author-role="assistant"], [data-testid*="assistant"]`
+Positively marks a turn as the assistant's. **Preferred** over the negative
+`userMessage` rule for deliverable detection: when this signal exists anywhere
+in the conversation, a generated image is accepted **only** if it sits in an
+assistant turn — so a user-uploaded reference image on a matching content host
+can never be mistaken for the result, even if `userMessage` is dropped/renamed.
+When ChatGPT exposes no assistant signal at all, detection falls back to the
+looser "image in a non-`userMessage` turn" rule.
+
+### `imageSrc` — regex `backend-api|estuary|oaiusercontent|files\.openai|^blob:`
 Image hosts that serve real generated/uploaded bytes (vs. UI sprites/icons).
-A deliverable image's `src` must match this.
+A deliverable image's `src` must match this. (The dot in `files\.openai` is
+escaped in the code; keep this doc identical to the regex in `SIGNALS`.)
+
+### `uploadThumb` — `form img`
+Attachment thumbnails inside the composer. `attachImages` measures the count
+before/after `DOM.setFileInputFiles` to confirm every reference image landed.
+
+### `uploadSpinner` — `form [role="progressbar"], form svg.animate-spin, form circle[stroke-dashoffset]`
+Any match means an attachment is still uploading. `attachImages` waits until the
+thumbnail count is reached **and** no spinner remains.
+
+---
+
+## Monitored signals (WARN-ONLY in `--check`)
+
+Two `SIGNALS` entries — `userMessage` and `imageGenOverlay` — are probed by the
+self-test as **monitored signals**. They are reported by `--check` when absent
+(`monitored signal <name>: ABSENT`) but they are **never** load-bearing: a
+missing monitored signal does **not** fail the self-test and does **not** cause
+exit code `3`. Only the core `SELECTORS` are load-bearing — they alone fail the
+gate. Monitored signals flag a UI drift that detection can still tolerate
+because it has a fallback (e.g. `assistantMessage`-based detection, or the
+two-stable-poll wait when no `imageGenOverlay` is present).
+
+The self-test result therefore carries a `warnings: [{ name, selector, present }]`
+array alongside the load-bearing `checks` / `missing`.
 
 ---
 
@@ -106,9 +141,16 @@ Detection must **not** assume the UI is in Japanese (or any language).
 Decided **structurally**, in priority order:
 1. The image's `src` matches `SIGNALS.imageSrc` (real content host).
 2. It is **not** inside a `<form>` (excludes the composer's own attachment row).
-3. It sits in a `conversationTurn` that is **not** a `userMessage` turn → it is
-   an assistant deliverable. This alone is sufficient — **alt text and image
-   size are ignored** when the structure resolves.
+3. Turn-scope, **assistant-signal-first**:
+   - If an `assistantMessage` signal exists **anywhere** in the conversation,
+     the image is accepted **only** when its `conversationTurn` is an assistant
+     turn. A reference image uploaded by the user (matching content host, not in
+     a `<form>`) is therefore rejected even if `userMessage` was dropped/renamed.
+   - **Fallback** (no `assistantMessage` signal anywhere): the legacy negative
+     rule — accept an image in a `conversationTurn` that is **not** a
+     `userMessage` turn.
+   When the structure resolves either way, **alt text and image size are
+   ignored**.
 4. **Fallback only** when no turn container resolves (markup drift): a localized
    "generated image" alt prefix (a list covering JA/EN/ES/FR/DE/PT/IT/KO/ZH),
    then `naturalWidth > 600` as the last-resort heuristic.
@@ -117,10 +159,15 @@ Decided **structurally**, in priority order:
 the stabilization wait.
 
 ### Error / refusal detection (`ERROR_TEXT`)
-A broad regex covering refusal/policy copy across common locales
+A regex covering refusal/policy copy across common locales
 (EN, JA, ES, FR, DE, PT, IT, KO, ZH). It is a **fast-path only** — the real
 safety net is structural (the image never lands, no overlay) plus the pipeline's
 built-in retries, so an occasional false positive merely costs one retry.
+Direct refusals ("can't create that image", "no puedo generar") match
+standalone; **generic policy/guideline words** (policy / guideline /
+`Richtlinien`) only match when a **refusal/violation cue is nearby**
+(`violat…`, `against …polic`, `gegen …Richtlinien`, etc.), so benign assistant
+prose that merely mentions guidelines is not treated as a refusal.
 
 ### Login detection (`checkLogin`)
 A logged-out chatgpt.com still shows a composer, so logout is detected

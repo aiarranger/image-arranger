@@ -133,6 +133,15 @@ async function main() {
     for (const check of selfTest.checks ?? []) {
       runLog.log(`selector ${check.name}: ${check.ok ? `OK (${check.matched})` : "NOT FOUND"}`, check.ok ? "info" : "warn");
     }
+    // Monitored signals are WARN-ONLY: reported when absent but they never fail
+    // the gate (only load-bearing core selectors do). They flag a UI drift that
+    // detection can still tolerate via its fallbacks.
+    for (const signal of selfTest.warnings ?? []) {
+      runLog.log(
+        `monitored signal ${signal.name}: ${signal.present ? "present" : "ABSENT (warn-only — detection has a fallback; see SELECTORS.md)"}`,
+        signal.present ? "info" : "warn",
+      );
+    }
     if (!selfTest.ok) {
       const detail = selfTest.pageError
         ? `self-test could not run (${selfTest.pageError})`
