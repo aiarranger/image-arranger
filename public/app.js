@@ -60,8 +60,8 @@ const I18N = {
     promptNext: "プロンプト（次の生成用）",
     refUrl: "参考URL（任意）",
     refUrlHelp: "雰囲気・構図の参考にしたい投稿やページのURL。キュー依頼のJSONに含まれます。",
-    aiDraft: "プロンプト作成をAIに任せる",
-    aiDraftHelp: "参考URLの内容をAIエージェントが解析して生成プロンプトを書きます。取り込み後は自動で生成キューへ進みます（参考URL必須）。",
+    refUrlQueue: "AIに任せてキューへ",
+    aiDraftHelp: "URLだけでOK。ボタンを押すと題名と生成プロンプトをAIエージェントが書き、取り込み後そのまま生成キューへ進みます。",
     draftPrompt: "AIプロンプト作成",
     aiDraftNeedsUrl: "プロンプト作成をAIに任せる場合は参考URLを入力してください",
     genImages: "生成画像",
@@ -230,8 +230,8 @@ const I18N = {
     promptNext: "Prompt (for the next generation)",
     refUrl: "Reference URL (optional)",
     refUrlHelp: "URL of a post/page used as inspiration. Included in the queue request JSON.",
-    aiDraft: "Let AI draft the prompt",
-    aiDraftHelp: "An AI agent reads the reference URL and writes the generation prompt. Once imported, the entry is queued for generation automatically (reference URL required).",
+    refUrlQueue: "Queue via AI",
+    aiDraftHelp: "URL only is fine. The AI agent writes the title and the generation prompt, then the entry is queued for generation automatically.",
     draftPrompt: "AI prompt draft",
     aiDraftNeedsUrl: "Enter a reference URL to let the AI draft the prompt",
     genImages: "Generated images",
@@ -1186,8 +1186,13 @@ function renderFormModal() {
       ${categoryField}
       <label>${t("assetName")}<input name="overview" required value="${escapeHtml(form.draftOverview ?? "")}" placeholder="${state.mode === "video" ? "fish-jump-loop" : "new asset prompt"}"></label>
       <label>${t("prompt")}<textarea name="prompt" rows="7">${escapeHtml(form.draftPrompt ?? "")}</textarea></label>
-      <label>${t("refUrl")}<input name="referenceUrl" type="url" placeholder="https://x.com/..." value="${escapeHtml(form.draftReferenceUrl ?? "")}"><small>${t("refUrlHelp")}</small></label>
-      ${state.mode === "image" ? `<label class="inline"><input name="aiDraftPrompt" type="checkbox" ${form.draftAiPrompt ? "checked" : ""}> ${t("aiDraft")}<small>${t("aiDraftHelp")}</small></label>` : ""}
+      <label>${t("refUrl")}
+        <span class="form-refurl-row">
+          <input name="referenceUrl" type="url" placeholder="https://x.com/..." value="${escapeHtml(form.draftReferenceUrl ?? "")}">
+          ${state.mode === "image" ? `<button type="button" class="primary" id="refUrlQueueBtn">${t("refUrlQueue")}</button>` : ""}
+        </span>
+        <small>${state.mode === "image" ? t("aiDraftHelp") : t("refUrlHelp")}</small>
+      </label>
       <label>${t("entryFile")}<input type="file" name="entryFileUpload" accept=".png,.jpg,.jpeg,.webp,.gif,.mp4,.webm"><small>${t("entryFileHelp")}</small></label>
       <label class="inline"><input name="entryFileAdopt" type="checkbox" checked> ${t("adopt")}<small>${t("adoptOneHelp")}</small></label>
       ${refPicker}
@@ -1572,15 +1577,11 @@ async function uploadAssetFile(entryId, file, name = "") {
   return response.json();
 }
 
-async function submitEntryForm(form) {
+async function submitEntryForm(form, aiDraftForce = false) {
   const data = new FormData(form);
   const entryFileAdopt = Boolean(data.get("entryFileAdopt"));
   const file = form.querySelector('input[name="entryFileUpload"]')?.files?.[0] ?? null;
-  const aiDraft = state.mode === "image" && Boolean(data.get("aiDraftPrompt"));
-  if (aiDraft && !String(data.get("referenceUrl") ?? "").trim()) {
-    toast(t("aiDraftNeedsUrl"));
-    return;
-  }
+  const aiDraft = state.mode === "image" && aiDraftForce;
   const newId = createEntryFromForm(form);
   state.form = null;
   await saveDeck(false);
@@ -1741,6 +1742,20 @@ function bind() {
   });
   const galleryBtn = document.querySelector("#galleryBtn");
   if (galleryBtn) galleryBtn.onclick = () => { location.href = "/gallery.html"; };
+  const refUrlQueueBtn = document.querySelector("#refUrlQueueBtn");
+  if (refUrlQueueBtn) refUrlQueueBtn.onclick = async () => {
+    const formEl = $("#activeForm");
+    if (!formEl || !state.form) return;
+    const referenceUrl = String(formEl.querySelector('input[name="referenceUrl"]')?.value ?? "").trim();
+    if (!referenceUrl) {
+      toast(t("aiDraftNeedsUrl"));
+      return;
+    }
+    // 題名は仮置き（エージェントが complete 時に正式な題名とプロンプトを書く）
+    const overviewInput = formEl.querySelector('input[name="overview"]');
+    if (overviewInput && !overviewInput.value.trim()) overviewInput.value = draftTitleFromUrl(referenceUrl);
+    await submitEntryForm(formEl, true);
+  };
   document.querySelectorAll("[data-add-base-category]").forEach((button) => {
     button.onclick = () => openBaseCategoryForm(button.dataset.addBaseCategory);
   });
@@ -1944,7 +1959,6 @@ function bind() {
     state.form.draftOverview = String(data.get("overview") ?? "");
     state.form.draftPrompt = String(data.get("prompt") ?? "");
     state.form.draftReferenceUrl = String(data.get("referenceUrl") ?? "");
-    state.form.draftAiPrompt = Boolean(data.get("aiDraftPrompt"));
   };
   document.querySelectorAll("[data-form-ref-filter]").forEach((button) => {
     button.onclick = () => {
@@ -1985,6 +1999,22 @@ function setVisibleChecked(checked) {
   for (const entry of visibleRows()) entry.checked = checked;
   saveDeck(false).catch((error) => toast(error.message));
   render();
+}
+
+function draftTitleFromUrl(referenceUrl) {
+  try {
+    const url = new URL(referenceUrl);
+    const host = url.hostname.replace(/^www\./, "");
+    const handle = (host === "x.com" || host.endsWith("twitter.com"))
+      ? url.pathname.split("/").filter(Boolean)[0] ?? ""
+      : "";
+    if (handle && handle !== "status" && handle !== "i") {
+      return state.lang === "en" ? `From @${handle}` : `@${handle} の投稿参考`;
+    }
+    return state.lang === "en" ? `From ${host}` : `${host} 参考`;
+  } catch {
+    return state.lang === "en" ? "From reference URL" : "URL参考";
+  }
 }
 
 function requestTarget(entry, action) {
@@ -2365,11 +2395,12 @@ ${refs}
 ${refs}
 5. 参考URLの魅力を再現しつつ identity 参照のキャラクター同一性を厳守する画像生成プロンプトを英語で1本書く。
    要件: 1画像のみ / シーン・構図・ライティングを具体的に / identity の上書き禁止（髪色・目・角・翼・尻尾・衣装は参照優先）/ no text, no logo, no watermark。
-6. 完了報告（プロンプトは JSON 文字列としてエスケープする）:
+   あわせて内容がひと目で分かる短い題名（デッキの表示言語に合わせる。例:「夕暮れの神社で微笑む」）も書く。
+6. 完了報告（プロンプト・題名は JSON 文字列としてエスケープする）:
    curl -X POST ${origin}/api/requests/complete \\
      -H "Content-Type: application/json" \\
-     -d '{"requestId":"${item.requestId}","targetIndex":${item.targetIndex},"prompt":"<書いたプロンプト>"}'
-   サーバがプロンプトを entry に取り込み、生成依頼を自動でキューに追加する（レスポンスの draftQueued に新しい requestId）。
+     -d '{"requestId":"${item.requestId}","targetIndex":${item.targetIndex},"overview":"<短い題名>","prompt":"<書いたプロンプト>"}'
+   サーバが題名とプロンプトを entry に取り込み、生成依頼を自動でキューに追加する（レスポンスの draftQueued に新しい requestId）。
 7. 続けて curl -s ${origin}/api/requests を再取得し、自動キューされた生成依頼をそのまま処理する（通常の画像生成手順）。
 8. 最終報告: 書いたプロンプト / 参考URLから読み取った要素 / 生成結果の保存先を簡潔に。
 

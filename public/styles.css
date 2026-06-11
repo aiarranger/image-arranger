@@ -1134,3 +1134,15 @@ textarea.prompt {
   display: none;
 }
 .emodal-thumb:hover .emodal-thumb-x { display: block; }
+
+.form-refurl-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.form-refurl-row input {
+  flex: 1;
+}
+.form-refurl-row button {
+  white-space: nowrap;
+}

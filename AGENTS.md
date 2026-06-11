@@ -40,16 +40,16 @@ The user supplies only a reference URL (an X post, an article, a gallery page) a
 
 1. Open the target's `referenceUrl` and study what makes the referenced content appealing: composition, pose, art style, palette, props, mood.
 2. Review the identity references in `inputs.refImages` — they are the ground truth for the character's face, hair, colors, and attached parts. The reference URL must never override identity.
-3. Write ONE English generation prompt that recreates the appeal of the referenced content with this character: be concrete about scene, composition, and lighting; require exactly one image; no text, no logo, no watermark.
-4. Report it back (escape the prompt as a JSON string):
+3. Write ONE English generation prompt that recreates the appeal of the referenced content with this character: be concrete about scene, composition, and lighting; require exactly one image; no text, no logo, no watermark. Also write a short descriptive title in the deck's display language.
+4. Report both back (escape them as JSON strings):
 
    ```bash
    curl -X POST http://127.0.0.1:4217/api/requests/complete \
      -H "Content-Type: application/json" \
-     -d '{"requestId": "<requestId>", "targetIndex": 0, "prompt": "<your prompt>"}'
+     -d '{"requestId": "<requestId>", "targetIndex": 0, "overview": "<short title>", "prompt": "<your prompt>"}'
    ```
 
-   The server imports the prompt into the entry and automatically queues a normal generation request for it (the response lists the new request id in `draftQueued`).
+   The server imports the title and prompt into the entry and automatically queues a normal generation request for it (the response lists the new request id in `draftQueued`).
 5. Re-fetch `/api/requests` and process the auto-queued generation request as a regular Image Generation task.
 
 ## Image Improvement (`improve`)

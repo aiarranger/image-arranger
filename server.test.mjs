@@ -721,6 +721,7 @@ test("draft-prompt completion imports the prompt and auto-queues generation", as
       body: JSON.stringify({
         requestId: created.request.requestId,
         targetIndex: 0,
+        overview: "Drafted title",
         prompt: "Drafted prompt from the reference URL",
       }),
     })).json();
@@ -731,10 +732,12 @@ test("draft-prompt completion imports the prompt and auto-queues generation", as
       .find((item) => item.id === character.id).images
       .find((item) => item.id === entryItem.id);
     assert.equal(updatedEntry.prompt, "Drafted prompt from the reference URL");
+    assert.equal(updatedEntry.overview, "Drafted title");
 
     const queued = completed.requests.find((row) => row.requestId === completed.draftQueued[0]);
     assert.ok(queued, "generation request should be queued");
     assert.equal(queued.action, "generate");
+    assert.equal(queued.overview, "Drafted title");
     assert.equal(queued.prompt, "Drafted prompt from the reference URL");
     assert.equal(queued.referenceUrl, "https://x.com/example/status/1");
     assert.equal(updatedEntry.requestStatus, "requested");

@@ -628,6 +628,9 @@ function completeRequestFiles(context, selectors) {
         const drafted = selector.prompt
           ?? (Array.isArray(selector.results) ? selector.results.find((item) => item?.prompt)?.prompt : null);
         if (drafted && String(drafted).trim()) target.draftedPrompt = String(drafted).trim();
+        const draftedTitle = selector.overview
+          ?? (Array.isArray(selector.results) ? selector.results.find((item) => item?.overview)?.overview : null);
+        if (draftedTitle && String(draftedTitle).trim()) target.draftedOverview = String(draftedTitle).trim();
       }
       if ((target.action ?? "") === "analyze") {
         const partsSource = selector.parts
@@ -1068,6 +1071,7 @@ async function handleApi(request, response, context, url) {
       results: Array.isArray(target.results) ? target.results : (Array.isArray(body.results) ? body.results : []),
       parts: target.parts ?? body.parts ?? null,
       prompt: target.prompt ?? body.prompt ?? null,
+      overview: target.overview ?? body.overview ?? null,
       error: target.error ?? body.error ?? null,
     })).filter((target) => (target.requestId && target.targetIndex !== undefined) || target.entryId);
     if (!selectors.length) throw new HttpError(400, "No request targets to complete");
@@ -1085,6 +1089,7 @@ async function handleApi(request, response, context, url) {
       const entryItem = character ? findEntryInCharacter(character, target.entryId) : null;
       if (!entryItem) continue;
       entryItem.prompt = target.draftedPrompt;
+      if (target.draftedOverview) entryItem.overview = target.draftedOverview;
       const generation = buildRequest(state, {
         characterId: requestPayload.character,
         mode: requestPayload.mode ?? "image",
