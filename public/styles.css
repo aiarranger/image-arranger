@@ -149,13 +149,25 @@ h1 small { display: block; margin-top: 5px; font: 700 11px var(--mono); color: v
   border-color: rgba(255, 107, 157, 0.42);
   background: rgba(255, 107, 157, 0.12);
 }
-.ghost i {
+.ghost i,
+.ghost .icon-svg {
   margin-right: 5px;
 }
 .ghost.icon-only i,
 .icon-button i,
-.icon i {
+.icon i,
+.ghost.icon-only .icon-svg,
+.icon-button .icon-svg,
+.icon .icon-svg {
   margin-right: 0;
+}
+/* Inline vendored icon glyphs (replaces Font Awesome <i>). Size follows the
+   button's font-size and aligns with adjacent text. */
+.icon-svg {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  flex: none;
 }
 .icon-button {
   width: 38px;
