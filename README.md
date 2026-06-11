@@ -68,7 +68,7 @@ You do not need a coding agent or the scripted processor. The manual path is bui
 1. **Open the request.** Look in `workspace/<name>/requests/<id>.json` for the target you want to do. It contains the `prompt`, the input files in `inputs.refImages`, and the `outputDir`. (Paths are relative to the install directory — see [docs/request-spec.md](docs/request-spec.md).)
 2. **Generate it yourself.** In your generation service's normal UI, paste the `prompt` and attach the files listed in `inputs.refImages` (and only those). Produce exactly one deliverable.
 3. **Save the output** somewhere you can find it.
-4. **Register it in the UI.** Open the entry that has the pending (queued) badge, add the saved file as a candidate asset (the *Add asset* form, or drag it onto the entry). image-arranger marks the pending `generate` target completed automatically and shows *"Asset registered; the pending queue target was marked completed."*
+4. **Register it in the UI.** Open the entry that has the pending (queued) badge, add the saved file as a candidate asset (the *Add asset* form, or drag it onto the entry). image-arranger marks the pending `generate` target completed automatically and shows *"Asset registered; the pending queue target was marked completed"*
 
 Then adopt the candidate if it is good, and it becomes a reference for the next round. For `analyze`, `draft-prompt`, and `improve` targets, report results with a single `curl` to `POST /api/requests/complete` instead — see [AGENTS.md](AGENTS.md) and [docs/request-spec.md](docs/request-spec.md).
 

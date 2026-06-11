@@ -25,7 +25,7 @@ relative to the server's project root**, not the workspace.
 - The project root defaults to the image-arranger install directory (the folder that
   contains `server.mjs`). It can be overridden with `--project-root`.
 - A typical `outputDir` therefore looks like `workspace/demo/outputs/<characterId>`.
-- `GET /api/state` returns the absolute `projectRoot` so a processor can resolve these
+- `GET /api/requests` returns the absolute `projectRoot` so a processor can resolve these
   relative paths to absolute ones on disk.
 
 A processor should resolve every relative path against `projectRoot` before reading or
@@ -56,13 +56,13 @@ writing files.
 | `status` | string | Request-level rollup: `"requested"`, `"completed"`, `"error"`, or `"cancelled"`. Recomputed from target statuses by the server. |
 | `character` | string | Owning character id. |
 | `characterName` | string | Display name of the character at request time. |
-| `mode` | string | `"image"` or `"video"` — the tab/workflow the request came from. |
+| `mode` | string | `"image"`, `"video"`, or `"kit"` (analyze requests) — the tab/workflow the request came from. |
 | `service` | string | The single service shared by all targets (`"chatgpt"`, `"vidu"`, …), or `"mixed"` if targets differ. |
 | `targets` | array | One entry per deliverable (see below). |
 | `requestedAt` | string | ISO 8601 timestamp when the request was written. |
 | `completedAt` | string \| null | ISO 8601 timestamp set when no `requested` targets remain; otherwise `null`. |
 | `note` | string | Human-readable reminder that the server only writes the request. Informational. |
-| `updatedAt` | string | ISO 8601 timestamp of the last completion/cancel write. Added on first mutation. |
+| `updatedAt` | string | ISO 8601 timestamp of the last completion or update write. Added on the first completion/update mutation (not set by cancel-only). |
 
 ## Target object
 
@@ -102,7 +102,7 @@ contact sheets, or A/B variants for a single target.
 | `basePrompt` | string | The entry's original prompt, carried for context (improve). |
 | `improvementPrompt` | string | The improvement intent (improve). |
 | `inputs` | object | Input files to attach (see below). |
-| `outputDir` | string | Where to save results, relative to `projectRoot`. |
+| `outputDir` | string \| null | Where to save results, relative to `projectRoot`. `null` for `analyze` targets (they produce JSON, not a file). |
 | `service` | string | Target service (`"chatgpt"`, `"vidu"`, …). |
 | `status` | string | `"requested"`, `"completed"`, `"error"`, or `"cancelled"`. |
 | `results` | array | Filled on completion: `[{ "file": "<relative path>", ... }]`. |

@@ -68,7 +68,7 @@ node server.mjs --workspace ./workspace/demo --init sample --doctor
 1. **依頼を開く。** `workspace/<name>/requests/<id>.json` で処理したいターゲットを確認します。`prompt`、`inputs.refImages` の入力ファイル、`outputDir` が入っています。（パスはインストールディレクトリからの相対です——[docs/request-spec.md](docs/request-spec.md) 参照。）
 2. **自分で生成する。** 生成サービスの通常 UI で `prompt` を貼り付け、`inputs.refImages` に挙がっているファイル*だけ*を添付します。成果物はちょうど 1 つ作ります。
 3. **出力を保存する。** あとで見つけられる場所に保存します。
-4. **UI に登録する。** 「依頼中（queued）」バッジの付いたエントリを開き、保存したファイルを候補素材として追加します（*Add asset* フォーム、またはエントリへのドラッグ）。image-arranger は依頼中の `generate` ターゲットを自動で完了扱いにし、*「Asset registered; the pending queue target was marked completed.」* と表示します。
+4. **UI に登録する。** 「依頼中（queued）」バッジの付いたエントリを開き、保存したファイルを候補素材として追加します（*Add asset* フォーム、またはエントリへのドラッグ）。image-arranger は依頼中の `generate` ターゲットを自動で完了扱いにし、*「Asset registered; the pending queue target was marked completed」* と表示します。
 
 良ければ候補を採用すると、次のラウンドのリファレンスになります。`analyze`・`draft-prompt`・`improve` ターゲットは、代わりに `POST /api/requests/complete` への 1 回の `curl` で報告します——[AGENTS.md](AGENTS.md) と [docs/request-spec.md](docs/request-spec.md) を参照。
 
