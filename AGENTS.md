@@ -88,7 +88,7 @@ Same as generation, but treat `inputs.sourceAsset` / `assetFile` as the primary 
 ## Video Generation (`generate` with frames)
 
 1. Pass `inputs.startFrame` and `inputs.endFrame` to the image-to-video service.
-2. Use the target `prompt` as the motion prompt.
+2. Use the target `prompt` as the motion prompt, and `inputs.durationSec` as the clip length when the service lets you choose one. Long clips need the motion choreographed second-by-second in the prompt; if the prompt has no timeline, prefer the shortest duration that fits the action.
 3. Generate one video first; check frame fidelity, locked camera, single action, and no extra objects before retrying.
 4. Save into `outputDir` and register the asset.
 

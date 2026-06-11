@@ -88,6 +88,8 @@ const I18N = {
     characterName: "キャラクター名",
     description: "説明",
     newEntry: "新規",
+    downloadSelected: "選択をDL",
+    durationSec: "動画の長さ（秒）",
     addAsset: "素材追加",
     baseRefs: "ベース参照",
     baseAssets: "ベース採用画像",
@@ -258,6 +260,8 @@ const I18N = {
     characterName: "Character name",
     description: "Description",
     newEntry: "New",
+    downloadSelected: "Download selected",
+    durationSec: "Video length (sec)",
     addAsset: "Add asset",
     baseRefs: "Base references",
     baseAssets: "Adopted base images",
@@ -644,9 +648,11 @@ function statusBadge(entry) {
   return `<span class="badge ${status}">${t(status)}</span>`;
 }
 
-function mediaTag(file, alt = "") {
+function mediaTag(file, alt = "", opts = {}) {
   if (/\.(mp4|webm)$/i.test(file ?? "")) {
-    return `<video src="${assetUrl(file)}" controls muted loop playsinline preload="metadata"></video>`;
+    return opts.preview
+      ? `<video src="${assetUrl(file)}" muted loop autoplay playsinline style="pointer-events:none"></video>`
+      : `<video src="${assetUrl(file)}" controls muted loop playsinline preload="metadata"></video>`;
   }
   return `<img src="${assetUrl(file)}" alt="${escapeHtml(alt)}" loading="lazy">`;
 }
@@ -719,14 +725,14 @@ function entryCard(entry) {
   const requested = entry.requestStatus === "requested";
   return `
     <div class="bcard ${entry.checked ? "selected" : ""}" data-open-entry="${escapeHtml(entry.id)}" title="${escapeHtml(entry.overview)}">
-      ${main ? `<label class="bcard-check" title="${t("adopt")}">
-        <input type="checkbox" data-adopt-card="${escapeHtml(entry.id)}" ${main.adopted ? "checked" : ""}>
-      </label>` : ""}
+      <label class="bcard-check" title="${t("downloadSelected")}">
+        <input type="checkbox" data-select-card="${escapeHtml(entry.id)}" ${entry.checked ? "checked" : ""}>
+      </label>
       <div class="bcard-thumb">
         ${main ? `<img src="${assetUrl(main.file)}" alt="${escapeHtml(entry.overview)}" loading="lazy">` : `<span class="no-image">${t("noImage")}</span>`}
       </div>
       <div class="bcard-title">${escapeHtml(entry.overview)}</div>
-      <div class="bcard-meta">${main?.adopted ? `<span class="kit-chip adopted-chip">${t("adopted")}</span>` : ""}${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}${statusBadge(entry)}</div>
+      <div class="bcard-meta">${main ? `<button class="kit-chip adopt-toggle ${main.adopted ? "adopted-chip" : ""}" data-adopt-chip="${escapeHtml(entry.id)}">${main.adopted ? "✓ " : ""}${t("adopted")}</button>` : ""}${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}${statusBadge(entry)}</div>
     </div>
   `;
 }
@@ -883,14 +889,14 @@ function videoCard(entry) {
   const main = generated.find((asset) => asset.adopted && asset.file) ?? generated.find((asset) => asset.file);
   return `
     <div class="bcard vcard ${entry.checked ? "selected" : ""}" data-open-entry="${escapeHtml(entry.id)}" title="${escapeHtml(entry.overview)}">
-      ${main ? `<label class="bcard-check" title="${t("adopt")}">
-        <input type="checkbox" data-adopt-card="${escapeHtml(entry.id)}" ${main.adopted ? "checked" : ""}>
-      </label>` : ""}
+      <label class="bcard-check" title="${t("downloadSelected")}">
+        <input type="checkbox" data-select-card="${escapeHtml(entry.id)}" ${entry.checked ? "checked" : ""}>
+      </label>
       <div class="bcard-thumb">
-        ${main ? mediaTag(main.file, entry.overview) : `<span class="no-image">${t("noImage")}</span>`}
+        ${main ? mediaTag(main.file, entry.overview, { preview: true }) : `<span class="no-image">${t("noImage")}</span>`}
       </div>
       <div class="bcard-title">${escapeHtml(entry.overview)}</div>
-      <div class="bcard-meta">${main?.adopted ? `<span class="kit-chip adopted-chip">${t("adopted")}</span>` : ""}${statusBadge(entry)}</div>
+      <div class="bcard-meta">${main ? `<button class="kit-chip adopt-toggle ${main.adopted ? "adopted-chip" : ""}" data-adopt-chip="${escapeHtml(entry.id)}">${main.adopted ? "✓ " : ""}${t("adopted")}</button>` : ""}<span class="kit-chip">${entry.durationSec ?? 8}s</span>${statusBadge(entry)}</div>
       <div class="vcard-frames">
         ${frameCard(t("start"), entry.startFrame, entry.id, "startFrame")}
         ${frameCard(t("end"), entry.endFrame, entry.id, "endFrame")}
@@ -944,6 +950,7 @@ function renderListToolbar() {
   return `
     <div class="list-toolbar">
       <button class="ghost" id="newEntryBtn"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${t("newEntry")}</button>
+      <button class="ghost" id="downloadSelectedBtn"><i class="fa-solid fa-download" aria-hidden="true"></i> ${t("downloadSelected")}${selectedRows().length ? `（${selectedRows().length}）` : ""}</button>
       ${state.mode === "base" ? `<button class="ghost" id="addCategoryBtn"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${t("addCategory")}</button>` : ""}
     </div>
   `;
@@ -1233,6 +1240,7 @@ function renderFormModal() {
       ${state.mode === "video" ? `
         <label>${t("start")}<select name="startFrame"><option value="">未設定</option>${optionList(imageAssets)}</select></label>
         <label>${t("end")}<select name="endFrame"><option value="">未設定</option>${optionList(imageAssets)}</select></label>
+        <label>${t("durationSec")}<select name="durationSec">${optionList([4, 6, 8, 10, 12].map((value) => ({ value: String(value), label: `${value}s` })), "8")}</select></label>
         <label>${t("output")}<input name="outputDraft" placeholder="outputs/${escapeHtml(ch.id)}/new-video.mp4"></label>
       ` : ""}
     `;
@@ -1525,6 +1533,7 @@ function createEntryFromForm(form) {
       tags: [],
       startFrame: String(data.get("startFrame") ?? ""),
       endFrame: String(data.get("endFrame") ?? ""),
+      durationSec: Number(data.get("durationSec")) || 8,
       outputDraft,
       assets: [],
     });
@@ -1764,6 +1773,11 @@ function bind() {
   $("#editCharacterBtn").onclick = openEditCharacterForm;
   $("#deleteCharacterBtn").onclick = deleteCurrentCharacter;
   if ($("#newEntryBtn")) $("#newEntryBtn").onclick = openEntryForm;
+  if ($("#downloadSelectedBtn")) $("#downloadSelectedBtn").onclick = () => {
+    const ids = selectedRows().map((entry) => entry.id);
+    if (!ids.length) { toast(`${t("downloadSelected")}: 0`); return; }
+    window.location.href = `/api/export?characterId=${encodeURIComponent(character().id)}&entries=${encodeURIComponent(ids.join(","))}`;
+  };
   if ($("#requestBtn")) $("#requestBtn").onclick = requestSelected;
   if ($("#cancelAllQueueBtn")) $("#cancelAllQueueBtn").onclick = cancelAllQueued;
   document.querySelectorAll("[data-mode]").forEach((button) => {
@@ -1795,21 +1809,31 @@ function bind() {
   });
   document.querySelectorAll("[data-open-entry]").forEach((card) => {
     card.onclick = (event) => {
-      if (event.target.closest(".bcard-check, .vcard-frames, video")) return;
+      if (event.target.closest(".bcard-check, .vcard-frames, .frame-select, [data-adopt-chip]")) return;
       openEntryModal(card.dataset.openEntry);
     };
   });
   document.querySelectorAll(".bcard-check").forEach((label) => {
     label.onclick = (event) => event.stopPropagation();
   });
-  document.querySelectorAll("[data-adopt-card]").forEach((input) => {
+  document.querySelectorAll("[data-select-card]").forEach((input) => {
     input.onchange = () => {
-      const entry = findEntry(input.dataset.adoptCard);
+      const entry = findEntry(input.dataset.selectCard);
+      if (!entry) return;
+      entry.checked = input.checked;
+      saveDeck(false).catch((error) => toast(error.message));
+      render();
+    };
+  });
+  document.querySelectorAll("[data-adopt-chip]").forEach((button) => {
+    button.onclick = (event) => {
+      event.stopPropagation();
+      const entry = findEntry(button.dataset.adoptChip);
       if (!entry) return;
       const generated = (entry.assets ?? []).filter((asset) => !isSourceRef(asset));
       const main = generated.find((asset) => asset.adopted && asset.file) ?? generated.find((asset) => asset.file);
       if (!main) return;
-      setAdopted(entry, main, input.checked);
+      setAdopted(entry, main, !main.adopted);
       saveDeck(false).catch((error) => toast(error.message));
       render();
     };
@@ -2073,6 +2097,7 @@ function requestTarget(entry, action) {
       inputs: {
         startFrame: start?.file ?? null,
         endFrame: end?.file ?? null,
+        durationSec: entry.durationSec ?? 8,
         refImages: [start?.file, end?.file].filter(Boolean),
       },
       outputDir: entry.outputDraft ? entry.outputDraft.split("/").slice(0, -1).join("/") || null : null,

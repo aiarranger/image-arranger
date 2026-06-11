@@ -976,6 +976,69 @@ function copyAssetIntoWorkspace(context, characterId, entryId, body) {
   };
 }
 
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buffer.length; i += 1) {
+    crc = CRC_TABLE[(crc ^ buffer[i]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+// Minimal stored (no compression) ZIP writer — keeps the bulk-download
+// endpoint dependency-free.
+function buildZip(files) {
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  for (const file of files) {
+    const name = Buffer.from(file.name, "utf8");
+    const data = file.data;
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6); // UTF-8 names
+    local.writeUInt16LE(0, 8); // stored
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    chunks.push(local, name, data);
+    const dir = Buffer.alloc(46);
+    dir.writeUInt32LE(0x02014b50, 0);
+    dir.writeUInt16LE(20, 4);
+    dir.writeUInt16LE(20, 6);
+    dir.writeUInt16LE(0x0800, 8);
+    dir.writeUInt16LE(0, 10);
+    dir.writeUInt32LE(crc, 16);
+    dir.writeUInt32LE(data.length, 20);
+    dir.writeUInt32LE(data.length, 24);
+    dir.writeUInt16LE(name.length, 28);
+    dir.writeUInt32LE(offset, 42);
+    central.push(Buffer.concat([dir, name]));
+    offset += 30 + name.length + data.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(files.length, 8);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...chunks, directory, end]);
+}
+
 async function handleApi(request, response, context, url) {
   if (request.method === "GET" && url.pathname === "/api/state") {
     sendJson(response, 200, readState(context.stateFile, context.projectRoot, context.init));
@@ -1357,6 +1420,40 @@ async function handleApi(request, response, context, url) {
     ensureDir(context.assetDir);
     writeJson(context.stateFile, state);
     sendJson(response, 200, { ok: true, asset: newAsset, state });
+    return true;
+  }
+  if (request.method === "GET" && url.pathname === "/api/export") {
+    const state = readState(context.stateFile, context.projectRoot, context.init);
+    const character = findCharacter(state, url.searchParams.get("characterId"));
+    const ids = String(url.searchParams.get("entries") ?? "").split(",").map((id) => id.trim()).filter(Boolean);
+    if (!ids.length) throw new HttpError(400, "entries query parameter is required");
+    const files = [];
+    const seen = new Set();
+    for (const id of ids) {
+      const entryItem = findEntryInCharacter(character, id);
+      if (!entryItem) continue;
+      const generated = (entryItem.assets ?? []).filter((asset) => !(asset.tags ?? []).includes("source-reference") && asset.file);
+      const adopted = generated.filter((asset) => asset.adopted);
+      for (const asset of (adopted.length ? adopted : generated)) {
+        const absolute = safeResolve(context.projectRoot, asset.file);
+        if (!existsSync(absolute) || statSync(absolute).isDirectory()) continue;
+        let name = `${safeSlug(entryItem.overview || entryItem.id, "entry")}/${basename(asset.file)}`;
+        let suffix = 1;
+        while (seen.has(name)) {
+          suffix += 1;
+          name = `${safeSlug(entryItem.overview || entryItem.id, "entry")}/${suffix}-${basename(asset.file)}`;
+        }
+        seen.add(name);
+        files.push({ name, data: readFileSync(absolute) });
+      }
+    }
+    if (!files.length) throw new HttpError(404, "No downloadable assets in the selected entries");
+    const stamp = nowIso().replace(/[-:]/g, "").slice(0, 15);
+    response.writeHead(200, {
+      "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename="image-arranger-export-${stamp}.zip"`,
+    });
+    response.end(buildZip(files));
     return true;
   }
   return false;
