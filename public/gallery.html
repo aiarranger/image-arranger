@@ -168,7 +168,8 @@ const GALLERY_I18N = {
 };
 function resolveLang(deckLang) {
   if (deckLang === "en" || deckLang === "ja") return deckLang;
-  const codes = [...(Array.isArray(navigator.languages) ? navigator.languages : []), navigator.language];
+  const nav = typeof navigator !== "undefined" ? navigator : {};
+  const codes = [...(Array.isArray(nav.languages) ? nav.languages : []), nav.language];
   return codes.some((c) => typeof c === "string" && c.toLowerCase().startsWith("ja")) ? "ja" : "en";
 }
 let LANG = resolveLang();

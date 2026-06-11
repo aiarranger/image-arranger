@@ -175,6 +175,14 @@ const I18N = {
     applyCommonImprove: "共通指示で登録",
     editIndividually: "個別に調整",
     batchImproveNote: "共通指示でまとめて登録できます。個別に調整する場合は素材カードを開いてください。",
+    addToCategory: (cat) => `${cat}を追加`,
+    unset: "未設定",
+    pickImage: "クリックで画像を選択",
+    clickToPick: "（クリックで選択）",
+    partsCount: (n) => `${n}パーツ`,
+    referenceSheetSuffix: "リファレンスシート",
+    sampleLabelFace: "顔アップ（正面）",
+    refLinkNote: "元画像（リンク参照：キュー登録時にリンク先の最新の採用画像へ解決）",
   },
   en: {
     title: "Image / Video Prompt Manager",
@@ -352,6 +360,14 @@ const I18N = {
     applyCommonImprove: "Queue with shared instructions",
     editIndividually: "Edit individually",
     batchImproveNote: "Add shared instructions here, or open each asset card to edit individually.",
+    addToCategory: (cat) => `Add ${cat}`,
+    unset: "Unset",
+    pickImage: "Click to pick an image",
+    clickToPick: "(click to pick)",
+    partsCount: (n) => `${n} parts`,
+    referenceSheetSuffix: "Reference Sheet",
+    sampleLabelFace: "Face close-up (front)",
+    refLinkNote: "Source image (linked: resolves to the linked entry's latest adopted image when queued)",
   },
 };
 
@@ -372,9 +388,10 @@ const MATERIAL_CATEGORY_LABELS = {
 // English otherwise. An explicit deck.settings.lang always wins over this (see
 // loadDeck), and the header toggle still switches freely at any time.
 function detectDefaultLang() {
+  const nav = typeof navigator !== "undefined" ? navigator : {};
   const candidates = [
-    ...(Array.isArray(navigator.languages) ? navigator.languages : []),
-    navigator.language,
+    ...(Array.isArray(nav.languages) ? nav.languages : []),
+    nav.language,
   ];
   for (const code of candidates) {
     if (typeof code === "string" && code.toLowerCase().startsWith("ja")) return "ja";
@@ -948,9 +965,9 @@ function frameCard(label, assetId, entryId, field) {
   const found = allImageAssets().find((asset) => asset.id === assetId);
   const image = found?.file
     ? `<img src="${assetUrl(found.file)}" alt="${escapeHtml(found.name)}" loading="lazy">`
-    : `<span>${assetId ? "missing" : "未設定"}</span>`;
-  const chosen = found ? (found.entry?.overview || found.name || found.id) : (assetId ? "missing" : "未設定");
-  return `<button type="button" class="frame-card" data-pick-frame-entry="${escapeHtml(entryId)}" data-pick-frame-field="${escapeHtml(field)}" title="クリックで画像を選択">
+    : `<span>${assetId ? "missing" : t("unset")}</span>`;
+  const chosen = found ? (found.entry?.overview || found.name || found.id) : (assetId ? "missing" : t("unset"));
+  return `<button type="button" class="frame-card" data-pick-frame-entry="${escapeHtml(entryId)}" data-pick-frame-field="${escapeHtml(field)}" title="${t("pickImage")}">
     <div class="thumb">${image}</div><div class="label">${label}: ${escapeHtml(chosen)}</div></button>`;
 }
 
@@ -1039,7 +1056,7 @@ function renderBase() {
       <div class="group">
         <div class="group-head">
           <div class="group-title">${catText(category)}</div>
-          <button class="ghost small" data-add-base-category="${escapeHtml(category)}">${icon("plus")} ${catText(category)}を追加</button>
+          <button class="ghost small" data-add-base-category="${escapeHtml(category)}">${icon("plus")} ${t("addToCategory")(catText(category))}</button>
         </div>
         ${filtered.length ? `<div class="bgrid">${filtered.map(entryCard).join("")}</div>` : `<div class="empty">${t("noRows")}</div>`}
       </div>
@@ -1061,7 +1078,10 @@ function renderListToolbar() {
 
 const BUILTIN_SHEET_TEMPLATE = {
   id: "builtin-identity-sheet",
-  name: "標準テンプレ（内蔵）",
+  // Display name is resolved per-language via t("sheetTplBuiltin") in
+  // sheetTemplates(); see below. The `text` body below is an agent-facing
+  // generation instruction and is intentionally JA-only by design (out of i18n
+  // scope) — the bilingual production guidance inside it is meant for the agent.
   text: [
     "参照画像をキャラクターデザインの正として使用し、AI画像生成・i2i・動画生成で同一性を維持するための「AI可読型キャラクターリファレンスシート」を1枚作成してください。",
     "",
@@ -1084,7 +1104,14 @@ const BUILTIN_SHEET_TEMPLATE = {
 };
 
 function sheetTemplates() {
-  return [BUILTIN_SHEET_TEMPLATE, ...(state.deck?.promptTemplates ?? [])];
+  return [{ ...BUILTIN_SHEET_TEMPLATE, name: t("sheetTplBuiltin") }, ...(state.deck?.promptTemplates ?? [])];
+}
+
+// EN uses a space before the suffix ("Name Reference Sheet"); JA joins directly
+// ("名前リファレンスシート"). Both call sites compose through this helper.
+function defaultSheetName(ch) {
+  const suffix = t("referenceSheetSuffix");
+  return state.lang === "ja" ? `${ch.name}${suffix}` : `${ch.name} ${suffix}`;
 }
 
 function isSheetQueueRow(row) {
@@ -1137,7 +1164,7 @@ function renderKit() {
         <div class="kit-route">
           <div class="kit-route-head"><strong>${t("routeA")}</strong><span class="kit-chip adopted-chip">${t("routeABadge")}</span></div>
           <p class="form-note">${t("kitSheetIntro")}</p>
-          <label class="kit-name">${t("sheetName")}<input id="sheetName" value="${escapeHtml(kit.sheetName || `${ch.name} リファレンスシート`)}"></label>
+          <label class="kit-name">${t("sheetName")}<input id="sheetName" value="${escapeHtml(kit.sheetName || defaultSheetName(ch))}"></label>
           <label class="kit-name">${t("sheetTpl")}
             <select id="sheetTplSelect">
               ${sheetTemplates().map((tpl) => `<option value="${escapeHtml(tpl.id)}" ${kit.sheetTplId === tpl.id ? "selected" : ""}>${escapeHtml(tpl.name)}</option>`).join("")}
@@ -1163,12 +1190,12 @@ function renderKit() {
         <div class="kit-result">
           <span class="kit-result-info">
             <strong>${escapeHtml(result.characterName || result.characterId)}</strong>
-            <small>${escapeHtml(result.sourceFile.split("/").pop() ?? "")} ・ ${escapeHtml(formatDateTime(result.completedAt))} ・ ${result.parts.length}パーツ</small>
+            <small>${escapeHtml(result.sourceFile.split("/").pop() ?? "")} ・ ${escapeHtml(formatDateTime(result.completedAt))} ・ ${escapeHtml(t("partsCount")(result.parts.length))}</small>
           </span>
           <button class="ghost small" data-kit-result="${index}">${t("kitSelectParts")}</button>
         </div>`).join("") : `<p class="form-note">${t("kitResultsEmpty")}</p>`}
       <p class="form-note">${t("kitPasteHelp")}</p>
-      <textarea id="kitJson" class="kit-json" rows="5" placeholder='{"parts":[{"key":"face-front","label":"顔アップ（正面）","category":"master","prompt":"..."}]}'>${escapeHtml(kit.json ?? "")}</textarea>
+      <textarea id="kitJson" class="kit-json" rows="5" placeholder="${escapeHtml(`{"parts":[{"key":"face-front","label":"${t("sampleLabelFace")}","category":"master","prompt":"..."}]}`)}">${escapeHtml(kit.json ?? "")}</textarea>
       <div class="kit-actions"><button class="ghost" id="kitParseBtn">${t("kitParse")}</button></div>
       ${kit.preview ? `
         <div class="kit-preview">
@@ -1286,7 +1313,7 @@ function optionList(items, selected = "") {
 function formFramePicker(field, label, form) {
   const selected = form.frameSel?.[field] ?? "";
   return `
-      <div class="form-note"><strong>${label}</strong>（クリックで選択）</div>
+      <div class="form-note"><strong>${label}</strong>${t("clickToPick")}</div>
       <div class="kit-sources form-ref-pool">
         ${frameAssetPool().map(({ asset, entry }) => `
           <button type="button" class="kit-source ${selected === asset.id ? "selected" : ""}"
@@ -1677,7 +1704,7 @@ function createEntryFromForm(form) {
       sourceLicense: "",
       aiGenerated: true,
       humanReviewed: true,
-      usageNotes: "元画像（リンク参照：キュー登録時にリンク先の最新の採用画像へ解決）",
+      usageNotes: t("refLinkNote"),
       tags: ["source-reference"],
       linkEntryId: row.entryId,
     })),
@@ -2347,7 +2374,7 @@ async function requestSheetGeneration() {
     return;
   }
   const ch = character();
-  const name = ($("#sheetName")?.value ?? "").trim() || `${ch.name} リファレンスシート`;
+  const name = ($("#sheetName")?.value ?? "").trim() || defaultSheetName(ch);
   const ids = entryIds(ch);
   const id = makeUniqueId(ids, `base-sheet-${slug(name)}`);
   const refFiles = [];
@@ -2365,7 +2392,7 @@ async function requestSheetGeneration() {
       sourceLicense: "",
       aiGenerated: true,
       humanReviewed: true,
-      usageNotes: "元画像（リンク参照：キュー登録時にリンク先の最新の採用画像へ解決）",
+      usageNotes: t("refLinkNote"),
       tags: ["source-reference"],
       linkEntryId: sel.entryId,
     };
