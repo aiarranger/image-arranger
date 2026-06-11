@@ -9,6 +9,8 @@ Run these before sending a pull request:
 ```bash
 node --check server.mjs
 node --check public/app.js
+node --check scripts/process-queue.mjs
+node --check scripts/agent-browser.mjs
 node --test server.test.mjs
 node server.mjs --workspace ./workspace/demo --init sample --doctor
 ```
@@ -22,7 +24,7 @@ When adding features:
 - Keep the default sample data public and project-neutral.
 - Do not commit generated images, videos, request files, outputs, secrets, cookies, or personal paths.
 - Prefer small dependency-free changes unless a dependency is clearly necessary.
-- Keep ChatGPT, Vidu, and other generation services as external tools. image-arranger writes request files; it does not automate accounts or bypass service UIs.
+- Keep generation services external to the **server**: `server.mjs` never calls or automates ChatGPT, Vidu, or any other service — it only writes request files. Automation drivers live under `scripts/` as optional, user-operated tools with an explicit disclaimer; the stable interface for processors is the request-file contract, not any particular driver.
 
 ## Pull Requests
 

@@ -11,8 +11,13 @@
 //   node scripts/process-queue.mjs --request <id>           process one request only
 //   node scripts/process-queue.mjs --dry-run                list what would be processed
 //
-// Options: --server http://127.0.0.1:4310  --cdp-port 9377  --max <n>
+// Options: --server http://127.0.0.1:4217  --cdp-port 9377  --max <n>
 //          --keep-tabs (leave chat tabs open for inspection)
+
+if (typeof WebSocket === "undefined") {
+  console.error("scripts/process-queue.mjs needs Node 22+ (global WebSocket). The server itself runs on Node 20+.");
+  process.exit(1);
+}
 
 import { mkdirSync } from "node:fs";
 import { isAbsolute, join, resolve, basename } from "node:path";
@@ -28,7 +33,7 @@ function option(name, fallback = null) {
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 }
 
-const SERVER = (option("--server", process.env.IMAGE_ARRANGER_SERVER ?? "http://127.0.0.1:4310")).replace(/\/$/, "");
+const SERVER = (option("--server", process.env.IMAGE_ARRANGER_SERVER ?? "http://127.0.0.1:4217")).replace(/\/$/, "");
 const CDP_PORT = Number(option("--cdp-port", DEFAULTS.cdpPort));
 const MAX_TARGETS = Number(option("--max", "20"));
 const RETRIES_PER_TARGET = 3;

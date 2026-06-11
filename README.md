@@ -51,6 +51,18 @@ node server.mjs --workspace ./workspace/demo --init sample --doctor
 
 Analysis requests (`action: "analyze"`) work the same way, except the deliverable is JSON: per-part generation prompts that image-arranger turns into base entries automatically.
 
+## Scripted Processing (optional)
+
+The repository ships an optional automation driver that processes queued ChatGPT image targets end to end and writes a reviewable run log (steps + screenshots) into `agent-logs/`:
+
+```bash
+node scripts/process-queue.mjs --check    # one-time setup: opens a dedicated automation Chrome; sign in to ChatGPT once
+node scripts/process-queue.mjs            # process every queued chatgpt generate target
+```
+
+- Requires **Node 22+** (the server itself runs on Node 20+) and a Chrome/Chromium install; tested on macOS, expected to work on Windows/Linux (CDP-based, no OS-level permissions).
+- **Disclaimer**: it drives *your* browser with *your* account at *your* responsibility, and may conflict with the generation service's terms of service — review them before use. The stable interface is the [request-file contract](AGENTS.md); the driver is a replaceable convenience, and you can always process requests by hand or with your own tooling.
+
 ## Workspaces
 
 All user data lives in a workspace directory you choose (kept out of Git):

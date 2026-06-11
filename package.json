@@ -1,0 +1,19 @@
+{
+  "name": "image-arranger",
+  "version": "0.1.0",
+  "description": "Local-first prompt & asset request manager for AI image/video generation — it doesn't generate, it keeps your workflow organized.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": { "image-arranger": "./server.mjs" },
+  "files": ["server.mjs", "public/", "scripts/", "examples/", "AGENTS.md", "README.md", "LICENSE"],
+  "repository": { "type": "git", "url": "https://github.com/aiarranger/image-arranger.git" },
+  "homepage": "https://aiarranger.github.io/image-arranger/",
+  "bugs": "https://github.com/aiarranger/image-arranger/issues",
+  "license": "MIT",
+  "scripts": {
+    "start": "node server.mjs --workspace ./workspace/demo --init sample --port 4217",
+    "test": "node --test server.test.mjs",
+    "doctor": "node server.mjs --workspace ./workspace/demo --init sample --doctor",
+    "check": "node --check server.mjs && node --check public/app.js && node --check scripts/process-queue.mjs && node --check scripts/agent-browser.mjs"
+  }
+}

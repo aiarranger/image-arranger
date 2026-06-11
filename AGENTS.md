@@ -6,16 +6,18 @@ image-arranger never operates ChatGPT, Vidu, or any generation service directly.
 
 ## Scripted Processing (preferred)
 
+> **Disclaimer**: the bundled automation driver operates **your** browser with **your** account at **your** responsibility, and may conflict with a generation service's terms of service — review them before use. The stable, supported interface is the request-file contract described in this document; the driver is an optional, replaceable convenience.
+
 Do not drive the generation service's browser UI by hand. The repository ships a deterministic processor that carries every queued ChatGPT image-generation target through the whole pipeline — fresh chat, attach references, insert and verify the prompt, send, wait, save into `outputDir`, register the result as an asset candidate, report completion — and records everything it does (steps + screenshots) into `agent-logs/run-*/` for the operator to review.
 
 ```bash
 # one-time setup / health check: launches a dedicated automation Chrome
 # (its own profile + CDP port; it never touches the user's main browser).
 # Sign in to ChatGPT once in the window it opens.
-node scripts/process-queue.mjs --check --server http://127.0.0.1:4310
+node scripts/process-queue.mjs --check --server http://127.0.0.1:4217
 
 # process every queued chatgpt generate target end to end
-node scripts/process-queue.mjs --server http://127.0.0.1:4310
+node scripts/process-queue.mjs --server http://127.0.0.1:4217
 
 # useful variants
 node scripts/process-queue.mjs --dry-run            # list what would run
