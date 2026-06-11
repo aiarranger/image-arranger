@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -102,7 +102,7 @@ test("server queues mixed generation and improvement targets and cancels them", 
       body: JSON.stringify({
         characterId: "sample-character",
         entryId,
-        sourceFile: png,
+        sourceFile: basename(png),
         name: "existing-candidate",
         adopted: true,
       }),
@@ -197,7 +197,7 @@ test("server updates queued request content and source deck fields", async () =>
       body: JSON.stringify({
         characterId: "sample-character",
         entryId,
-        sourceFile: png,
+        sourceFile: basename(png),
         name: "candidate-for-update",
       }),
     }).then((response) => response.json());
@@ -308,7 +308,7 @@ test("server accepts assets on custom base categories", async () => {
       body: JSON.stringify({
         characterId: "sample-character",
         entryId: "base-scene-rain",
-        sourceFile: png,
+        sourceFile: basename(png),
         name: "scene-candidate",
         adopted: true,
       }),
@@ -324,7 +324,7 @@ test("server accepts assets on custom base categories", async () => {
       body: JSON.stringify({
         characterId: "sample-character",
         entryId: "base-scene-rain",
-        sourceFile: png,
+        sourceFile: basename(png),
         name: "scene-source",
         reference: true,
       }),
@@ -351,7 +351,7 @@ test("server creates characters and registers copied asset candidates", async ()
     assert.ok(characterResult.character.base.master.some((entry) => entry.overview === "全身ベース"));
     assert.equal(characterResult.character.images.length, 0);
 
-    const png = join(temp, "candidate.png");
+    const png = join(tempProject, "candidate.png");
     writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     const entryId = characterResult.state.characters[0].images[0].id;
     const assetResult = await fetch(`${baseUrl}/api/assets`, {
@@ -360,7 +360,7 @@ test("server creates characters and registers copied asset candidates", async ()
       body: JSON.stringify({
         characterId: "sample-character",
         entryId,
-        sourceFile: png,
+        sourceFile: basename(png),
         name: "candidate-a",
         adopted: true,
       }),
@@ -451,7 +451,7 @@ test("base kit: analyze request, complete with parts, and paste import create ba
     const assetResult = await fetch(`${baseUrl}/api/assets`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ characterId: "sample-character", entryId, sourceFile: png, name: "key-visual", adopted: true }),
+      body: JSON.stringify({ characterId: "sample-character", entryId, sourceFile: basename(png), name: "key-visual", adopted: true }),
     }).then((response) => response.json());
     const sourceAsset = assetResult.asset;
 
@@ -741,5 +741,86 @@ test("draft-prompt completion imports the prompt and auto-queues generation", as
     assert.equal(queued.prompt, "Drafted prompt from the reference URL");
     assert.equal(queued.referenceUrl, "https://x.com/example/status/1");
     assert.equal(updatedEntry.requestStatus, "requested");
+  });
+});
+
+test("requests with a non-loopback Host header are rejected", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const ok = await fetch(`${baseUrl}/api/state`);
+    assert.equal(ok.status, 200);
+
+    // fetch() refuses to override Host, so issue a raw HTTP request.
+    const { request: httpRequest } = await import("node:http");
+    const status = await new Promise((resolveStatus, rejectStatus) => {
+      const req = httpRequest(`${baseUrl}/api/state`, { headers: { Host: "evil.example" } }, (res) => {
+        res.resume();
+        resolveStatus(res.statusCode);
+      });
+      req.on("error", rejectStatus);
+      req.end();
+    });
+    assert.equal(status, 403);
+  });
+});
+
+test("state-changing requests with a foreign Origin are rejected", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const evilOrigin = await fetch(`${baseUrl}/api/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "https://evil.example" },
+      body: JSON.stringify({}),
+    });
+    assert.equal(evilOrigin.status, 403);
+
+    const localOrigin = await fetch(`${baseUrl}/api/requests/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: baseUrl },
+      body: JSON.stringify({ targets: [{ entryId: "missing-entry" }] }),
+    });
+    assert.notEqual(localOrigin.status, 403);
+  });
+});
+
+test("non-JSON bodies are rejected with 415", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const response = await fetch(`${baseUrl}/api/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: "characterId=sample",
+    });
+    assert.equal(response.status, 415);
+  });
+});
+
+test("/asset serves only workspace asset and output files", async () => {
+  await withServer(async ({ baseUrl, context, temp }) => {
+    writeFileSync(join(context.assetDir, "ok.png"), "png-bytes");
+    const served = await fetch(`${baseUrl}/asset?path=${encodeURIComponent(join(context.assetDir, "ok.png").slice(context.projectRoot.length + 1))}`);
+    assert.equal(served.status, 200);
+    assert.equal(served.headers.get("access-control-allow-origin"), null);
+
+    for (const path of ["server.mjs", "deck.json", "../etc/hosts"]) {
+      const blocked = await fetch(`${baseUrl}/asset?path=${encodeURIComponent(path)}`);
+      assert.ok([403, 404].includes(blocked.status), `${path} should not be served (got ${blocked.status})`);
+    }
+  });
+});
+
+test("absolute sourceFile paths are rejected when registering assets", async () => {
+  await withServer(async ({ baseUrl, temp }) => {
+    const outside = join(temp, "outside.png");
+    writeFileSync(outside, "png-bytes");
+    const state = await (await fetch(`${baseUrl}/api/state`)).json();
+    const character = state.characters[0];
+    const response = await fetch(`${baseUrl}/api/assets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: character.id,
+        entryId: character.images[0].id,
+        sourceFile: outside,
+      }),
+    });
+    assert.equal(response.status, 400);
   });
 });

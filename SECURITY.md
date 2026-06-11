@@ -2,6 +2,16 @@
 
 image-arranger is intended to run on localhost and manage local files. Treat uploaded or registered assets, prompts, and request files as untrusted input.
 
+## Threat Model
+
+The server binds to `127.0.0.1` only, but **any web page you browse while the server is running can still attempt requests against it** (DNS rebinding, CSRF onto localhost). The server mitigates this:
+
+- Requests whose `Host` header is not a loopback name (`127.0.0.1`, `localhost`, `[::1]`) are rejected with 403.
+- State-changing requests (non-GET) that carry a non-loopback `Origin` header are rejected with 403. Requests without an `Origin` (curl, scripts) are allowed.
+- API bodies must be `application/json` (415 otherwise).
+- `/asset` serves only files inside the workspace `assets/` and `outputs/` directories — never source code, configuration, or `deck.json` — and sends no CORS headers.
+- File paths are confined to the project root, including after symlink resolution; `sourceFile` registration accepts project-relative paths only.
+
 ## Reporting Vulnerabilities
 
 Please report vulnerabilities privately through GitHub Security Advisories on the

@@ -438,6 +438,11 @@ function defaultCategoryLabels(ch) {
   return ch.workflow === "material" ? structuredClone(MATERIAL_CATEGORY_LABELS) : {};
 }
 
+function safeLinkUrl(value) {
+  const url = String(value ?? "").trim();
+  return /^https?:\/\//i.test(url) ? url : "";
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
@@ -792,7 +797,7 @@ function openEntryModal(entryId, shownAssetId = null) {
         <label class="emodal-prompt emodal-prompt-next">${t("promptNext")}
           <textarea id="entryModalPrompt" rows="${shown && !isSourceRef(shown) && (shown.prompt ?? "").trim() ? 3 : 6}">${escapeHtml(entry.prompt ?? "")}</textarea>
         </label>
-        <label class="emodal-prompt">${t("refUrl")}${(entry.referenceUrl ?? "").trim() ? ` <a href="${escapeHtml(entry.referenceUrl)}" target="_blank" rel="noopener" title="${t("refUrl")}">↗</a>` : ""}
+        <label class="emodal-prompt">${t("refUrl")}${safeLinkUrl(entry.referenceUrl) ? ` <a href="${escapeHtml(safeLinkUrl(entry.referenceUrl))}" target="_blank" rel="noopener" title="${t("refUrl")}">↗</a>` : ""}
           <input id="entryModalRefUrl" type="url" placeholder="https://x.com/..." value="${escapeHtml(entry.referenceUrl ?? "")}">
         </label>
         <h4>${t("genImages")}</h4>
@@ -1216,7 +1221,7 @@ function renderQueue() {
                   </label>
                 ` : ""}
                 ${(item.referenceUrl ?? "").trim() ? `
-                  <p class="form-note">${t("refUrl")}: <a href="${escapeHtml(item.referenceUrl)}" target="_blank" rel="noopener">${escapeHtml(item.referenceUrl)}</a></p>
+                  <p class="form-note">${t("refUrl")}: ${safeLinkUrl(item.referenceUrl) ? `<a href="${escapeHtml(safeLinkUrl(item.referenceUrl))}" target="_blank" rel="noopener">${escapeHtml(item.referenceUrl)}</a>` : escapeHtml(item.referenceUrl)}</p>
                 ` : ""}
                 <label>
                   ${t("refImages")}

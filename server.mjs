@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   statSync,
   writeFileSync,
@@ -850,6 +851,10 @@ function sendError(response, error) {
 }
 
 function readBody(request, maxBodyChars = MAX_BODY_CHARS) {
+  const contentType = String(request.headers["content-type"] ?? "").toLowerCase();
+  if (!contentType.includes("application/json")) {
+    return Promise.reject(new HttpError(415, "Content-Type must be application/json"));
+  }
   return new Promise((resolveBody, rejectBody) => {
     let raw = "";
     let rejected = false;
@@ -885,6 +890,20 @@ function safeResolve(baseDir, requestedPath) {
   const rel = relative(root, resolved);
   if (rel && (rel.startsWith("..") || isAbsolute(rel))) {
     throw new HttpError(403, "Path is outside the allowed directory");
+  }
+  // A symlink inside the tree must not escape it: realpath the deepest
+  // existing ancestor of the resolved path and re-check containment.
+  let probe = resolved;
+  while (probe !== root && !existsSync(probe)) probe = dirname(probe);
+  try {
+    const rootReal = realpathSync(root);
+    const probeReal = realpathSync(probe);
+    if (probeReal !== rootReal && !probeReal.startsWith(rootReal + sep)) {
+      throw new HttpError(403, "Path resolves outside the allowed directory");
+    }
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError(403, "Path could not be verified");
   }
   return resolved;
 }
@@ -937,9 +956,10 @@ function makeCharacterFromBody(state, body) {
 function copyAssetIntoWorkspace(context, characterId, entryId, body) {
   const sourceFileRaw = String(body.sourceFile ?? "").trim();
   if (!sourceFileRaw) throw new HttpError(400, "Asset source file is required");
-  const sourceFile = isAbsolute(sourceFileRaw)
-    ? resolve(sourceFileRaw)
-    : safeResolve(context.projectRoot, sourceFileRaw);
+  if (isAbsolute(sourceFileRaw)) {
+    throw new HttpError(400, "Asset source file must be a project-relative path");
+  }
+  const sourceFile = safeResolve(context.projectRoot, sourceFileRaw);
   if (!existsSync(sourceFile) || statSync(sourceFile).isDirectory()) {
     throw new HttpError(404, "Asset source file was not found");
   }
@@ -1459,21 +1479,46 @@ async function handleApi(request, response, context, url) {
   return false;
 }
 
-function serveFile(response, path, cors = false) {
+function serveFile(response, path) {
   if (!existsSync(path) || statSync(path).isDirectory()) {
     response.writeHead(404);
     response.end("Not found");
     return;
   }
-  const headers = { "Content-Type": MIME[extname(path).toLowerCase()] ?? "application/octet-stream" };
-  // ローカル専用サーバのため、エージェントがブラウザ内JSから素材を取得して
-  // 生成サービスへ添付できるよう /asset には CORS を許可する
-  if (cors) {
-    headers["Access-Control-Allow-Origin"] = "*";
-    headers["Access-Control-Allow-Private-Network"] = "true";
-  }
-  response.writeHead(200, headers);
+  response.writeHead(200, { "Content-Type": MIME[extname(path).toLowerCase()] ?? "application/octet-stream" });
   response.end(readFileSync(path));
+}
+
+// The server binds to 127.0.0.1, but any web page the user browses can
+// still issue requests to it (DNS rebinding / CSRF onto localhost). Require
+// a loopback Host header, and for state-changing methods a loopback (or
+// absent) Origin.
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+
+function originPolicyViolation(request) {
+  let hostname = "";
+  try {
+    hostname = new URL(`http://${request.headers.host ?? ""}`).hostname;
+  } catch {
+    return "Missing or malformed Host header";
+  }
+  if (!LOOPBACK_HOSTNAMES.has(hostname)) {
+    return `Host "${request.headers.host}" is not allowed on this local server`;
+  }
+  if (!["GET", "HEAD", "OPTIONS"].includes(request.method ?? "GET")) {
+    const origin = String(request.headers.origin ?? "");
+    if (origin) {
+      try {
+        const parsed = new URL(origin);
+        if (!LOOPBACK_HOSTNAMES.has(parsed.hostname)) {
+          return `Origin "${origin}" is not allowed on this local server`;
+        }
+      } catch {
+        return `Origin "${origin}" is not allowed on this local server`;
+      }
+    }
+  }
+  return null;
 }
 
 function scanString(patterns, text) {
@@ -1569,22 +1614,19 @@ export function createImageArrangerServer(options = {}) {
   const publicRoot = join(TOOL_ROOT, "public");
   const server = createServer(async (request, response) => {
     try {
+      const violation = originPolicyViolation(request);
+      if (violation) throw new HttpError(403, violation);
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
       if (await handleApi(request, response, context, url)) return;
-      if (request.method === "OPTIONS" && url.pathname === "/asset") {
-        // Private Network Access preflight（公開サイト上のJSからローカル素材を取得するため）
-        response.writeHead(204, {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "*",
-          "Access-Control-Allow-Private-Network": "true",
-        });
-        response.end();
-        return;
-      }
       if (request.method === "GET" && url.pathname === "/asset") {
         const assetFile = url.searchParams.get("path") ?? "";
-        serveFile(response, safeResolve(context.projectRoot, assetFile), true);
+        const resolved = safeResolve(context.projectRoot, assetFile);
+        // Serve only workspace asset/output files — never source code,
+        // configuration, or deck data.
+        const allowedRoots = [context.assetDir, context.outputDir].map((dir) => resolve(dir));
+        const within = allowedRoots.some((root) => resolved === root || resolved.startsWith(root + sep));
+        if (!within) throw new HttpError(403, "Asset path is outside the workspace asset directories");
+        serveFile(response, resolved);
         return;
       }
       if (request.method !== "GET") {

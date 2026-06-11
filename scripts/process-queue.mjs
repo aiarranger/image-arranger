@@ -155,7 +155,7 @@ async function main() {
       const registered = await api("/api/assets", {
         characterId: row.characterId,
         entryId: row.entryId,
-        sourceFile: outcome.file,
+        sourceFile: relFile,
         name: basename(outcome.file, ".png"),
         prompt: row.prompt,
         aiGenerated: true,

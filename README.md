@@ -74,8 +74,9 @@ Every asset records `sourceLicense`, `aiGenerated`, `humanReviewed`, and `usageN
 ## Security Notes
 
 - Runs on `127.0.0.1` only. Do not expose it to the network.
-- Request bodies are limited to 1 MB; asset files to 80 MB; `/asset` only serves files under the configured project root.
-- See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
+- Rejects non-loopback `Host` headers and state-changing requests with foreign `Origin` headers (DNS-rebinding / CSRF mitigation), and requires `application/json` bodies on the API.
+- Request bodies are limited to 1 MB; asset files to 80 MB; `/asset` serves only files inside the workspace `assets/` and `outputs/` directories.
+- See [SECURITY.md](SECURITY.md) for the threat model and reporting vulnerabilities.
 
 ## Contributing
 
