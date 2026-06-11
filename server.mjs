@@ -3,6 +3,7 @@
 import { createServer } from "node:http";
 import {
   copyFileSync,
+  createReadStream,
   createWriteStream,
   existsSync,
   mkdirSync,
@@ -10,6 +11,7 @@ import {
   readdirSync,
   realpathSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -28,8 +30,15 @@ const DEFAULT_ASSET_DIR = join(DEFAULT_WORKSPACE, "assets");
 const DEFAULT_SAMPLE_DECK = join(TOOL_ROOT, "examples", "sample-deck.json");
 const SCHEMA_VERSION = "image-arranger.v1";
 const LEGACY_SCHEMA_VERSION = "prompt-deck.v1";
+// Ordered list of every schema this server understands, oldest first. The
+// index of a schema is its generation number; anything not in this list and
+// not matching SCHEMA_VERSION is treated as "from an unknown (newer) server"
+// by the forward-compat guard in normalizeState().
+const KNOWN_SCHEMA_VERSIONS = [LEGACY_SCHEMA_VERSION, SCHEMA_VERSION];
 const MAX_BODY_CHARS = 1_000_000;
 const MAX_ASSET_BYTES = 80 * 1024 * 1024;
+// Keep this many timestamped deck snapshots under workspace/.history.
+const HISTORY_LIMIT = 20;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -270,6 +279,63 @@ function writeJson(path, value) {
   renameSync(tmp, path);
 }
 
+// ---------------------------------------------------------------------------
+// Single-writer model + deck.json backups.
+//
+// All deck.json mutations go through writeState(), which serializes the
+// read-modify-write window through an in-process async mutex (runExclusive).
+// The tool is a LOCAL, single-process, single-writer app: one server owns one
+// workspace. We do not support multiple server processes writing the same
+// deck.json concurrently — that is explicitly out of scope. The mutex only
+// guards against the lost-update race between concurrent in-flight HTTP
+// requests handled by THIS process (many mutating handlers read state, then
+// `await readBody()`, then write; without serialization a request that commits
+// during another's await gap would be clobbered by stale in-memory state).
+// ---------------------------------------------------------------------------
+
+let writeChain = Promise.resolve();
+
+// Serialize an async critical section. Each call waits for the previous one to
+// settle, so deck read-modify-write sequences never interleave.
+function runExclusive(task) {
+  const run = writeChain.then(() => task());
+  // Keep the chain alive even if a task rejects; swallow here so one failed
+  // mutation does not poison every later mutation.
+  writeChain = run.then(() => {}, () => {});
+  return run;
+}
+
+// Write a rotating backup of the deck before overwriting it. Keeps the most
+// recent `deck.json.bak` plus a capped set of timestamped snapshots under
+// workspace/.history so an accidental bad save (or a botched migration) can be
+// recovered manually.
+function backupDeck(stateFile) {
+  if (!existsSync(stateFile)) return;
+  try {
+    copyFileSync(stateFile, `${stateFile}.bak`);
+    const historyDir = join(dirname(stateFile), ".history");
+    ensureDir(historyDir);
+    const stamp = nowIso().replace(/[:.]/g, "-");
+    copyFileSync(stateFile, join(historyDir, `${basename(stateFile)}.${stamp}`));
+    const prefix = `${basename(stateFile)}.`;
+    const snapshots = readdirSync(historyDir)
+      .filter((name) => name.startsWith(prefix))
+      .sort();
+    for (const stale of snapshots.slice(0, Math.max(0, snapshots.length - HISTORY_LIMIT))) {
+      try { rmSync(join(historyDir, stale)); } catch { /* best-effort rotation */ }
+    }
+  } catch (error) {
+    // Backups are best-effort: never let a backup failure block a real save.
+    console.error("deck backup failed:", error?.message ?? error);
+  }
+}
+
+// Canonical writer for deck.json: back up the previous version, then write.
+function writeState(stateFile, state) {
+  backupDeck(stateFile);
+  writeJson(stateFile, state);
+}
+
 function readTextIfExists(path) {
   return existsSync(path) ? readFileSync(path, "utf8") : "";
 }
@@ -442,10 +508,43 @@ function readState(stateFile, projectRoot, init = "sample") {
     writeJson(stateFile, state);
     return state;
   }
-  return normalizeState(readJson(stateFile));
+  const raw = readJson(stateFile);
+  if (isNewerSchema(raw.schema)) {
+    // Forward-compat guard: this deck was written by a newer server than us.
+    // Snapshot it before refusing so the user never loses the newer file by
+    // running an older binary against it.
+    backupDeck(stateFile);
+    throw new SchemaVersionError(raw.schema);
+  }
+  return normalizeState(raw);
+}
+
+// A schema we don't recognize AND that isn't the current/legacy version is
+// assumed to come from a newer server (forward incompatibility).
+function isNewerSchema(schema) {
+  if (!schema) return false;
+  return !KNOWN_SCHEMA_VERSIONS.includes(schema);
+}
+
+class SchemaVersionError extends HttpError {
+  constructor(schema) {
+    super(
+      409,
+      "Deck was written by a newer version of image-arranger; please upgrade.",
+      `deck.json schema "${schema}" is newer than this server understands `
+      + `(supported: ${KNOWN_SCHEMA_VERSIONS.join(", ")}). `
+      + `A backup was written to deck.json.bak. Upgrade image-arranger to open it.`,
+    );
+    this.schema = schema;
+  }
 }
 
 function normalizeState(state) {
+  if (isNewerSchema(state.schema)) {
+    // Reached when normalizeState is called directly (e.g. PUT /api/state body)
+    // with a deck claiming a newer schema. Refuse rather than silently mutate.
+    throw new SchemaVersionError(state.schema);
+  }
   if (state.schema === LEGACY_SCHEMA_VERSION || !state.schema) {
     state.schema = SCHEMA_VERSION;
   }
@@ -786,7 +885,7 @@ function updateRequestTarget(context, state, body) {
 
     if (deckUpdated) {
       state.updatedAt = nowIso();
-      writeJson(context.stateFile, state);
+      writeState(context.stateFile, state);
     }
 
     return {
@@ -1060,6 +1159,15 @@ function buildZip(files) {
   return Buffer.concat([...chunks, directory, end]);
 }
 
+// API response-shape convention (P3-API-1):
+//   - GET /api/state returns the deck state object BARE (no envelope). This is
+//     an intentional, frozen contract: the frontend loads it directly as the
+//     app state (app.js), and changing it would be a breaking change. The bare
+//     object is self-identifying via its `schema`/`version` fields.
+//   - Every OTHER endpoint returns an envelope: `{ ok: true, ... }` on success
+//     (mutations also echo the resulting `state`), and `{ ok: false, error }`
+//     on failure (see sendError). New endpoints should follow the envelope
+//     form; /api/state is the sole documented exception.
 async function handleApi(request, response, context, url) {
   if (request.method === "GET" && url.pathname === "/api/state") {
     sendJson(response, 200, readState(context.stateFile, context.projectRoot, context.init));
@@ -1087,7 +1195,7 @@ async function handleApi(request, response, context, url) {
     }
     normalizeState(body);
     body.updatedAt = nowIso();
-    writeJson(context.stateFile, body);
+    writeState(context.stateFile, body);
     sendJson(response, 200, { ok: true, state: body });
     return true;
   }
@@ -1101,7 +1209,7 @@ async function handleApi(request, response, context, url) {
     writeJson(requestPath, requestPayload);
     applyRequestStatus(state, requestPayload.targets, "requested", requestPayload.character);
     recomputeRequestedStatuses(state, context);
-    writeJson(context.stateFile, state);
+    writeState(context.stateFile, state);
     sendJson(response, 200, {
       ok: true,
       request: requestPayload,
@@ -1138,7 +1246,7 @@ async function handleApi(request, response, context, url) {
     if (!selectors.length) throw new HttpError(400, "No request targets to cancel");
     const cancelled = cancelRequestFiles(context, selectors);
     recomputeRequestedStatuses(state, context);
-    writeJson(context.stateFile, state);
+    writeState(context.stateFile, state);
     sendJson(response, 200, { ok: true, cancelled, requests: listRequestedTargets(context, state), state });
     return true;
   }
@@ -1192,7 +1300,7 @@ async function handleApi(request, response, context, url) {
       draftQueued.push(generation.requestId);
     }
     recomputeRequestedStatuses(state, context);
-    writeJson(context.stateFile, state);
+    writeState(context.stateFile, state);
     sendJson(response, 200, {
       ok: true,
       completed,
@@ -1215,7 +1323,7 @@ async function handleApi(request, response, context, url) {
       currentCharacterId: character.id,
     };
     state.updatedAt = nowIso();
-    writeJson(context.stateFile, state);
+    writeState(context.stateFile, state);
     sendJson(response, 200, { ok: true, character, state });
     return true;
   }
@@ -1233,7 +1341,7 @@ async function handleApi(request, response, context, url) {
       character.name = name;
       character.description = String(body.description ?? "");
       state.updatedAt = nowIso();
-      writeJson(context.stateFile, state);
+      writeState(context.stateFile, state);
       sendJson(response, 200, { ok: true, character, state });
       return true;
     }
@@ -1249,7 +1357,7 @@ async function handleApi(request, response, context, url) {
       currentCharacterId: nextCharacter?.id ?? "",
     };
     recomputeRequestedStatuses(state, context);
-    writeJson(context.stateFile, state);
+    writeState(context.stateFile, state);
     sendJson(response, 200, {
       ok: true,
       cancelled,
@@ -1334,7 +1442,7 @@ async function handleApi(request, response, context, url) {
       ...resolvedSources.slice(1).map((item) => ({ action: "analyze", entryId: item.entry.id, assetId: item.asset.id })),
     ], "requested", character.id);
     recomputeRequestedStatuses(state, context);
-    writeJson(context.stateFile, state);
+    writeState(context.stateFile, state);
     sendJson(response, 200, {
       ok: true,
       request: requestPayload,
@@ -1368,7 +1476,7 @@ async function handleApi(request, response, context, url) {
       markKitResultImported(context, String(body.requestId), Number(body.targetIndex));
     }
     state.updatedAt = nowIso();
-    writeJson(context.stateFile, state);
+    writeState(context.stateFile, state);
     sendJson(response, 200, {
       ok: true,
       created: created.map((item) => ({ id: item.id, overview: item.overview, prompt: item.prompt })),
@@ -1425,7 +1533,7 @@ async function handleApi(request, response, context, url) {
     };
     targetEntry.assets = [...(targetEntry.assets ?? []), newAsset];
     state.updatedAt = nowIso();
-    writeJson(context.stateFile, state);
+    writeState(context.stateFile, state);
     sendJson(response, 200, { ok: true, asset: newAsset, state });
     return true;
   }
@@ -1439,7 +1547,7 @@ async function handleApi(request, response, context, url) {
     targetEntry.assets = [...(targetEntry.assets ?? []), newAsset];
     state.updatedAt = nowIso();
     ensureDir(context.assetDir);
-    writeJson(context.stateFile, state);
+    writeState(context.stateFile, state);
     sendJson(response, 200, { ok: true, asset: newAsset, state });
     return true;
   }
@@ -1477,16 +1585,134 @@ async function handleApi(request, response, context, url) {
     response.end(buildZip(files));
     return true;
   }
+  // Full-deck JSON export: download the canonical deck.json. This is the
+  // documented backup/transfer format — the same JSON the server persists,
+  // re-importable via POST /api/deck/import.
+  if (request.method === "GET" && url.pathname === "/api/deck/export") {
+    const state = readState(context.stateFile, context.projectRoot, context.init);
+    const stamp = nowIso().replace(/[-:]/g, "").slice(0, 15);
+    response.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Disposition": `attachment; filename="image-arranger-deck-${stamp}.json"`,
+    });
+    response.end(`${JSON.stringify(state, null, 2)}\n`);
+    return true;
+  }
+  // Full-deck JSON import: replace the current deck with a previously exported
+  // one. The incoming deck is normalized (and rejected by the schema guard if
+  // it is from a newer server); the previous deck is backed up before the
+  // overwrite (writeState -> backupDeck).
+  if (request.method === "POST" && url.pathname === "/api/deck/import") {
+    const body = await readBody(request);
+    const incoming = body && typeof body === "object" && body.deck && typeof body.deck === "object"
+      ? body.deck
+      : body;
+    if (!incoming || typeof incoming !== "object" || !Array.isArray(incoming.characters)) {
+      throw new HttpError(400, "Import body must be a deck object with a characters array");
+    }
+    normalizeState(incoming);
+    incoming.updatedAt = nowIso();
+    writeState(context.stateFile, incoming);
+    sendJson(response, 200, { ok: true, state: incoming });
+    return true;
+  }
   return false;
 }
 
-function serveFile(response, path) {
+// Stream files larger than this (instead of readFileSync) so big video assets
+// do not buffer fully into memory.
+const STREAM_THRESHOLD_BYTES = 1024 * 1024;
+
+// Parse a single-range "bytes=start-end" header. Returns null when absent or
+// unsatisfiable/malformed (caller then serves the full body, per RFC 7233 we
+// may ignore a Range we cannot satisfy). Multi-range requests are not
+// supported and fall back to a full 200 response.
+function parseRange(rangeHeader, size) {
+  if (!rangeHeader) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(rangeHeader).trim());
+  if (!match) return null;
+  const [, startRaw, endRaw] = match;
+  if (startRaw === "" && endRaw === "") return null;
+  let start;
+  let end;
+  if (startRaw === "") {
+    // Suffix range: last N bytes.
+    const suffix = Number(endRaw);
+    if (!suffix) return null;
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(startRaw);
+    end = endRaw === "" ? size - 1 : Number(endRaw);
+  }
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start > end || start >= size) {
+    return { unsatisfiable: true };
+  }
+  return { start, end: Math.min(end, size - 1) };
+}
+
+function serveFile(response, path, request = null) {
   if (!existsSync(path) || statSync(path).isDirectory()) {
     response.writeHead(404);
     response.end("Not found");
     return;
   }
-  response.writeHead(200, { "Content-Type": MIME[extname(path).toLowerCase()] ?? "application/octet-stream" });
+  const contentType = MIME[extname(path).toLowerCase()] ?? "application/octet-stream";
+  const size = statSync(path).size;
+  const isHead = (request?.method ?? "GET") === "HEAD";
+  const range = parseRange(request?.headers?.range, size);
+
+  // Strict Content-Security-Policy on HTML responses. `default-src 'self'`
+  // blocks inline/remote script-URI injection (e.g. a malicious shared deck
+  // whose referenceUrl is `javascript:...`) and third-party beacons.
+  // NOTE: the frontend's Font Awesome cdnjs <link> is removed in a parallel
+  // track (P2-FA-1). Once FA is vendored locally this policy is exactly right;
+  // until then, a manual check in THIS worktree will see the cdnjs stylesheet
+  // blocked — that is expected and fine, not a regression.
+  const securityHeaders = contentType.startsWith("text/html")
+    ? {
+      "Content-Security-Policy":
+        "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; "
+        + "style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; "
+        + "frame-ancestors 'none'",
+      "X-Content-Type-Options": "nosniff",
+    }
+    : {};
+
+  if (range?.unsatisfiable) {
+    response.writeHead(416, {
+      "Content-Range": `bytes */${size}`,
+      "Accept-Ranges": "bytes",
+    });
+    response.end();
+    return;
+  }
+
+  if (range) {
+    const length = range.end - range.start + 1;
+    response.writeHead(206, {
+      "Content-Type": contentType,
+      "Content-Length": length,
+      "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
+      "Accept-Ranges": "bytes",
+      ...securityHeaders,
+    });
+    if (isHead) { response.end(); return; }
+    createReadStream(path, { start: range.start, end: range.end }).pipe(response);
+    return;
+  }
+
+  response.writeHead(200, {
+    "Content-Type": contentType,
+    "Content-Length": size,
+    "Accept-Ranges": "bytes",
+    ...securityHeaders,
+  });
+  if (isHead) { response.end(); return; }
+  if (size > STREAM_THRESHOLD_BYTES) {
+    createReadStream(path).pipe(response);
+    return;
+  }
   response.end(readFileSync(path));
 }
 
@@ -1672,7 +1898,7 @@ function seedSampleAssets(context) {
     }];
   }
   state.updatedAt = nowIso();
-  writeJson(context.stateFile, state);
+  writeState(context.stateFile, state);
 }
 
 export function createImageArrangerServer(options = {}) {
@@ -1698,8 +1924,15 @@ export function createImageArrangerServer(options = {}) {
       const violation = originPolicyViolation(request);
       if (violation) throw new HttpError(403, violation);
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
-      if (await handleApi(request, response, context, url)) return;
-      if (request.method === "GET" && url.pathname === "/asset") {
+      // Mutating API calls run through the single-writer mutex so their
+      // read-modify-write of deck.json cannot interleave (see runExclusive).
+      // Read-only GETs skip the lock to stay responsive.
+      const isMutating = url.pathname.startsWith("/api/") && (request.method ?? "GET") !== "GET";
+      const handled = isMutating
+        ? await runExclusive(() => handleApi(request, response, context, url))
+        : await handleApi(request, response, context, url);
+      if (handled) return;
+      if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/asset") {
         const assetFile = url.searchParams.get("path") ?? "";
         const resolved = safeResolve(context.projectRoot, assetFile);
         // Serve only workspace asset/output files — never source code,
@@ -1707,16 +1940,16 @@ export function createImageArrangerServer(options = {}) {
         const allowedRoots = [context.assetDir, context.outputDir].map((dir) => resolve(dir));
         const within = allowedRoots.some((root) => resolved === root || resolved.startsWith(root + sep));
         if (!within) throw new HttpError(403, "Asset path is outside the workspace asset directories");
-        serveFile(response, resolved);
+        serveFile(response, resolved, request);
         return;
       }
-      if (request.method !== "GET") {
+      if (request.method !== "GET" && request.method !== "HEAD") {
         response.writeHead(405);
         response.end("Method not allowed");
         return;
       }
       const requested = url.pathname === "/" ? "index.html" : decodeURIComponent(url.pathname.slice(1));
-      serveFile(response, safeResolve(publicRoot, requested));
+      serveFile(response, safeResolve(publicRoot, requested), request);
     } catch (error) {
       sendError(response, error);
     }

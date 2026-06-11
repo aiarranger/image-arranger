@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { composeAnalyzePrompt, createImageArrangerServer, createSeedState, parseKitParts, runDoctor } from "./server.mjs";
+import { composeAnalyzePrompt, createImageArrangerServer, createSeedState, createEmptyState, parseKitParts, runDoctor } from "./server.mjs";
 
 
 async function withServer(callback, options = {}) {
@@ -844,4 +844,276 @@ test("sample init seeds placeholder assets with provenance", async () => {
     }
     assert.ok(masterAssets[0].file.endsWith("base-reference.png"));
   });
+});
+
+// ---------------------------------------------------------------------------
+// P3-DATA-2: schema migration guard + lossless legacy migration
+// ---------------------------------------------------------------------------
+
+test("legacy prompt-deck.v1 deck migrates losslessly to current schema", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "image-arranger-migrate-"));
+  const stateFile = join(temp, "deck.json");
+  const legacy = createEmptyState();
+  legacy.schema = "prompt-deck.v1";
+  // give a character a legacy material workflow + an asset missing new fields
+  legacy.characters[0].workflow = "material";
+  legacy.characters[0].images.push({
+    id: "legacy-image",
+    overview: "Legacy entry",
+    prompt: "legacy prompt",
+    version: 1,
+    checked: false,
+    requestStatus: "idle",
+    tags: ["keepme"],
+    assets: [{ id: "legacy-asset", kind: "image", file: "assets/x.png", name: "x" }],
+  });
+  writeFileSync(stateFile, JSON.stringify(legacy, null, 2));
+
+  const created = createImageArrangerServer({
+    port: 0,
+    stateFile,
+    requestDir: join(temp, "requests"),
+    outputDir: join(temp, "outputs"),
+    assetDir: join(temp, "assets"),
+    projectRoot: temp,
+    init: "empty",
+  });
+  await new Promise((resolve) => created.server.listen(0, "127.0.0.1", resolve));
+  const port = created.server.address().port;
+  let migrated;
+  try {
+    migrated = await (await fetch(`http://127.0.0.1:${port}/api/state`)).json();
+  } finally {
+    await new Promise((resolve) => created.server.close(resolve));
+  }
+
+  assert.equal(migrated.schema, "image-arranger.v1");
+  // user data preserved losslessly
+  const entry = migrated.characters[0].images.find((item) => item.id === "legacy-image");
+  assert.ok(entry, "legacy image entry survives migration");
+  assert.equal(entry.prompt, "legacy prompt");
+  assert.deepEqual(entry.tags, ["keepme"]);
+  // migration backfills provenance fields on existing assets
+  const asset = entry.assets[0];
+  assert.equal(asset.id, "legacy-asset");
+  assert.equal(asset.sourceLicense, "");
+  assert.equal(typeof asset.aiGenerated, "boolean");
+  assert.equal(typeof asset.humanReviewed, "boolean");
+});
+
+test("a deck with a newer schema triggers the forward-compat guard and is backed up", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    // Overwrite the on-disk deck with one claiming a schema from a future server.
+    const newer = createEmptyState();
+    newer.schema = "image-arranger.v999";
+    writeFileSync(context.stateFile, JSON.stringify(newer, null, 2));
+
+    const response = await fetch(`${baseUrl}/api/state`);
+    assert.equal(response.status, 409);
+    const payload = await response.json();
+    assert.equal(payload.ok, false);
+
+    // The newer deck must be preserved (a backup written), not silently mutated.
+    assert.ok(existsSync(`${context.stateFile}.bak`), "newer deck is backed up before refusal");
+    const onDisk = JSON.parse(readFileSync(context.stateFile, "utf8"));
+    assert.equal(onDisk.schema, "image-arranger.v999", "newer deck on disk is left untouched");
+  });
+});
+
+test("PUT /api/state with a newer-schema body is refused", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const state = await (await fetch(`${baseUrl}/api/state`)).json();
+    state.schema = "image-arranger.v999";
+    const response = await fetch(`${baseUrl}/api/state`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state),
+    });
+    assert.equal(response.status, 409);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P3-DATA-1: backup-on-save + full-deck JSON export/import round-trip
+// ---------------------------------------------------------------------------
+
+test("mutating the deck writes a .bak and a rotating .history snapshot", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const state = await (await fetch(`${baseUrl}/api/state`)).json();
+    state.characters[0].description = "edited for backup test";
+    const saved = await fetch(`${baseUrl}/api/state`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state),
+    });
+    assert.equal(saved.status, 200);
+
+    assert.ok(existsSync(`${context.stateFile}.bak`), "deck.json.bak exists after a save");
+    const historyDir = join(context.stateFile, "..", ".history");
+    const snapshots = readdirSync(historyDir).filter((name) => name.startsWith("deck.json."));
+    assert.ok(snapshots.length >= 1, "a timestamped history snapshot was written");
+  });
+});
+
+test("full deck export/import round-trips through JSON endpoints", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const original = await (await fetch(`${baseUrl}/api/state`)).json();
+
+    const exported = await fetch(`${baseUrl}/api/deck/export`);
+    assert.equal(exported.status, 200);
+    assert.match(exported.headers.get("content-type"), /application\/json/);
+    assert.match(exported.headers.get("content-disposition"), /image-arranger-deck-.*\.json/);
+    const exportedDeck = await exported.json();
+    assert.equal(exportedDeck.schema, original.schema);
+
+    // mutate the deck, then re-import the exported snapshot to restore it
+    exportedDeck.characters[0].description = "restored via import";
+    const imported = await fetch(`${baseUrl}/api/deck/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deck: exportedDeck }),
+    });
+    assert.equal(imported.status, 200);
+    const importPayload = await imported.json();
+    assert.equal(importPayload.ok, true);
+    assert.equal(importPayload.state.characters[0].description, "restored via import");
+
+    const reread = await (await fetch(`${baseUrl}/api/state`)).json();
+    assert.equal(reread.characters[0].description, "restored via import");
+    assert.equal(reread.characters.length, original.characters.length);
+  });
+});
+
+test("deck import rejects a body that is not a deck", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const response = await fetch(`${baseUrl}/api/deck/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ not: "a deck" }),
+    });
+    assert.equal(response.status, 400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P3-PERF-1: HTTP Range / 206 support
+// ---------------------------------------------------------------------------
+
+test("/asset honors Range requests with 206 Partial Content", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const bytes = Buffer.from(Array.from({ length: 2048 }, (_, i) => i % 256));
+    writeFileSync(join(context.assetDir, "clip.png"), bytes);
+    const rel = encodeURIComponent("assets/clip.png");
+
+    const full = await fetch(`${baseUrl}/asset?path=${rel}`);
+    assert.equal(full.status, 200);
+    assert.equal(full.headers.get("accept-ranges"), "bytes");
+    assert.equal(full.headers.get("content-length"), String(bytes.length));
+
+    const partial = await fetch(`${baseUrl}/asset?path=${rel}`, { headers: { Range: "bytes=10-19" } });
+    assert.equal(partial.status, 206);
+    assert.equal(partial.headers.get("content-range"), `bytes 10-19/${bytes.length}`);
+    assert.equal(partial.headers.get("content-length"), "10");
+    const partialBytes = Buffer.from(await partial.arrayBuffer());
+    assert.deepEqual([...partialBytes], [...bytes.subarray(10, 20)]);
+
+    const suffix = await fetch(`${baseUrl}/asset?path=${rel}`, { headers: { Range: "bytes=-8" } });
+    assert.equal(suffix.status, 206);
+    const suffixBytes = Buffer.from(await suffix.arrayBuffer());
+    assert.deepEqual([...suffixBytes], [...bytes.subarray(bytes.length - 8)]);
+
+    const unsatisfiable = await fetch(`${baseUrl}/asset?path=${rel}`, { headers: { Range: "bytes=99999-100000" } });
+    assert.equal(unsatisfiable.status, 416);
+    assert.equal(unsatisfiable.headers.get("content-range"), `bytes */${bytes.length}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P3-SEC-1: Content-Security-Policy on HTML responses
+// ---------------------------------------------------------------------------
+
+test("HTML responses carry a strict Content-Security-Policy", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const html = await fetch(`${baseUrl}/`);
+    assert.equal(html.status, 200);
+    assert.match(html.headers.get("content-type"), /text\/html/);
+    const csp = html.headers.get("content-security-policy");
+    assert.ok(csp, "CSP header present on HTML");
+    assert.match(csp, /default-src 'self'/);
+    assert.match(csp, /object-src 'none'/);
+
+    // Non-HTML responses (JSON API) should not carry the HTML CSP.
+    const api = await fetch(`${baseUrl}/api/state`);
+    assert.equal(api.headers.get("content-security-policy"), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P3-CQ-3: doctor / validateStateForPublish safety scanner
+// ---------------------------------------------------------------------------
+
+test("doctor flags secret strings, absolute paths, and missing provenance", () => {
+  const temp = mkdtempSync(join(tmpdir(), "image-arranger-doctor-bad-"));
+  const stateFile = join(temp, "deck.json");
+  const state = createEmptyState();
+  const character = state.characters[0];
+  // a secret-like string embedded in a prompt
+  character.base.master[0].prompt = "use key sk-abcdef0123456789ABCDEF for the model";
+  // an entry whose asset has an absolute path and no sourceLicense
+  character.images.push({
+    id: "bad-image",
+    overview: "Bad",
+    prompt: "p",
+    version: 1,
+    checked: false,
+    requestStatus: "idle",
+    tags: [],
+    assets: [{
+      id: "bad-asset",
+      kind: "image",
+      file: "/Users/someone/secret/photo.png",
+      name: "leak",
+      adopted: true,
+      prompt: "",
+      // sourceLicense intentionally omitted
+    }],
+  });
+  writeFileSync(stateFile, JSON.stringify(state, null, 2));
+
+  const result = runDoctor({
+    stateFile,
+    requestDir: join(temp, "requests"),
+    outputDir: join(temp, "outputs"),
+    assetDir: join(temp, "assets"),
+    projectRoot: temp,
+    init: "empty",
+  });
+
+  assert.equal(result.ok, false, "doctor fails when errors are present");
+  const errors = result.checks.publish.errors.join("\n");
+  const warnings = result.checks.publish.warnings.join("\n");
+  // secret pattern matched
+  assert.match(errors, /Secret-like text/);
+  // absolute asset path is an error
+  assert.match(errors, /absolute path/);
+  // absolute /Users/ path also trips the project-specific warning
+  assert.match(warnings, /Project-specific text|outside project-relative/);
+  // missing sourceLicense surfaces as a warning
+  assert.match(warnings, /missing sourceLicense/);
+});
+
+test("doctor passes a clean empty deck with no findings", () => {
+  const temp = mkdtempSync(join(tmpdir(), "image-arranger-doctor-clean-"));
+  const stateFile = join(temp, "deck.json");
+  writeFileSync(stateFile, JSON.stringify(createEmptyState(), null, 2));
+  const result = runDoctor({
+    stateFile,
+    requestDir: join(temp, "requests"),
+    outputDir: join(temp, "outputs"),
+    assetDir: join(temp, "assets"),
+    projectRoot: temp,
+    init: "empty",
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.checks.publish.errors, []);
 });
