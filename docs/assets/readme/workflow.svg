@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 240" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Workflow: Create kit, Base, Image and Video feed the Queue outbox; processed results return as candidates and adopted ones become references for the next round">
+  <style>
+    .box   { fill: #f4f1fd; stroke: #6c5ce7; stroke-width: 1.5; }
+    .queue { fill: #fdf6ea; stroke: #d4881e; stroke-width: 1.5; }
+    .label { fill: #23213a; font-size: 15px; font-weight: 600; }
+    .sub   { fill: #6f6d85; font-size: 11px; }
+    .note  { fill: #6f6d85; font-size: 12px; font-style: italic; }
+    .arrow { stroke: #8e7ff0; stroke-width: 1.8; fill: none; }
+    .loop  { stroke: #c79a55; stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+    @media (prefers-color-scheme: dark) {
+      .box   { fill: #262147; }
+      .queue { fill: #3a2c14; }
+      .label { fill: #ecebf7; }
+      .sub   { fill: #a5a3ba; }
+      .note  { fill: #a5a3ba; }
+    }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9" fill="none" stroke="#8e7ff0" stroke-width="1.8" stroke-linecap="round"/>
+    </marker>
+    <marker id="ahLoop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9" fill="none" stroke="#c79a55" stroke-width="1.6" stroke-linecap="round"/>
+    </marker>
+  </defs>
+
+  <!-- Tab boxes -->
+  <rect class="box" x="16"  y="52" width="132" height="54" rx="10"/>
+  <text class="label" x="82"  y="76" text-anchor="middle">Create kit</text>
+  <text class="sub"   x="82"  y="94" text-anchor="middle">identity sheet</text>
+
+  <rect class="box" x="178" y="52" width="132" height="54" rx="10"/>
+  <text class="label" x="244" y="76" text-anchor="middle">Base</text>
+  <text class="sub"   x="244" y="94" text-anchor="middle">part references</text>
+
+  <rect class="box" x="340" y="52" width="132" height="54" rx="10"/>
+  <text class="label" x="406" y="76" text-anchor="middle">Image</text>
+  <text class="sub"   x="406" y="94" text-anchor="middle">1 prompt = 1 output</text>
+
+  <rect class="box" x="502" y="52" width="132" height="54" rx="10"/>
+  <text class="label" x="568" y="76" text-anchor="middle">Video</text>
+  <text class="sub"   x="568" y="94" text-anchor="middle">start / end frames</text>
+
+  <!-- Queue (outbox) -->
+  <rect class="queue" x="712" y="46" width="152" height="66" rx="10"/>
+  <text class="label" x="788" y="72" text-anchor="middle">Queue</text>
+  <text class="sub"   x="788" y="90" text-anchor="middle">outbox · requests/*.json</text>
+
+  <!-- Forward arrows -->
+  <path class="arrow" d="M 148 79 H 174" marker-end="url(#ah)"/>
+  <path class="arrow" d="M 310 79 H 336" marker-end="url(#ah)"/>
+  <path class="arrow" d="M 472 79 H 498" marker-end="url(#ah)"/>
+  <path class="arrow" d="M 634 79 H 708" marker-end="url(#ah)"/>
+  <text class="sub" x="671" y="68" text-anchor="middle">queue</text>
+
+  <!-- Processing note under queue -->
+  <text class="note" x="788" y="134" text-anchor="middle">processed by you</text>
+  <text class="note" x="788" y="150" text-anchor="middle">or a coding agent</text>
+
+  <!-- Feedback loop -->
+  <path class="loop" d="M 788 160 C 788 200, 700 208, 520 208 L 300 208 C 270 208, 244 196, 244 114" marker-end="url(#ahLoop)"/>
+  <text class="note" x="430" y="196" text-anchor="middle">results register as candidates — adopt the good ones,</text>
+  <text class="note" x="430" y="226" text-anchor="middle">and they become references for the next round</text>
+</svg>
