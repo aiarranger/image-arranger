@@ -755,7 +755,7 @@ function openEntryModal(entryId, shownAssetId = null) {
     const file = role === "src" ? resolveReferenceFile(asset) : asset.file;
     return `
     <button class="emodal-thumb ${shown && shown.id === asset.id ? "shown" : ""}" data-show-asset="${escapeHtml(asset.id)}" title="${escapeHtml((asset.linkEntryId ? "リンク: " : "") + (asset.name ?? asset.id))}">
-      ${file ? `<img src="${assetUrl(file)}" alt="" loading="lazy">` : "—"}
+      ${file ? mediaTag(file, "", { preview: true }) : "—"}
       ${role === "src" ? `<span class="emodal-thumb-tag">${t("refRole")}</span>` : asset.adopted ? `<span class="emodal-thumb-tag adopted">${t("adopted")}</span>` : ""}
       <span class="emodal-thumb-x" data-del-asset="${escapeHtml(asset.id)}" title="${t("deleteAsset")}">×</span>
     </button>`;
@@ -872,12 +872,25 @@ function openEntryModal(entryId, shownAssetId = null) {
   });
 }
 
+function frameAssetOptions() {
+  const ch = character();
+  const sceneAssets = ch.images.flatMap((entry) => (entry.assets ?? [])
+    .filter((asset) => asset.file && !isSourceRef(asset))
+    .map((asset) => ({ asset, entry })));
+  const baseAssets = allBaseEntries(ch)
+    .flatMap((entry) => adoptedAssets(entry).map((asset) => ({ asset, entry })));
+  return [...sceneAssets, ...baseAssets].map(({ asset, entry }) => ({
+    value: asset.id,
+    label: asset.name && asset.name !== entry.overview ? `${entry.overview} — ${asset.name}` : (entry.overview || asset.name || asset.id),
+  }));
+}
+
 function frameCard(label, assetId, entryId, field) {
   const found = allImageAssets().find((asset) => asset.id === assetId);
   const image = found?.file
     ? `<img src="${assetUrl(found.file)}" alt="${escapeHtml(found.name)}" loading="lazy">`
     : `<span>${assetId ? "missing" : "未設定"}</span>`;
-  const options = allImageAssets().map((item) => ({ value: item.id, label: `${item.name ?? item.id} / ${item.entry.overview}` }));
+  const options = frameAssetOptions();
   return `<div class="frame-card"><div class="thumb">${image}</div><div class="label">${label}</div>
     <select class="frame-select" data-frame-entry="${escapeHtml(entryId)}" data-frame-field="${escapeHtml(field)}">
       <option value="">未設定</option>${optionList(options, assetId ?? "")}
@@ -1238,8 +1251,8 @@ function renderFormModal() {
       <label class="inline"><input name="entryFileAdopt" type="checkbox" checked> ${t("adopt")}<small>${t("adoptOneHelp")}</small></label>
       ${refPicker}
       ${state.mode === "video" ? `
-        <label>${t("start")}<select name="startFrame"><option value="">未設定</option>${optionList(imageAssets)}</select></label>
-        <label>${t("end")}<select name="endFrame"><option value="">未設定</option>${optionList(imageAssets)}</select></label>
+        <label>${t("start")}<select name="startFrame"><option value="">未設定</option>${optionList(frameAssetOptions())}</select></label>
+        <label>${t("end")}<select name="endFrame"><option value="">未設定</option>${optionList(frameAssetOptions())}</select></label>
         <label>${t("durationSec")}<select name="durationSec">${optionList([4, 6, 8, 10, 12].map((value) => ({ value: String(value), label: `${value}s` })), "8")}</select></label>
         <label>${t("output")}<input name="outputDraft" placeholder="outputs/${escapeHtml(ch.id)}/new-video.mp4"></label>
       ` : ""}
