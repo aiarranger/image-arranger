@@ -148,6 +148,9 @@ const I18N = {
     deleteCharacterConfirm: "このキャラクターを削除します。元に戻せません。",
     lastCharacter: "最後のキャラクターは削除できません",
     close: "閉じる",
+    linkPrefix: "リンク:",
+    gallery: "ギャラリー",
+    galleryTooltip: "採用画像ギャラリー",
     deleteConfirm: "この項目を削除します。元に戻せません。",
     adopt: "採用",
     copyBase: "現在のベース設定をコピー",
@@ -322,6 +325,9 @@ const I18N = {
     deleteCharacterConfirm: "Delete this character? This cannot be undone.",
     lastCharacter: "The last character cannot be deleted",
     close: "Close",
+    linkPrefix: "Linked:",
+    gallery: "Gallery",
+    galleryTooltip: "Adopted image gallery",
     deleteConfirm: "Delete this item? This cannot be undone.",
     adopt: "Adopt",
     copyBase: "Copy current base settings",
@@ -362,10 +368,24 @@ const MATERIAL_CATEGORY_LABELS = {
   clothing: { ja: "形式", en: "Format" },
 };
 
+// First-run UI language: Japanese only when the browser prefers a ja* locale,
+// English otherwise. An explicit deck.settings.lang always wins over this (see
+// loadDeck), and the header toggle still switches freely at any time.
+function detectDefaultLang() {
+  const candidates = [
+    ...(Array.isArray(navigator.languages) ? navigator.languages : []),
+    navigator.language,
+  ];
+  for (const code of candidates) {
+    if (typeof code === "string" && code.toLowerCase().startsWith("ja")) return "ja";
+  }
+  return "en";
+}
+
 const state = {
   deck: null,
   mode: "image",
-  lang: "ja",
+  lang: detectDefaultLang(),
   characterId: "",
   filter: "",
   expanded: new Set(),
@@ -377,6 +397,25 @@ const state = {
   kitResults: [],
   projectRoot: "",
 };
+
+// Locally vendored icons (replaces the Font Awesome CDN — keeps the app fully
+// offline / zero-dependency). Path data is from Font Awesome 6 Free Solid
+// (CC BY 4.0, https://fontawesome.com/license/free). Each entry stores its
+// native viewBox width; height is the FA standard 512.
+const ICONS = {
+  plus: { w: 448, d: "M256 80c0-17.7-14.3-32-32-32s-32 14.3-32 32V224H48c-17.7 0-32 14.3-32 32s14.3 32 32 32H192V432c0 17.7 14.3 32 32 32s32-14.3 32-32V288H400c17.7 0 32-14.3 32-32s-14.3-32-32-32H256V80z" },
+  trash: { w: 448, d: "M135.2 17.7L128 32H32C14.3 32 0 46.3 0 64S14.3 96 32 96H416c17.7 0 32-14.3 32-32s-14.3-32-32-32H320l-7.2-14.3C307.4 6.8 296.3 0 284.2 0H163.8c-12.1 0-23.2 6.8-28.6 17.7zM416 128H32L53.2 467c1.6 25.3 22.6 45 47.9 45H346.9c25.3 0 46.3-19.7 47.9-45L416 128z" },
+  copy: { w: 448, d: "M208 0H332.1c12.7 0 24.9 5.1 33.9 14.1l67.9 67.9c9 9 14.1 21.2 14.1 33.9V336c0 26.5-21.5 48-48 48H208c-26.5 0-48-21.5-48-48V48c0-26.5 21.5-48 48-48zM48 128h80v64H64V448H256V416h64v48c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V176c0-26.5 21.5-48 48-48z" },
+  download: { w: 512, d: "M288 32c0-17.7-14.3-32-32-32s-32 14.3-32 32V274.7l-73.4-73.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l128 128c12.5 12.5 32.8 12.5 45.3 0l128-128c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L288 274.7V32zM64 352c-35.3 0-64 28.7-64 64v32c0 35.3 28.7 64 64 64H448c35.3 0 64-28.7 64-64V416c0-35.3-28.7-64-64-64H346.5l-45.3 45.3c-25 25-65.5 25-90.5 0L165.5 352H64zm368 56a24 24 0 1 1 0 48 24 24 0 1 1 0-48z" },
+  robot: { w: 640, d: "M320 0c17.7 0 32 14.3 32 32V96H472c39.8 0 72 32.2 72 72V440c0 39.8-32.2 72-72 72H168c-39.8 0-72-32.2-72-72V168c0-39.8 32.2-72 72-72H288V32c0-17.7 14.3-32 32-32zM208 384c-8.8 0-16 7.2-16 16s7.2 16 16 16h32c8.8 0 16-7.2 16-16s-7.2-16-16-16H208zm96 0c-8.8 0-16 7.2-16 16s7.2 16 16 16h32c8.8 0 16-7.2 16-16s-7.2-16-16-16H304zm96 0c-8.8 0-16 7.2-16 16s7.2 16 16 16h32c8.8 0 16-7.2 16-16s-7.2-16-16-16H400zM264 256a40 40 0 1 0 -80 0 40 40 0 1 0 80 0zm152 40a40 40 0 1 0 0-80 40 40 0 1 0 0 80zM48 224H64V416H48c-26.5 0-48-21.5-48-48V272c0-26.5 21.5-48 48-48zm544 0c26.5 0 48 21.5 48 48v96c0 26.5-21.5 48-48 48H576V224h16z" },
+  images: { w: 576, d: "M160 32c-35.3 0-64 28.7-64 64V320c0 35.3 28.7 64 64 64H512c35.3 0 64-28.7 64-64V96c0-35.3-28.7-64-64-64H160zM396 138.7l96 144c4.9 7.4 5.4 16.8 1.2 24.6S480.9 320 472 320H328 280 192c-9.2 0-17.6-5.3-21.6-13.6s-2.9-18.2 2.9-25.4l64-80c4.6-5.7 11.4-9 18.7-9s14.2 3.3 18.7 9l17.3 21.6 56-84C360.5 132.1 368 128 376 128s15.5 4.1 20 10.7zM192 128a32 32 0 1 1 0 64 32 32 0 1 1 0-64zM48 120c0-13.3-10.7-24-24-24S0 106.7 0 120V344c0 75.1 60.9 136 136 136H456c13.3 0 24-10.7 24-24s-10.7-24-24-24H136c-48.6 0-88-39.4-88-88V120z" },
+  "pen-to-square": { w: 512, d: "M471.6 21.7c-21.9-21.9-57.3-21.9-79.2 0L362.3 51.7l97.9 97.9 30.1-30.1c21.9-21.9 21.9-57.3 0-79.2L471.6 21.7zm-299.2 220c-6.1 6.1-10.8 13.6-13.5 21.9l-29.6 88.8c-2.9 8.6-.6 18.1 5.8 24.6s15.9 8.7 24.6 5.8l88.8-29.6c8.2-2.7 15.7-7.4 21.9-13.5L437.7 172.3 339.7 74.3 172.4 241.7zM96 64C43 64 0 107 0 160V416c0 53 43 96 96 96H352c53 0 96-43 96-96V320c0-17.7-14.3-32-32-32s-32 14.3-32 32v96c0 17.7-14.3 32-32 32H96c-17.7 0-32-14.3-32-32V160c0-17.7 14.3-32 32-32h96c17.7 0 32-14.3 32-32s-14.3-32-32-32H96z" },
+};
+function icon(name) {
+  const def = ICONS[name];
+  if (!def) return "";
+  return `<svg class="icon-svg" aria-hidden="true" focusable="false" viewBox="0 0 ${def.w} 512" width="1em" height="1em" fill="currentColor"><path d="${def.d}"></path></svg>`;
+}
 
 const $ = (selector) => document.querySelector(selector);
 const t = (key) => I18N[state.lang]?.[key] ?? I18N.ja[key] ?? key;
@@ -717,11 +756,11 @@ function rowQueueButton(entry) {
 }
 
 function duplicateButton(entry) {
-  return `<button class="icon" data-dup="${escapeHtml(entry.id)}" title="${t("duplicate")}" aria-label="${t("duplicate")}"><i class="fa-solid fa-copy" aria-hidden="true"></i></button>`;
+  return `<button class="icon" data-dup="${escapeHtml(entry.id)}" title="${t("duplicate")}" aria-label="${t("duplicate")}">${icon("copy")}</button>`;
 }
 
 function deleteEntryButton(entry) {
-  return `<button class="icon danger" data-delete="${escapeHtml(entry.id)}" title="${t("delete")}" aria-label="${t("delete")}"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>`;
+  return `<button class="icon danger" data-delete="${escapeHtml(entry.id)}" title="${t("delete")}" aria-label="${t("delete")}">${icon("trash")}</button>`;
 }
 
 function isSourceRef(asset) {
@@ -763,9 +802,10 @@ function openEntryModal(entryId, shownAssetId = null) {
   const refresh = () => openEntryModal(entry.id, shown?.id ?? null);
   const thumb = (asset, role) => {
     const file = role === "src" ? resolveReferenceFile(asset) : asset.file;
+    const thumbName = (asset.linkEntryId ? `${t("linkPrefix")} ` : "") + (asset.name ?? asset.id);
     return `
-    <button class="emodal-thumb ${shown && shown.id === asset.id ? "shown" : ""}" data-show-asset="${escapeHtml(asset.id)}" title="${escapeHtml((asset.linkEntryId ? "リンク: " : "") + (asset.name ?? asset.id))}">
-      ${file ? mediaTag(file, "", { preview: true }) : "—"}
+    <button class="emodal-thumb ${shown && shown.id === asset.id ? "shown" : ""}" data-show-asset="${escapeHtml(asset.id)}" title="${escapeHtml(thumbName)}">
+      ${file ? mediaTag(file, thumbName, { preview: true }) : "—"}
       ${role === "src" ? `<span class="emodal-thumb-tag">${t("refRole")}</span>` : asset.adopted ? `<span class="emodal-thumb-tag adopted">${t("adopted")}</span>` : ""}
       <span class="emodal-thumb-x" data-del-asset="${escapeHtml(asset.id)}" title="${t("deleteAsset")}">×</span>
     </button>`;
@@ -803,7 +843,7 @@ function openEntryModal(entryId, shownAssetId = null) {
         <h4>${t("genImages")}</h4>
         <div class="emodal-thumbs">
           ${generated.length ? generated.map((asset) => thumb(asset, "gen")).join("") : `<p class="form-note">${t("noImage")}</p>`}
-          <button class="ghost small" id="entryModalRegisterImage"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${t("registerImage")}</button>
+          <button class="ghost small" id="entryModalRegisterImage">${icon("plus")} ${t("registerImage")}</button>
         </div>
         ${isVideo ? `
         <h4>${t("framePair")}</h4>
@@ -813,7 +853,7 @@ function openEntryModal(entryId, shownAssetId = null) {
         </div>` : ""}
         ${sources.length ? `<h4>${t("sourceImages")}</h4><p class="form-note">${t("refImagesHelp")}</p><div class="emodal-thumbs">${sources.map((asset) => thumb(asset, "src")).join("")}</div>` : ""}
         <div class="entry-modal-actions">
-          <button class="ghost danger" id="entryModalDelete"><i class="fa-solid fa-trash" aria-hidden="true"></i> ${t("delete")}</button>
+          <button class="ghost danger" id="entryModalDelete">${icon("trash")} ${t("delete")}</button>
           <button class="ghost" id="entryModalDup">${t("duplicate")}</button>
           <button class="ghost" id="entryModalAddAsset">${t("addAsset")}</button>
           <button class="ghost" id="entryModalSave">${t("save")}</button>
@@ -932,7 +972,7 @@ function openFramePicker(entryId, field, returnToModal = false) {
       <div class="kit-sources frame-picker-pool">
         ${frameAssetPool().map(({ asset, entry: source }) => `
           <button type="button" class="kit-source ${entry[field] === asset.id ? "selected" : ""}" data-frame-pick="${escapeHtml(asset.id)}" title="${escapeHtml(source.overview)}">
-            <span class="thumb"><img src="${assetUrl(asset.file)}" loading="lazy" alt=""></span>
+            <span class="thumb"><img src="${assetUrl(asset.file)}" loading="lazy" alt="${escapeHtml(source.overview || asset.name || asset.id)}"></span>
             <span class="kit-source-name">${escapeHtml(source.overview || asset.name || asset.id)}</span>
           </button>`).join("")}
       </div>
@@ -976,7 +1016,7 @@ function videoRow(entry) {
         <input class="title-input" data-title="${escapeHtml(entry.id)}" value="${escapeHtml(entry.overview)}">
         ${statusBadge(entry)}
         ${rowQueueButton(entry)}
-        <button class="ghost small" data-add-asset="${escapeHtml(entry.id)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${t("addAsset")}</button>
+        <button class="ghost small" data-add-asset="${escapeHtml(entry.id)}">${icon("plus")} ${t("addAsset")}</button>
         ${duplicateButton(entry)}
         ${deleteEntryButton(entry)}
       </div>
@@ -999,7 +1039,7 @@ function renderBase() {
       <div class="group">
         <div class="group-head">
           <div class="group-title">${catText(category)}</div>
-          <button class="ghost small" data-add-base-category="${escapeHtml(category)}"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${catText(category)}を追加</button>
+          <button class="ghost small" data-add-base-category="${escapeHtml(category)}">${icon("plus")} ${catText(category)}を追加</button>
         </div>
         ${filtered.length ? `<div class="bgrid">${filtered.map(entryCard).join("")}</div>` : `<div class="empty">${t("noRows")}</div>`}
       </div>
@@ -1012,9 +1052,9 @@ function renderListToolbar() {
   if (state.mode === "queue") return "";
   return `
     <div class="list-toolbar">
-      <button class="ghost" id="newEntryBtn"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${t("newEntry")}</button>
-      <button class="ghost" id="downloadSelectedBtn"><i class="fa-solid fa-download" aria-hidden="true"></i> ${t("downloadSelected")}${selectedRows().length ? `（${selectedRows().length}）` : ""}</button>
-      ${state.mode === "base" ? `<button class="ghost" id="addCategoryBtn"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${t("addCategory")}</button>` : ""}
+      <button class="ghost" id="newEntryBtn">${icon("plus")} ${t("newEntry")}</button>
+      <button class="ghost" id="downloadSelectedBtn">${icon("download")} ${t("downloadSelected")}${selectedRows().length ? `（${selectedRows().length}）` : ""}</button>
+      ${state.mode === "base" ? `<button class="ghost" id="addCategoryBtn">${icon("plus")} ${t("addCategory")}</button>` : ""}
     </div>
   `;
 }
@@ -1059,7 +1099,7 @@ function pendingQueueRow(row) {
         <small>${t("requested")} ・ ${escapeHtml(formatDateTime(row.requestedAt))} ・ ${escapeHtml(row.requestId)}</small>
       </span>
       <span class="kit-actions">
-        <button class="ghost small" data-copy-agent="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}"><i class="fa-solid fa-robot" aria-hidden="true"></i> ${t("copyAgentPrompt")}</button>
+        <button class="ghost small" data-copy-agent="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}">${icon("robot")} ${t("copyAgentPrompt")}</button>
         <button class="ghost small danger" data-cancel-queue="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}">${t("cancelRequest")}</button>
       </span>
     </div>`;
@@ -1202,7 +1242,7 @@ function renderQueue() {
                 <span class="queue-file" title="${escapeHtml(`${item.requestFile} / ${t("target")}: ${item.targetIndex}`)}">${escapeHtml(item.requestId)}</span>
               </div>
               <div class="queue-actions">
-                <button class="ghost small" data-copy-agent="${escapeHtml(item.requestId)}" data-target-index="${item.targetIndex}"><i class="fa-solid fa-robot" aria-hidden="true"></i> ${t("copyAgentPrompt")}</button>
+                <button class="ghost small" data-copy-agent="${escapeHtml(item.requestId)}" data-target-index="${item.targetIndex}">${icon("robot")} ${t("copyAgentPrompt")}</button>
                 <button class="ghost small" data-toggle="${escapeHtml(key)}">${opened ? "▲" : "▼"} ${t("queueDetails")}</button>
                 <button class="ghost small danger" data-cancel-queue="${escapeHtml(item.requestId)}" data-target-index="${item.targetIndex}">${t("cancelRequest")}</button>
               </div>
@@ -1251,7 +1291,7 @@ function formFramePicker(field, label, form) {
         ${frameAssetPool().map(({ asset, entry }) => `
           <button type="button" class="kit-source ${selected === asset.id ? "selected" : ""}"
             data-form-frame-field="${escapeHtml(field)}" data-form-frame-asset="${escapeHtml(asset.id)}" title="${escapeHtml(entry.overview)}">
-            <span class="thumb"><img src="${assetUrl(asset.file)}" loading="lazy" alt=""></span>
+            <span class="thumb"><img src="${assetUrl(asset.file)}" loading="lazy" alt="${escapeHtml(entry.overview || asset.name || asset.id)}"></span>
             <span class="kit-source-name">${escapeHtml(entry.overview || asset.name || asset.id)}</span>
           </button>`).join("")}
       </div>`;
@@ -1295,7 +1335,7 @@ function renderFormModal() {
             data-form-ref-entry="${escapeHtml(entry.id)}" data-form-ref-asset="${escapeHtml(asset.id)}"
             data-form-ref-file="${escapeHtml(asset.file)}" data-form-ref-name="${escapeHtml(asset.name ?? asset.id)}"
             title="${escapeHtml(entry.overview)}">
-            <span class="thumb"><img src="${assetUrl(asset.file)}" loading="lazy" alt=""></span>
+            <span class="thumb"><img src="${assetUrl(asset.file)}" loading="lazy" alt="${escapeHtml(entry.overview || asset.name || asset.id)}"></span>
             <span class="kit-source-name">${escapeHtml(entry.overview || asset.name || asset.id)}</span>
             <span class="kit-source-origin">${origin === "base" ? t("base") : t("image")}</span>
           </button>`).join("") : `<p class="form-note">${t("kitNoAdopted")}</p>`}
@@ -1387,9 +1427,9 @@ function render() {
           <select id="characterSelect">
             ${state.deck.characters.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === state.characterId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
           </select>
-          <button class="icon-button" id="addCharacterBtn" title="${t("addCharacter")}" aria-label="${t("addCharacter")}"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
-          <button class="icon-button" id="editCharacterBtn" title="${t("editCharacter")}" aria-label="${t("editCharacter")}"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i></button>
-          <button class="icon-button danger" id="deleteCharacterBtn" title="${t("deleteCharacter")}" aria-label="${t("deleteCharacter")}"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+          <button class="icon-button" id="addCharacterBtn" title="${t("addCharacter")}" aria-label="${t("addCharacter")}">${icon("plus")}</button>
+          <button class="icon-button" id="editCharacterBtn" title="${t("editCharacter")}" aria-label="${t("editCharacter")}">${icon("pen-to-square")}</button>
+          <button class="icon-button danger" id="deleteCharacterBtn" title="${t("deleteCharacter")}" aria-label="${t("deleteCharacter")}">${icon("trash")}</button>
           <button class="ghost" id="langBtn">${state.lang === "ja" ? "English" : "日本語"}</button>
         </div>
       </header>
@@ -1397,7 +1437,7 @@ function render() {
         <label>${t("mode")}</label>
         <div class="tabs">
           ${["kit", "base", "image", "video", "queue"].map((mode) => `<button data-mode="${mode}" class="${state.mode === mode ? "active" : ""}">${t(mode)}${mode === "queue" && state.requests.length ? ` (${state.requests.length})` : ""}</button>`).join("")}
-          <button id="galleryBtn" title="採用画像ギャラリー"><i class="fa-solid fa-images" aria-hidden="true"></i> Gallery</button>
+          <button id="galleryBtn" title="${t("galleryTooltip")}" aria-label="${t("galleryTooltip")}">${icon("images")} ${t("gallery")}</button>
         </div>
         <input class="grow" id="filterInput" value="${escapeHtml(state.filter)}" placeholder="${t("filter")}">
         ${isQueue ? `
@@ -2490,6 +2530,114 @@ async function importSelectedKitParts() {
 }
 
 function agentPromptFor(item) {
+  if (state.lang === "en") return agentPromptForEn(item);
+  return agentPromptForJa(item);
+}
+
+// English handoff prompts. The macOS-only osascript keystroke flow is offered
+// strictly as an optional fallback (and clearly gated to macOS), instead of
+// being emitted unconditionally as it is in the Japanese path.
+function agentPromptForEn(item) {
+  const origin = window.location.origin;
+  const root = state.projectRoot || "(server project root)";
+  const refs = (item.inputs?.refImages ?? []).map((file) => `   - ${file}`).join("\n") || "   - (none)";
+  const attachNote = `   Browser tips (field-tested):
+   - Attaching images: prefer the browser tool's native file-attach / upload API. If that is unavailable, fall back to a paste flow.
+     On macOS only, you can copy a file to the clipboard and paste it, e.g.:
+       osascript -e 'set the clipboard to (read (POSIX file "<absolute path>") as «class PNGf»)'
+       then bring the tab to the front, click the input, and trigger a real Cmd+V via System Events. Repeat one image at a time.
+     On Windows/Linux there is no osascript — use the browser tool's upload API or your platform's clipboard-image mechanism instead.
+   - Entering the prompt (try in this order; always confirm the full text landed in the input before sending — never send an empty input):
+     1) the browser tool's text-input API (type/fill); 2) in-page JS document.execCommand("insertText", ...);
+     3) (macOS fallback) put the text on the real clipboard, verify with pbpaste, click the input, and paste with a real Cmd+V (only after every image is attached).
+   - If a previous unsent attachment is left in the input when you start, clear it with × before beginning.
+   - Once the attachment spinner disappears, insert the prompt and send without delay (two screenshots — before and after sending — are enough).`;
+  if (item.action === "analyze") {
+    return `Process one image-arranger base-decomposition / image-analysis request.
+
+Server: ${origin} (already running — do not start or restart the server or any dev server)
+Working directory (projectRoot): ${root}
+Target: requestId ${item.requestId} / targetIndex ${item.targetIndex} (action: analyze)
+
+Steps (if a precondition cannot be met, stop and report rather than working around it):
+1. Run curl -s ${origin}/api/requests and confirm the row for the above requestId / targetIndex still exists. If it is gone, stop and report.
+2. This is an image-analysis task. Do NOT generate any image.
+3. Open ChatGPT, attach the following images (paths relative to projectRoot), and send the row's prompt verbatim:
+${refs}
+${attachNote}
+   - The reply can take 5–15 minutes. Poll with a light read every 30–60s; do not reload or resend.
+4. Extract the JSON code block from the reply ({"character","parts":[{"key","label","category","prompt"}]}).
+   Clicking the "Copy" button at the top-right of the code block is the reliable way to grab it (the clipboard API can fail due to focus constraints).
+   Check that each parts[].prompt satisfies "single part / one image only / faithful trace of the original design (no redesign) /
+   horns, wings, tails connected naturally as body parts / plain background / no text, logo, or watermark" and minimally fix any gaps.
+   The parts MUST come from ChatGPT's reply. Do not write them yourself.
+5. Report completion:
+   curl -X POST ${origin}/api/requests/complete \\
+     -H "Content-Type: application/json" \\
+     -d '{"requestId":"${item.requestId}","targetIndex":${item.targetIndex},"parts":<the extracted JSON>}'
+   Confirm that kitResultsStored in the response is 1.
+   Note: the user creates the base entries by selecting parts in the UI, so the agent does not need to verify entry creation.
+   Only if the POST fails, format the JSON and report it as-is (the user will import it from the screen).
+6. Final report: list of the chosen parts / any fixes you made to the JSON / any issues you noticed, concisely.
+
+Forbidden: generating images / inventing or editing requests / inventing parts / starting the server or a dev server / unrelated checkouts or worktree exploration.`;
+  }
+  if (item.action === "draft-prompt") {
+    return `Process one image-arranger prompt-drafting request (reference URL).
+
+Server: ${origin} (already running — do not start or restart the server or any dev server)
+Working directory (projectRoot): ${root}
+Target: requestId ${item.requestId} / targetIndex ${item.targetIndex} (action: draft-prompt)
+
+Steps (if a precondition cannot be met, stop and report rather than working around it):
+1. Run curl -s ${origin}/api/requests and confirm the row for the above requestId / targetIndex still exists. If it is gone, stop and report.
+2. This is a prompt-drafting task. Do NOT generate an image at this stage.
+3. Open the reference URL and analyze what makes the referenced image/post appealing (composition / pose / art style / color palette / props / mood):
+   ${item.referenceUrl || "(no reference URL — write from the row's overview and identity references only)"}
+4. Check the character's identity references (paths relative to projectRoot). Face, hair, colors, and attached parts are authoritative here:
+${refs}
+5. Write one English image-generation prompt that reproduces the appeal of the reference URL while strictly preserving the identity of the references.
+   Requirements: one image only / concrete scene, composition, and lighting / do NOT override identity (hair color, eyes, horns, wings, tail, outfit follow the references) / no text, no logo, no watermark.
+   Also write a short title that conveys the content at a glance (match the deck's display language, e.g. "Smiling at a shrine at dusk").
+6. Report completion (escape the prompt and title as JSON strings):
+   curl -X POST ${origin}/api/requests/complete \\
+     -H "Content-Type: application/json" \\
+     -d '{"requestId":"${item.requestId}","targetIndex":${item.targetIndex},"overview":"<short title>","prompt":"<the prompt you wrote>"}'
+   The server imports the title and prompt into the entry and automatically queues the generation request (the response's draftQueued holds the new requestId).
+7. Then re-fetch curl -s ${origin}/api/requests and process the auto-queued generation request as usual (the normal image-generation steps).
+8. Final report: the prompt you wrote / the elements you read from the reference URL / where the result was saved, concisely.
+
+Forbidden: generating an image without reporting the prompt first / inventing or editing requests / starting the server or a dev server / unrelated checkouts or worktree exploration.`;
+  }
+  const isImprove = item.action === "improve";
+  return `Process one image-arranger image-${isImprove ? "improvement" : "generation"} request.
+
+Server: ${origin} (already running — do not start or restart the server or any dev server)
+Working directory (projectRoot): ${root}
+Target: requestId ${item.requestId} / targetIndex ${item.targetIndex} (action: ${item.action} / service: ${item.service})
+
+Steps (if a precondition cannot be met, stop and report rather than working around it):
+1. Run curl -s ${origin}/api/requests and confirm the row for the above requestId / targetIndex still exists. If it is gone, stop and report.
+2. Use the row's prompt as-is and attach all of the following reference images (paths relative to projectRoot, one at a time):
+${refs}
+${isImprove ? "   Treat the improvement source (inputs.sourceAsset) as the primary reference and prioritize improvementPrompt as the improvement intent. The other references are for identity preservation.\n" : ""}${attachNote}
+3. 1 target = 1 deliverable. Do not produce multiple variants, grids, A/B comparisons, or contact sheets.
+   Reuse a single working tab (do not open a new tab/window per target — use "New chat" in the same tab).
+4. If refused by content policy etc.: 1) resend once with the same prompt; 2) resend once with a minimal wording change that does not alter the design;
+   3) if it still fails, report an error and move on:
+   curl -X POST ${origin}/api/requests/complete \\
+     -H "Content-Type: application/json" \\
+     -d '{"requestId":"${item.requestId}","targetIndex":${item.targetIndex},"error":"<reason and what you tried>"}'
+5. Save the result to ${item.outputDir || "outputDir"} and report completion:
+   curl -X POST ${origin}/api/requests/complete \\
+     -H "Content-Type: application/json" \\
+     -d '{"requestId":"${item.requestId}","targetIndex":${item.targetIndex},"results":[{"file":"<saved relative path>"}]}'
+6. Final report: where it was saved / the quality points you checked / if there was an error, the reason and your next fix idea, concisely.
+
+Forbidden: substituting screenshots, cache, or blob URLs when the normal UI cannot save / inventing or editing requests / starting the server or a dev server / unrelated checkout exploration.`;
+}
+
+function agentPromptForJa(item) {
   const origin = window.location.origin;
   const root = state.projectRoot || "(server project root)";
   const refs = (item.inputs?.refImages ?? []).map((file) => `   - ${file}`).join("\n") || "   - (なし)";
@@ -2638,7 +2786,7 @@ function openAsset(assetId, entryId) {
           <small>${t("improveModeHelp")}</small>
         </div>
         <div class="modal-actions">
-          <button class="ghost danger" id="deleteAssetBtn" type="button"><i class="fa-solid fa-trash" aria-hidden="true"></i> ${t("deleteAsset")}</button>
+          <button class="ghost danger" id="deleteAssetBtn" type="button">${icon("trash")} ${t("deleteAsset")}</button>
           <button class="ghost" id="saveImprovePrompt" type="button">${t("saveImprovePrompt")}</button>
           ${asset.requestStatus === "requested"
             ? `<button class="primary" id="cancelImproveAsset" type="button">${t("cancelRequest")}</button>`
@@ -2687,6 +2835,115 @@ function toast(message) {
   node.classList.add("show");
   state.toastTimer = setTimeout(() => node.classList.remove("show"), 4200);
 }
+
+// ---- Modal accessibility: Escape-to-close, focus trap, focus restore ----
+// All content modals share #modal; the entry/asset form uses .form-modal.open.
+// A single controller observes both so every open path (× button, backdrop
+// click, action buttons) gets keyboard support without per-call wiring.
+const modalA11y = {
+  lastFocus: null,
+  isOpen(el) {
+    return Boolean(el && el.classList && el.classList.contains("open"));
+  },
+  activeModal() {
+    const sheet = $("#modal");
+    if (this.isOpen(sheet)) return sheet;
+    const form = document.querySelector(".form-modal.open");
+    if (form) return form;
+    return null;
+  },
+  // Close whichever modal is currently open. Returns true if one was closed.
+  closeActive() {
+    const form = document.querySelector(".form-modal.open");
+    if (form) {
+      closeForm();
+      return true;
+    }
+    const sheet = $("#modal");
+    if (this.isOpen(sheet)) {
+      sheet.classList.remove("open");
+      return true;
+    }
+    return false;
+  },
+  focusables(root) {
+    return Array.from(
+      root.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((node) => node.offsetParent !== null || node === document.activeElement);
+  },
+  // Called when a modal transitions to open: remember the trigger and move
+  // focus inside so keyboard users land in the dialog.
+  onOpened(root) {
+    if (!this.lastFocus) {
+      const trigger = document.activeElement;
+      this.lastFocus = trigger && trigger !== document.body ? trigger : null;
+    }
+    // Announce the open container as a modal dialog to assistive tech.
+    const dialog = root.querySelector(".modal-card") ?? root.querySelector(".form-card") ?? root;
+    if (dialog && !dialog.getAttribute("role")) dialog.setAttribute("role", "dialog");
+    if (dialog) dialog.setAttribute("aria-modal", "true");
+    const focusables = this.focusables(root);
+    const target = focusables[0] ?? root;
+    // Defer so the modal content is laid out before focusing.
+    requestAnimationFrame(() => {
+      if (this.isOpen(root) || root.classList.contains("form-modal")) target.focus();
+    });
+  },
+  // Called when no modal is open anymore: restore focus to the trigger.
+  onClosed() {
+    const node = this.lastFocus;
+    this.lastFocus = null;
+    if (node && document.contains(node)) {
+      requestAnimationFrame(() => node.focus());
+    }
+  },
+};
+
+document.addEventListener("keydown", (event) => {
+  const modal = modalA11y.activeModal();
+  if (!modal) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    modalA11y.closeActive();
+    return;
+  }
+  if (event.key === "Tab") {
+    const focusables = modalA11y.focusables(modal);
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey) {
+      if (active === first || !modal.contains(active)) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (active === last || !modal.contains(active)) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+});
+
+// Detect open/close transitions on both modal containers without touching the
+// many call sites. #modal toggles its class in place; .form-modal is recreated
+// by render(), so observe the document for both.
+let modalWasOpen = false;
+const modalObserver = new MutationObserver(() => {
+  const modal = modalA11y.activeModal();
+  const open = Boolean(modal);
+  if (open && !modalWasOpen) modalA11y.onOpened(modal);
+  else if (!open && modalWasOpen) modalA11y.onClosed();
+  modalWasOpen = open;
+});
+modalObserver.observe(document.body, {
+  subtree: true,
+  childList: true,
+  attributes: true,
+  attributeFilter: ["class"],
+});
 
 loadDeck().catch((error) => {
   document.body.innerHTML = `<pre>${escapeHtml(error.stack || error.message)}</pre>`;

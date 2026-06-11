@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gallery ｜ image-arranger</title>
+<title>Gallery | image-arranger</title>
 <style>
 :root {
   --bg0: #06070b;
@@ -140,6 +140,40 @@ html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background:
 <a class="backChip" href="/">← image-arranger</a>
 <div id="enterFade" aria-hidden="true"></div>
 <script>
+// Bilingual (EN default / JA). Language follows the deck's settings.lang when set,
+// otherwise the browser locale (ja* -> ja, else en) — mirroring the main app.
+const GALLERY_I18N = {
+  en: {
+    favorite: "Favorite",
+    speechLines: [
+      "Hehe ♥", "Surprised?", "Thanks for looking!", "Hey, which me do you like?",
+      "You can keep watching ♥", "Great to see you today!", "Tapping tickles~", "Added me to your favorites yet?",
+    ],
+    noAdopted: (name) => `${name} has no adopted images yet.`,
+    back: "← Back to image-arranger",
+    loadFailed: (msg) => `Failed to load: ${msg}`,
+    defaultName: "This asset pattern",
+  },
+  ja: {
+    favorite: "お気に入り",
+    speechLines: [
+      "えへへ♪", "びっくりした？", "見てくれてありがと！", "ねぇ、どの私が好き？",
+      "ずっと見てていいよ♪", "今日も会えたね！", "タップ、くすぐったいよ〜", "お気に入り、増やしてくれた？",
+    ],
+    noAdopted: (name) => `${name} に採用画像がまだありません。`,
+    back: "← image-arranger にもどる",
+    loadFailed: (msg) => `読み込みに失敗しました: ${msg}`,
+    defaultName: "この素材パターン",
+  },
+};
+function resolveLang(deckLang) {
+  if (deckLang === "en" || deckLang === "ja") return deckLang;
+  const codes = [...(Array.isArray(navigator.languages) ? navigator.languages : []), navigator.language];
+  return codes.some((c) => typeof c === "string" && c.toLowerCase().startsWith("ja")) ? "ja" : "en";
+}
+let LANG = resolveLang();
+let T = GALLERY_I18N[LANG];
+
 const assetUrl = (file) => `/asset?path=${encodeURIComponent(file)}`;
 const IMG_EXT = /\.(png|jpe?g|webp|gif|avif)$/i;
 let expressions = [];
@@ -227,7 +261,7 @@ function setCardExpression(card, expr) {
 function makeCard(expr) {
   const card = document.createElement('article');
   card.className = 'expressionCard';
-  card.innerHTML = `<div class="cardInner"><div class="cardFace"><img alt="" draggable="false"></div><div class="cardComment"></div></div><button class="favBtn" type="button" aria-label="お気に入り">♡</button>`;
+  card.innerHTML = `<div class="cardInner"><div class="cardFace"><img alt="" draggable="false"></div><div class="cardComment"></div></div><button class="favBtn" type="button" aria-label="${T.favorite}">♡</button>`;
   // 呼吸とキャプションの周期を1枚ごとにずらして有機的に見せる（負のdelayで途中から開始）
   card.style.setProperty('--breatheDur', `${(7 + Math.random() * 6).toFixed(2)}s`);
   card.style.setProperty('--breatheDelay', `${(-Math.random() * 12).toFixed(2)}s`);
@@ -315,10 +349,6 @@ function renderInfiniteSurface() {
 }
 
 // ===== クリック演出（4種ランダム） =====
-const SPEECH_LINES = [
-  'えへへ♪', 'びっくりした？', '見てくれてありがと！', 'ねぇ、どの私が好き？',
-  'ずっと見てていいよ♪', '今日も会えたね！', 'タップ、くすぐったいよ〜', 'お気に入り、増やしてくれた？'
-];
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 function surpriseAt(x, y, card) {
   let pool = card ? ['ripple', 'zoom', 'burst', 'speech'] : ['ripple', 'speech'];
@@ -409,7 +439,8 @@ function sparkleAt(x, y, char) {
 function speechAt(x, y) {
   const b = document.createElement('div');
   b.className = 'speechBubble';
-  b.textContent = SPEECH_LINES[(Math.random() * SPEECH_LINES.length) | 0];
+  const lines = T.speechLines;
+  b.textContent = lines[(Math.random() * lines.length) | 0];
   b.style.left = `${Math.min(Math.max(x, 110), innerWidth - 110)}px`;
   b.style.top = `${Math.max(y - 24, 60)}px`;
   document.body.appendChild(b);
@@ -496,10 +527,13 @@ function collectAdopted(ch) {
 }
 
 fetch('/api/state').then(r => r.json()).then(state => {
+  LANG = resolveLang(state.settings?.lang);
+  T = GALLERY_I18N[LANG];
+  document.documentElement.lang = LANG;
   const ch = selectCharacter(state);
   expressions = collectAdopted(ch);
   if (!expressions.length) {
-    document.body.innerHTML = `<div class="emptyMsg"><p>${(ch?.name ?? 'この素材パターン')} に採用画像がまだありません。</p><a href="/">← image-arranger にもどる</a></div>`;
+    document.body.innerHTML = `<div class="emptyMsg"><p>${T.noAdopted(ch?.name ?? T.defaultName)}</p><a href="/">${T.back}</a></div>`;
     return;
   }
   // 全画像を先読みしておく。タイル使い回しでsrcを差し替えた瞬間の
@@ -510,7 +544,7 @@ fetch('/api/state').then(r => r.json()).then(state => {
   buildColumns();
   requestAnimationFrame(tick);
 }).catch(error => {
-  document.body.innerHTML = `<div class="emptyMsg"><p>読み込みに失敗しました: ${String(error.message || error)}</p><a href="/">← image-arranger にもどる</a></div>`;
+  document.body.innerHTML = `<div class="emptyMsg"><p>${T.loadFailed(String(error.message || error))}</p><a href="/">${T.back}</a></div>`;
 });
 </script>
 </body>
