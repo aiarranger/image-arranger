@@ -90,6 +90,8 @@ const I18N = {
     newEntry: "新規",
     downloadSelected: "選択をDL",
     durationSec: "動画の長さ（秒）",
+    framePair: "フレーム（始まり / 終わり）",
+    clearFrame: "未設定にする",
     addAsset: "素材追加",
     baseRefs: "ベース参照",
     baseAssets: "ベース採用画像",
@@ -262,6 +264,8 @@ const I18N = {
     newEntry: "New",
     downloadSelected: "Download selected",
     durationSec: "Video length (sec)",
+    framePair: "Frames (start / end)",
+    clearFrame: "Clear",
     addAsset: "Add asset",
     baseRefs: "Base references",
     baseAssets: "Adopted base images",
@@ -741,6 +745,7 @@ function openEntryModal(entryId, shownAssetId = null) {
   const entry = findEntry(entryId);
   if (!entry) return;
   const isImage = (character().images ?? []).some((item) => item.id === entry.id);
+  const isVideo = (character().videos ?? []).some((item) => item.id === entry.id);
   const sources = (entry.assets ?? []).filter(isSourceRef);
   const generated = (entry.assets ?? []).filter((asset) => !isSourceRef(asset));
   const shown = (entry.assets ?? []).find((asset) => asset.id === shownAssetId)
@@ -795,6 +800,12 @@ function openEntryModal(entryId, shownAssetId = null) {
           ${generated.length ? generated.map((asset) => thumb(asset, "gen")).join("") : `<p class="form-note">${t("noImage")}</p>`}
           <button class="ghost small" id="entryModalRegisterImage"><i class="fa-solid fa-plus" aria-hidden="true"></i> ${t("registerImage")}</button>
         </div>
+        ${isVideo ? `
+        <h4>${t("framePair")}</h4>
+        <div class="emodal-frames">
+          ${frameCard(t("start"), entry.startFrame, entry.id, "startFrame")}
+          ${frameCard(t("end"), entry.endFrame, entry.id, "endFrame")}
+        </div>` : ""}
         ${sources.length ? `<h4>${t("sourceImages")}</h4><p class="form-note">${t("refImagesHelp")}</p><div class="emodal-thumbs">${sources.map((asset) => thumb(asset, "src")).join("")}</div>` : ""}
         <div class="entry-modal-actions">
           <button class="ghost danger" id="entryModalDelete"><i class="fa-solid fa-trash" aria-hidden="true"></i> ${t("delete")}</button>
@@ -808,6 +819,12 @@ function openEntryModal(entryId, shownAssetId = null) {
       </div>
     </div>`;
   $("#modal").classList.add("open");
+  document.querySelectorAll("#modal [data-pick-frame-entry]").forEach((button) => {
+    button.onclick = (event) => {
+      event.stopPropagation();
+      openFramePicker(button.dataset.pickFrameEntry, button.dataset.pickFrameField, true);
+    };
+  });
   const closeModal = () => $("#modal").classList.remove("open");
   $("#closeModal").onclick = closeModal;
   $("#modal").onclick = (event) => { if (event.target.id === "modal") closeModal(); };
@@ -872,17 +889,14 @@ function openEntryModal(entryId, shownAssetId = null) {
   });
 }
 
-function frameAssetOptions() {
+function frameAssetPool() {
   const ch = character();
   const sceneAssets = ch.images.flatMap((entry) => (entry.assets ?? [])
     .filter((asset) => asset.file && !isSourceRef(asset))
     .map((asset) => ({ asset, entry })));
   const baseAssets = allBaseEntries(ch)
     .flatMap((entry) => adoptedAssets(entry).map((asset) => ({ asset, entry })));
-  return [...sceneAssets, ...baseAssets].map(({ asset, entry }) => ({
-    value: asset.id,
-    label: asset.name && asset.name !== entry.overview ? `${entry.overview} — ${asset.name}` : (entry.overview || asset.name || asset.id),
-  }));
+  return [...sceneAssets, ...baseAssets];
 }
 
 function frameCard(label, assetId, entryId, field) {
@@ -890,11 +904,42 @@ function frameCard(label, assetId, entryId, field) {
   const image = found?.file
     ? `<img src="${assetUrl(found.file)}" alt="${escapeHtml(found.name)}" loading="lazy">`
     : `<span>${assetId ? "missing" : "未設定"}</span>`;
-  const options = frameAssetOptions();
-  return `<div class="frame-card"><div class="thumb">${image}</div><div class="label">${label}</div>
-    <select class="frame-select" data-frame-entry="${escapeHtml(entryId)}" data-frame-field="${escapeHtml(field)}">
-      <option value="">未設定</option>${optionList(options, assetId ?? "")}
-    </select></div>`;
+  const chosen = found ? (found.entry?.overview || found.name || found.id) : (assetId ? "missing" : "未設定");
+  return `<button type="button" class="frame-card" data-pick-frame-entry="${escapeHtml(entryId)}" data-pick-frame-field="${escapeHtml(field)}" title="クリックで画像を選択">
+    <div class="thumb">${image}</div><div class="label">${label}: ${escapeHtml(chosen)}</div></button>`;
+}
+
+function openFramePicker(entryId, field, returnToModal = false) {
+  const entry = findEntry(entryId);
+  if (!entry) return;
+  const closePicker = () => $("#modal").classList.remove("open");
+  const finish = async (value) => {
+    entry[field] = value;
+    await saveDeck(false).catch((error) => toast(error.message));
+    render();
+    if (returnToModal && findEntry(entryId)) openEntryModal(entryId);
+    else closePicker();
+  };
+  $("#modal").innerHTML = `
+    <button class="close" id="closeModal" title="${t("close")}" aria-label="${t("close")}">×</button>
+    <div class="modal-card frame-picker">
+      <h3>${field === "startFrame" ? t("start") : t("end")}</h3>
+      <div class="kit-sources frame-picker-pool">
+        ${frameAssetPool().map(({ asset, entry: source }) => `
+          <button type="button" class="kit-source ${entry[field] === asset.id ? "selected" : ""}" data-frame-pick="${escapeHtml(asset.id)}" title="${escapeHtml(source.overview)}">
+            <span class="thumb"><img src="${assetUrl(asset.file)}" loading="lazy" alt=""></span>
+            <span class="kit-source-name">${escapeHtml(source.overview || asset.name || asset.id)}</span>
+          </button>`).join("")}
+      </div>
+      <div class="btns"><button class="ghost" id="framePickClear">${t("clearFrame")}</button></div>
+    </div>`;
+  $("#modal").classList.add("open");
+  $("#closeModal").onclick = () => (returnToModal ? openEntryModal(entryId) : closePicker());
+  $("#modal").onclick = (event) => { if (event.target.id === "modal") closePicker(); };
+  $("#framePickClear").onclick = () => finish("");
+  document.querySelectorAll("[data-frame-pick]").forEach((button) => {
+    button.onclick = () => finish(button.dataset.framePick);
+  });
 }
 
 function videoCard(entry) {
@@ -1193,6 +1238,20 @@ function optionList(items, selected = "") {
   return items.map((item) => `<option value="${escapeHtml(item.value)}" ${item.value === selected ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("");
 }
 
+function formFramePicker(field, label, form) {
+  const selected = form.frameSel?.[field] ?? "";
+  return `
+      <div class="form-note"><strong>${label}</strong>（クリックで選択）</div>
+      <div class="kit-sources form-ref-pool">
+        ${frameAssetPool().map(({ asset, entry }) => `
+          <button type="button" class="kit-source ${selected === asset.id ? "selected" : ""}"
+            data-form-frame-field="${escapeHtml(field)}" data-form-frame-asset="${escapeHtml(asset.id)}" title="${escapeHtml(entry.overview)}">
+            <span class="thumb"><img src="${assetUrl(asset.file)}" loading="lazy" alt=""></span>
+            <span class="kit-source-name">${escapeHtml(entry.overview || asset.name || asset.id)}</span>
+          </button>`).join("")}
+      </div>`;
+}
+
 function renderFormModal() {
   if (!state.form) return "";
   const ch = character();
@@ -1251,8 +1310,8 @@ function renderFormModal() {
       <label class="inline"><input name="entryFileAdopt" type="checkbox" checked> ${t("adopt")}<small>${t("adoptOneHelp")}</small></label>
       ${refPicker}
       ${state.mode === "video" ? `
-        <label>${t("start")}<select name="startFrame"><option value="">未設定</option>${optionList(frameAssetOptions())}</select></label>
-        <label>${t("end")}<select name="endFrame"><option value="">未設定</option>${optionList(frameAssetOptions())}</select></label>
+        ${formFramePicker("startFrame", t("start"), form)}
+        ${formFramePicker("endFrame", t("end"), form)}
         <label>${t("durationSec")}<select name="durationSec">${optionList([4, 6, 8, 10, 12].map((value) => ({ value: String(value), label: `${value}s` })), "8")}</select></label>
         <label>${t("output")}<input name="outputDraft" placeholder="outputs/${escapeHtml(ch.id)}/new-video.mp4"></label>
       ` : ""}
@@ -1544,8 +1603,8 @@ function createEntryFromForm(form) {
       checked: false,
       requestStatus: "idle",
       tags: [],
-      startFrame: String(data.get("startFrame") ?? ""),
-      endFrame: String(data.get("endFrame") ?? ""),
+      startFrame: String(state.form?.frameSel?.startFrame ?? ""),
+      endFrame: String(state.form?.frameSel?.endFrame ?? ""),
       durationSec: Number(data.get("durationSec")) || 8,
       outputDraft,
       assets: [],
@@ -1851,12 +1910,19 @@ function bind() {
       render();
     };
   });
-  document.querySelectorAll("[data-frame-field]").forEach((select) => {
-    select.onchange = async () => {
-      const entry = findEntry(select.dataset.frameEntry);
-      if (!entry) return;
-      entry[select.dataset.frameField] = select.value;
-      await saveDeck(false).catch((error) => toast(error.message));
+  document.querySelectorAll("#app [data-pick-frame-entry]").forEach((button) => {
+    button.onclick = (event) => {
+      event.stopPropagation();
+      openFramePicker(button.dataset.pickFrameEntry, button.dataset.pickFrameField, false);
+    };
+  });
+  document.querySelectorAll("[data-form-frame-asset]").forEach((button) => {
+    button.onclick = () => {
+      if (!state.form) return;
+      captureEntryFormDrafts();
+      state.form.frameSel = state.form.frameSel ?? {};
+      const field = button.dataset.formFrameField;
+      state.form.frameSel[field] = state.form.frameSel[field] === button.dataset.formFrameAsset ? "" : button.dataset.formFrameAsset;
       render();
     };
   });
