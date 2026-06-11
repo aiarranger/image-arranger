@@ -14,7 +14,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional CDP automation driver (`scripts/process-queue.mjs`) that processes queued ChatGPT image targets end to end with reviewable run logs.
 - Bulk ZIP export of selected entries (`GET /api/export`).
 - Visual start/end frame pickers and per-clip duration for video entries.
+- Deck backup and export: every save writes `deck.json.bak` plus a rotating `workspace/.history/` snapshot; `GET /api/deck/export` and `POST /api/deck/import` provide a portable round-trip.
+- Documented request-file spec (`docs/request-spec.md`) including the complete-API payload shapes and a "writing a service driver" guide.
+- Manual, no-agent processing path documented in the README (register an asset to auto-complete the pending queue target).
+- Japanese README parity (`README.ja.md`), a glossary, an alternatives/positioning section, and an OS-support matrix.
+- GitHub issue templates (bug, feature, ChatGPT-UI-breakage, new-service) and a pull-request template.
+- Scripted driver resilience: a `--check` selector self-test that reports when ChatGPT's UI has drifted, documented in `SELECTORS.md`.
+
+### Changed
+
+- Default UI language is now detected from the browser (English unless the locale is Japanese); the sample deck and agent-handoff prompts have English versions. An explicit `deck.settings.lang` still wins.
+- Font Awesome is vendored as inline SVG instead of loaded from a CDN — the app now works fully offline with zero third-party requests.
+- `serveFile` supports HTTP Range/`206` and streams large assets, so video can be scrubbed without buffering the whole file.
+- Scripted ChatGPT detection is locale-neutral and structural (assistant-turn first), reducing wrong-deliverable and false-refusal cases.
+- Mutating API endpoints are serialized through a single-writer mutex to prevent lost updates.
+- Internal: extracted `http-util.mjs` (path safety, Range serving, Host/Origin policy) and `prompts.mjs` (base-kit vocabulary) from `server.mjs` as a first step toward a modular layout.
+
+### Fixed
+
+- Accessibility: modals close on Escape, trap and restore focus, and expose `role="dialog"`/`aria-modal`.
+- Remaining hardcoded Japanese UI strings now render in English when the UI language is English.
 
 ### Security
 
 - Loopback-only Host/Origin policy, JSON Content-Type enforcement, `/asset` scoped to workspace assets/outputs, symlink-safe path resolution, and project-relative `sourceFile` registration.
+- A strict `Content-Security-Policy` (`default-src 'self'`) and `X-Content-Type-Options: nosniff` are sent on served HTML.
+- Schema-version guard: a deck written by a newer server is backed up and refused rather than silently mutated.

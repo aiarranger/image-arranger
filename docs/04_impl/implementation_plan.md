@@ -406,3 +406,63 @@ node --check server.mjs && node --check public/app.js \
   && node --test server.test.mjs \
   && node server.mjs --workspace /tmp/ia-verify --init sample --doctor
 ```
+
+
+---
+
+## 自律実行ログ（2026-06-12・サブエージェント並列オーケストレーション）
+
+`docs/04_impl/implementation_plan.md` の Phase 1〜3 のうち **自動化可能なコード/ドキュメント作業を完了**。人間ゲート（npm公開・GitHub公開・ビジュアル録画）と、リスクで部分停止した1件を除き反映済み。main は全工程で **32テスト全パス**を維持。
+
+### 完了（✅）
+
+| タスク | 内容 | 反映 |
+|---|---|---|
+| P1-DOC-1 | 手動（エージェント不要）処理パス | DOCSトラック |
+| P1-DOC-2 | `docs/request-spec.md`（contract仕様＋ドライバガイド） | DOCS＋精度修正 `cdb6dcc` |
+| P1-DOC-3 | glossary | DOCS |
+| P1-DOC-4 | Queue/Gallery/clone/landingリンク | DOCS |
+| P1-I18N-1 | agent-prompt英語版 | FRONTEND |
+| P1-I18N-2 | UI/サンプル既定EN＋`detectDefaultLang` | FRONTEND |
+| P1-I18N-3 | gallery i18n＋ツールチップ | FRONTEND |
+| P1-CI-1 | issue/PRテンプレ（UI-breakage/new-service含む） | DOCS |
+| P2-DOC-1 | 比較/代替セクション | DOCS |
+| P2-DOC-2 | 日本語READMEパリティ（README.ja.md） | DOCS |
+| P2-DOC-3 | OSサポートマトリクス | DOCS |
+| P2-DOC-4 | AGENTS.md再構成＋`docs/manual-fallback.md` | DOCS |
+| P2-FA-1 | Font Awesome をインライン SVG に vendoring（オフライン化） | FRONTEND |
+| P2-SEL-1 | セレクタ自己診断＋`SELECTORS.md` | SCRIPTS |
+| P2-SEL-2 | ロケール中立な画像/エラー/ログイン検出 | SCRIPTS＋硬化 `2bf584a` |
+| P3-CQ-2 | 更新ロスト修正（単一書き込みmutex） | BACKEND |
+| P3-CQ-3 | doctor/純粋関数テスト | BACKEND |
+| P3-DATA-1 | deck backup/export（.bak＋.history＋export/import API） | BACKEND |
+| P3-DATA-2 | スキーマ前方版ガード＋テスト | BACKEND |
+| P3-PERF-1 | HTTP Range/206（動画スクラブ） | BACKEND |
+| P3-SEC-1 | CSPヘッダ＋nosniff | BACKEND |
+| P3-API-1 | API形状は文書化（/api/state はbare、他はenvelope） | BACKEND |
+| P3-A11Y-1 | モーダルEsc/フォーカストラップ/復帰 | FRONTEND |
+
+### 部分完了（🚧）
+
+| タスク | 状態 |
+|---|---|
+| P3-CQ-1 | server.mjs分割は **`http-util.mjs`＋`prompts.mjs` 抽出で部分完了**（コミット `e7f0476`,`503d7c4`,`a568374`）。最も結合の強い `deck-model`/`persistence`/`requests`/`doctor` の抽出はエージェントがストールしたため、緑のまま停止し**フォローアップに延期**。 |
+
+### 見送り（意図的）
+
+| タスク | 理由 |
+|---|---|
+| P3-PERF-2 | render()全再描画のスコープ化はモーダルライフサイクルの大改修で回帰リスク大。フォーカストラップは「再描画されないモーダルでは正しい」と限定（既知の制約）。 |
+
+### 未了（人間ゲート・あなた側の作業）
+
+- P0-PKG-6 / P2-REL-2: npm名確保・publish（npm権限）
+- P0-VIS-2..5: デモGIF・スクショ録画とREADME/landing差し込み
+- P2-REL-1 / P2-PUB-1 / P2-PUB-2: v0.1.0タグ・GitHub公開設定・告知
+
+### レビュー（敵対的・読み取り専用）で検出し修正済み
+
+- Docs契約精度: `projectRoot` は `/api/requests`（`/api/state`ではない）、`mode` に `"kit"`、`outputDir` は nullable 等 → `cdb6dcc`
+- Scripts: 自己診断の非throw保証(M1)・assistant優先の成果物検出(M2)・refusal正規表現の誤検知抑制(L3) → `2bf584a`
+- Frontend: EN表示時の日本語ハードコード8キーをi18n化・`navigator`ガード → `e6797b4`（en/ja=183キー一致）
+
