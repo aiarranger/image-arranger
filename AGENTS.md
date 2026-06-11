@@ -34,6 +34,24 @@ Never process targets or requests whose `status` is `cancelled`.
 5. Register the file as an asset candidate on the matching entry (via the UI or `POST /api/assets`), marking `adopted` only if the user asked for auto-adoption.
 6. Mark the target completed (see Reporting below).
 
+## Prompt Drafting (`draft-prompt`)
+
+The user supplies only a reference URL (an X post, an article, a gallery page) and delegates prompt writing to you. This is the most common flow: URL in, finished image out.
+
+1. Open the target's `referenceUrl` and study what makes the referenced content appealing: composition, pose, art style, palette, props, mood.
+2. Review the identity references in `inputs.refImages` — they are the ground truth for the character's face, hair, colors, and attached parts. The reference URL must never override identity.
+3. Write ONE English generation prompt that recreates the appeal of the referenced content with this character: be concrete about scene, composition, and lighting; require exactly one image; no text, no logo, no watermark.
+4. Report it back (escape the prompt as a JSON string):
+
+   ```bash
+   curl -X POST http://127.0.0.1:4217/api/requests/complete \
+     -H "Content-Type: application/json" \
+     -d '{"requestId": "<requestId>", "targetIndex": 0, "prompt": "<your prompt>"}'
+   ```
+
+   The server imports the prompt into the entry and automatically queues a normal generation request for it (the response lists the new request id in `draftQueued`).
+5. Re-fetch `/api/requests` and process the auto-queued generation request as a regular Image Generation task.
+
 ## Image Improvement (`improve`)
 
 Same as generation, but treat `inputs.sourceAsset` / `assetFile` as the primary reference and follow `improvementPrompt` as the improvement intent.

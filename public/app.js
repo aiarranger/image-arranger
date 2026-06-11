@@ -60,6 +60,10 @@ const I18N = {
     promptNext: "プロンプト（次の生成用）",
     refUrl: "参考URL（任意）",
     refUrlHelp: "雰囲気・構図の参考にしたい投稿やページのURL。キュー依頼のJSONに含まれます。",
+    aiDraft: "プロンプト作成をAIに任せる",
+    aiDraftHelp: "参考URLの内容をAIエージェントが解析して生成プロンプトを書きます。取り込み後は自動で生成キューへ進みます（参考URL必須）。",
+    draftPrompt: "AIプロンプト作成",
+    aiDraftNeedsUrl: "プロンプト作成をAIに任せる場合は参考URLを入力してください",
     genImages: "生成画像",
     refRole: "元画像",
     sourceImages: "元画像（生成入力）",
@@ -226,6 +230,10 @@ const I18N = {
     promptNext: "Prompt (for the next generation)",
     refUrl: "Reference URL (optional)",
     refUrlHelp: "URL of a post/page used as inspiration. Included in the queue request JSON.",
+    aiDraft: "Let AI draft the prompt",
+    aiDraftHelp: "An AI agent reads the reference URL and writes the generation prompt. Once imported, the entry is queued for generation automatically (reference URL required).",
+    draftPrompt: "AI prompt draft",
+    aiDraftNeedsUrl: "Enter a reference URL to let the AI draft the prompt",
     genImages: "Generated images",
     refRole: "Source",
     sourceImages: "Source images (generation input)",
@@ -1085,7 +1093,7 @@ function renderQueue() {
                 <span>${escapeHtml(item.characterName || item.characterId)} / ${escapeHtml(item.mode)} / ${escapeHtml(item.service)}</span>
               </button>
               <div class="queue-meta">
-                <span class="chip">${t(item.action === "improve" ? "improve" : item.action === "analyze" ? "analyze" : "generate")}</span>
+                <span class="chip">${t(item.action === "improve" ? "improve" : item.action === "analyze" ? "analyze" : item.action === "draft-prompt" ? "draftPrompt" : "generate")}</span>
                 <span class="chip">${t("requestedAt")}: ${escapeHtml(formatDateTime(item.requestedAt))}</span>
                 <span class="queue-file" title="${escapeHtml(`${item.requestFile} / ${t("target")}: ${item.targetIndex}`)}">${escapeHtml(item.requestId)}</span>
               </div>
@@ -1179,6 +1187,7 @@ function renderFormModal() {
       <label>${t("assetName")}<input name="overview" required value="${escapeHtml(form.draftOverview ?? "")}" placeholder="${state.mode === "video" ? "fish-jump-loop" : "new asset prompt"}"></label>
       <label>${t("prompt")}<textarea name="prompt" rows="7">${escapeHtml(form.draftPrompt ?? "")}</textarea></label>
       <label>${t("refUrl")}<input name="referenceUrl" type="url" placeholder="https://x.com/..." value="${escapeHtml(form.draftReferenceUrl ?? "")}"><small>${t("refUrlHelp")}</small></label>
+      ${state.mode === "image" ? `<label class="inline"><input name="aiDraftPrompt" type="checkbox" ${form.draftAiPrompt ? "checked" : ""}> ${t("aiDraft")}<small>${t("aiDraftHelp")}</small></label>` : ""}
       <label>${t("entryFile")}<input type="file" name="entryFileUpload" accept=".png,.jpg,.jpeg,.webp,.gif,.mp4,.webm"><small>${t("entryFileHelp")}</small></label>
       <label class="inline"><input name="entryFileAdopt" type="checkbox" checked> ${t("adopt")}<small>${t("adoptOneHelp")}</small></label>
       ${refPicker}
@@ -1567,6 +1576,11 @@ async function submitEntryForm(form) {
   const data = new FormData(form);
   const entryFileAdopt = Boolean(data.get("entryFileAdopt"));
   const file = form.querySelector('input[name="entryFileUpload"]')?.files?.[0] ?? null;
+  const aiDraft = state.mode === "image" && Boolean(data.get("aiDraftPrompt"));
+  if (aiDraft && !String(data.get("referenceUrl") ?? "").trim()) {
+    toast(t("aiDraftNeedsUrl"));
+    return;
+  }
   const newId = createEntryFromForm(form);
   state.form = null;
   await saveDeck(false);
@@ -1584,10 +1598,11 @@ async function submitEntryForm(form) {
     }
   }
   // 画像の新規作成（完成ファイルの登録ではない場合）は、そのまま生成キューに入れる
+  // AIにプロンプト作成を任せる場合は draft-prompt 依頼（取り込み後にサーバが生成依頼を自動キュー）
   if (state.mode === "image" && !file && newId) {
     const entry = findEntry(newId);
     if (entry) {
-      await requestEntries([entry]);
+      await requestEntries([entry], aiDraft ? "draft-prompt" : undefined);
       return;
     }
   }
@@ -1929,6 +1944,7 @@ function bind() {
     state.form.draftOverview = String(data.get("overview") ?? "");
     state.form.draftPrompt = String(data.get("prompt") ?? "");
     state.form.draftReferenceUrl = String(data.get("referenceUrl") ?? "");
+    state.form.draftAiPrompt = Boolean(data.get("aiDraftPrompt"));
   };
   document.querySelectorAll("[data-form-ref-filter]").forEach((button) => {
     button.onclick = () => {
@@ -1971,7 +1987,7 @@ function setVisibleChecked(checked) {
   render();
 }
 
-function requestTarget(entry) {
+function requestTarget(entry, action) {
   if (state.mode === "video") {
     const start = allImageAssets().find((assetItem) => assetItem.id === entry.startFrame);
     const end = allImageAssets().find((assetItem) => assetItem.id === entry.endFrame);
@@ -1993,7 +2009,7 @@ function requestTarget(entry) {
   const ownAdopted = adoptedAssets(entry).map((assetItem) => assetItem.file).filter(Boolean);
   const refImages = [...new Set(ownReferences.length ? ownReferences : ownAdopted)];
   return {
-    action: "generate",
+    action: action ?? "generate",
     entryId: entry.id,
     overview: entry.overview,
     prompt: state.mode === "image" ? composedPrompt(entry) : entry.prompt,
@@ -2021,8 +2037,8 @@ async function requestSelected() {
   ]);
 }
 
-async function requestEntries(entries) {
-  await enqueueTargets(entries.map(requestTarget));
+async function requestEntries(entries, action) {
+  await enqueueTargets(entries.map((entryItem) => requestTarget(entryItem, action)));
 }
 
 function improvePrompt(asset, entry, mode = "tweak") {
@@ -2332,6 +2348,32 @@ ${refs}
 6. 最終報告: 選ばれたパーツの一覧 / JSON の修正点 / 気づいた問題を簡潔に。
 
 禁止: 画像生成 / 依頼の自作・編集 / parts の自作 / サーバ・開発サーバの起動 / 無関係な checkout や worktree の探索。`;
+  }
+  if (item.action === "draft-prompt") {
+    return `image-arranger のプロンプト作成依頼（URL参考）を1件処理してください。
+
+サーバ: ${origin}（起動済み。サーバや開発サーバの起動・再起動はしない）
+作業ディレクトリ（projectRoot）: ${root}
+対象: requestId ${item.requestId} / targetIndex ${item.targetIndex}（action: draft-prompt）
+
+手順（前提が満たせない場合は回避策を取らず停止して報告すること）:
+1. curl -s ${origin}/api/requests で上記 requestId / targetIndex の行がまだあることを確認。無ければ停止して報告。
+2. これはプロンプト作成タスク。この段階では画像を生成しない。
+3. 参考URLを開き、参照されている画像・投稿の魅力（構図 / ポーズ / 画風 / 配色 / 小物 / 雰囲気）を分析する:
+   ${item.referenceUrl || "(参考URLなし — 行の overview と identity 参照だけから書く)"}
+4. キャラクターの identity 参照（projectRoot からの相対パス）を確認する。顔・髪・色・付属パーツはこちらが正:
+${refs}
+5. 参考URLの魅力を再現しつつ identity 参照のキャラクター同一性を厳守する画像生成プロンプトを英語で1本書く。
+   要件: 1画像のみ / シーン・構図・ライティングを具体的に / identity の上書き禁止（髪色・目・角・翼・尻尾・衣装は参照優先）/ no text, no logo, no watermark。
+6. 完了報告（プロンプトは JSON 文字列としてエスケープする）:
+   curl -X POST ${origin}/api/requests/complete \\
+     -H "Content-Type: application/json" \\
+     -d '{"requestId":"${item.requestId}","targetIndex":${item.targetIndex},"prompt":"<書いたプロンプト>"}'
+   サーバがプロンプトを entry に取り込み、生成依頼を自動でキューに追加する（レスポンスの draftQueued に新しい requestId）。
+7. 続けて curl -s ${origin}/api/requests を再取得し、自動キューされた生成依頼をそのまま処理する（通常の画像生成手順）。
+8. 最終報告: 書いたプロンプト / 参考URLから読み取った要素 / 生成結果の保存先を簡潔に。
+
+禁止: プロンプト未報告のままの画像生成 / 依頼の自作・編集 / サーバ・開発サーバの起動 / 無関係な checkout や worktree の探索。`;
   }
   const isImprove = item.action === "improve";
   return `image-arranger の画像${isImprove ? "改善" : "生成"}依頼を1件処理してください。

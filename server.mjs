@@ -518,7 +518,7 @@ function buildRequest(state, body, context) {
   const requestId = `req_${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}_${randomUUID().slice(0, 8)}`;
   const workspaceOutputs = toPosixPath(relative(context.projectRoot, context.outputDir));
   const targets = (body.targets ?? []).map((target) => {
-    const action = target.action === "improve" ? "improve" : "generate";
+    const action = target.action === "improve" ? "improve" : target.action === "draft-prompt" ? "draft-prompt" : "generate";
     const defaultOutputDir = action === "improve"
       ? `${workspaceOutputs}/${character.id}/improvements`
       : `${workspaceOutputs}/${character.id}`;
@@ -576,7 +576,7 @@ function requestSelectorMatches(target, selector, requestPayload, targetIndex) {
   }
   return targetMatches(
     target,
-    selector.action === "improve" ? "improve" : "generate",
+    selector.action === "improve" ? "improve" : selector.action === "draft-prompt" ? "draft-prompt" : "generate",
     selector.entryId,
     selector.assetId ?? "",
   );
@@ -624,6 +624,11 @@ function completeRequestFiles(context, selectors) {
       target.status = "completed";
       target.completedAt = nowIso();
       if (Array.isArray(selector.results)) target.results = selector.results;
+      if ((target.action ?? "") === "draft-prompt") {
+        const drafted = selector.prompt
+          ?? (Array.isArray(selector.results) ? selector.results.find((item) => item?.prompt)?.prompt : null);
+        if (drafted && String(drafted).trim()) target.draftedPrompt = String(drafted).trim();
+      }
       if ((target.action ?? "") === "analyze") {
         const partsSource = selector.parts
           ?? (Array.isArray(selector.results) ? selector.results.find((item) => item?.parts)?.parts : null);
@@ -817,6 +822,7 @@ function recomputeRequestedStatuses(state, context) {
 function cancellationTargetsForEntry(entryItem) {
   return [
     { action: "generate", entryId: entryItem.id },
+    { action: "draft-prompt", entryId: entryItem.id },
     ...(entryItem.assets ?? []).flatMap((assetItem) => [
       { action: "improve", entryId: entryItem.id, assetId: assetItem.id },
       { action: "analyze", entryId: entryItem.id, assetId: assetItem.id },
@@ -1056,11 +1062,12 @@ async function handleApi(request, response, context, url) {
     const selectors = targets.map((target) => ({
       requestId: target.requestId ?? body.requestId ?? "",
       targetIndex: target.targetIndex ?? body.targetIndex,
-      action: ["improve", "analyze"].includes(target.action) ? target.action : "generate",
+      action: ["improve", "analyze", "draft-prompt"].includes(target.action) ? target.action : "generate",
       entryId: target.entryId,
       assetId: target.assetId ?? "",
       results: Array.isArray(target.results) ? target.results : (Array.isArray(body.results) ? body.results : []),
       parts: target.parts ?? body.parts ?? null,
+      prompt: target.prompt ?? body.prompt ?? null,
       error: target.error ?? body.error ?? null,
     })).filter((target) => (target.requestId && target.targetIndex !== undefined) || target.entryId);
     if (!selectors.length) throw new HttpError(400, "No request targets to complete");
@@ -1070,6 +1077,31 @@ async function handleApi(request, response, context, url) {
       .map(({ target }) => ({ action: target.action ?? "generate", entryId: target.entryId, assetId: target.assetId ?? "" }));
     if (erroredTargets.length) applyRequestStatus(state, erroredTargets, "error");
     const kitResultsStored = completedTargets.filter(({ target }) => (target.action ?? "") === "analyze" && target.analysisParts?.length).length;
+    // draft-prompt 完了: エージェントが書いたプロンプトを entry に取り込み、そのまま生成キューへ
+    const draftQueued = [];
+    for (const { requestPayload, target } of completedTargets) {
+      if ((target.action ?? "") !== "draft-prompt" || target.status !== "completed" || !target.draftedPrompt) continue;
+      const character = state.characters?.find((item) => item.id === requestPayload.character);
+      const entryItem = character ? findEntryInCharacter(character, target.entryId) : null;
+      if (!entryItem) continue;
+      entryItem.prompt = target.draftedPrompt;
+      const generation = buildRequest(state, {
+        characterId: requestPayload.character,
+        mode: requestPayload.mode ?? "image",
+        targets: [{
+          action: "generate",
+          entryId: entryItem.id,
+          overview: entryItem.overview,
+          prompt: target.draftedPrompt,
+          referenceUrl: target.referenceUrl ?? null,
+          inputs: target.inputs ?? { startFrame: null, endFrame: null, refImages: [] },
+        }],
+      }, context);
+      ensureDir(context.requestDir);
+      ensureDir(context.outputDir);
+      writeJson(join(context.requestDir, `${generation.requestId}.json`), generation);
+      draftQueued.push(generation.requestId);
+    }
     recomputeRequestedStatuses(state, context);
     writeJson(context.stateFile, state);
     sendJson(response, 200, {
@@ -1077,6 +1109,7 @@ async function handleApi(request, response, context, url) {
       completed,
       errored: erroredTargets.length,
       kitResultsStored,
+      draftQueued,
       kitResults: listKitResults(context),
       requests: listRequestedTargets(context, state),
       state,

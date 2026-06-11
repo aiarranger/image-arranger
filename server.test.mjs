@@ -688,3 +688,55 @@ test("PUT /api/state rejects a stale snapshot with 409", async () => {
     assert.equal((await stale.json()).ok, false);
   });
 });
+
+test("draft-prompt completion imports the prompt and auto-queues generation", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const state = await (await fetch(`${baseUrl}/api/state`)).json();
+    const character = state.characters[0];
+    const entryItem = character.images[0];
+    assert.ok(entryItem, "sample deck should have an image entry");
+
+    const created = await (await fetch(`${baseUrl}/api/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: character.id,
+        mode: "image",
+        targets: [{
+          action: "draft-prompt",
+          entryId: entryItem.id,
+          overview: entryItem.overview,
+          prompt: "",
+          referenceUrl: "https://x.com/example/status/1",
+          inputs: { startFrame: null, endFrame: null, refImages: [] },
+        }],
+      }),
+    })).json();
+    assert.equal(created.request.targets[0].action, "draft-prompt");
+    assert.equal(created.request.targets[0].referenceUrl, "https://x.com/example/status/1");
+
+    const completed = await (await fetch(`${baseUrl}/api/requests/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestId: created.request.requestId,
+        targetIndex: 0,
+        prompt: "Drafted prompt from the reference URL",
+      }),
+    })).json();
+    assert.equal(completed.completed, 1);
+    assert.equal(completed.draftQueued.length, 1);
+
+    const updatedEntry = completed.state.characters
+      .find((item) => item.id === character.id).images
+      .find((item) => item.id === entryItem.id);
+    assert.equal(updatedEntry.prompt, "Drafted prompt from the reference URL");
+
+    const queued = completed.requests.find((row) => row.requestId === completed.draftQueued[0]);
+    assert.ok(queued, "generation request should be queued");
+    assert.equal(queued.action, "generate");
+    assert.equal(queued.prompt, "Drafted prompt from the reference URL");
+    assert.equal(queued.referenceUrl, "https://x.com/example/status/1");
+    assert.equal(updatedEntry.requestStatus, "requested");
+  });
+});
