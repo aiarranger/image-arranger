@@ -1,0 +1,51 @@
+name: New service support
+description: Request (or propose) support for another generation service.
+labels: ["service-driver"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        image-arranger works with **any** service through the
+        [request-file contract](https://github.com/aiarranger/image-arranger/blob/main/docs/request-spec.md):
+        the deck queues request files, and a processor turns them into outputs. You can write a
+        driver for a new service without changing the server. This issue tracks demand and design.
+  - type: input
+    id: service
+    attributes:
+      label: Service
+      description: Which generation service (and image or video)?
+      placeholder: Midjourney (image)
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Output kind
+      options:
+        - Image
+        - Video
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: interface
+    attributes:
+      label: How is it driven?
+      description: Public API, web UI, desktop app, CLI? Anything that affects how a driver would attach references, send a prompt, and retrieve the result.
+    validations:
+      required: true
+  - type: textarea
+    id: mapping
+    attributes:
+      label: Mapping to the request contract
+      description: >
+        How would the target's `prompt`, `inputs.refImages`, and (for video) `startFrame`/`endFrame`/`durationSec`
+        map onto this service? Note anything the `image-arranger-request.v1` schema does not yet cover.
+    validations:
+      required: false
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to help build or test the driver.

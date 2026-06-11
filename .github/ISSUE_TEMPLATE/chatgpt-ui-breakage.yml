@@ -1,0 +1,45 @@
+name: ChatGPT UI breakage
+description: The scripted ChatGPT processor stopped working because the site's UI changed.
+labels: ["selector-breakage", "scripts"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The bundled driver (`scripts/process-queue.mjs` / `scripts/agent-browser.mjs`) drives
+        the **live** ChatGPT web UI, so an upstream redesign can break it without any change on
+        your side. This is expected and best-effort: the request-file contract and the manual
+        fallback always keep working. Reporting the new DOM helps us fix the selectors quickly.
+  - type: input
+    id: when
+    attributes:
+      label: When did it break
+      description: Approximate date/time you first saw the failure.
+      placeholder: 2026-06-11 around 14:00 UTC
+    validations:
+      required: true
+  - type: textarea
+    id: failure
+    attributes:
+      label: Failure symptom
+      description: Which step failed (login probe, attach, set prompt, send, wait for image, download)? Paste the error and the relevant `agent-logs/run-*/log.md` excerpt.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: dom
+    attributes:
+      label: New DOM / selectors (if known)
+      description: >
+        If you can, paste the new element markup (e.g. the composer, send button, or finished-image
+        element) so the selectors in `agent-browser.mjs` can be updated. Redact any personal content.
+      render: html
+    validations:
+      required: false
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+      description: Output of `node --version` (the processor needs 22+).
+      placeholder: v22.13.1
+    validations:
+      required: true
