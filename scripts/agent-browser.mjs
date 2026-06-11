@@ -323,24 +323,40 @@ export async function sendMessage(page) {
 
 const ERROR_TEXT = /画像を生成できませんでした|コンテンツポリシー|利用規約に違反|wasn['’]t able to generate|can['’]t (?:create|generate) (?:that|this) image|content policy/i;
 
+// Reads the conversation state. ChatGPT renders turns as
+// [data-testid^="conversation-turn-"]; a finished generated image carries an
+// alt like 「生成された画像：…」 and an image-gen action overlay. Reference
+// thumbnails live inside the (collapsible) user message, so exclude them.
+const REPLY_STATE = `(() => {
+  const streaming = Boolean(document.querySelector('[data-testid="stop-button"]'));
+  const overlay = Boolean(document.querySelector('[data-testid^="image-gen-overlay"]'));
+  const turns = [...document.querySelectorAll('[data-testid^="conversation-turn-"], article')];
+  const last = turns[turns.length - 1];
+  const text = (last?.innerText ?? "").slice(0, 1500);
+  const images = [...document.querySelectorAll('main img')]
+    .filter((img) => /backend-api|estuary|oaiusercontent|files\\.openai|^blob:/.test(img.src))
+    .filter((img) => !img.closest('form') && !img.closest('[data-testid*="user-message"]'))
+    .filter((img) => (img.alt ?? "").startsWith("生成された画像") || img.naturalWidth > 600)
+    .map((img) => img.src);
+  return { streaming, overlay, turns: turns.length, text, images };
+})()`;
+
 export async function waitForImageReply(page, { timeoutMs = 15 * 60 * 1000, onTick = null } = {}) {
   const startedAt = Date.now();
   let lastBeat = 0;
+  let stableHits = 0;
   while (Date.now() - startedAt < timeoutMs) {
-    const state = await evaluate(page, `(() => {
-      const streaming = Boolean(document.querySelector('[data-testid="stop-button"]'));
-      const turns = [...document.querySelectorAll('article')];
-      const last = turns[turns.length - 1];
-      const text = (last?.innerText ?? "").slice(0, 1500);
-      const images = last
-        ? [...last.querySelectorAll('img')]
-            .filter((img) => /oaiusercontent|files\\.openai|^blob:/.test(img.src))
-            .filter((img) => img.naturalWidth > 256 || img.width > 256)
-            .map((img) => img.src)
-        : [];
-      return { streaming, text, images };
-    })()`);
-    if (!state.streaming && state.images.length) return { status: "image", src: state.images[state.images.length - 1], text: state.text };
+    const state = await evaluate(page, REPLY_STATE);
+    if (!state.streaming && state.images.length) {
+      // The overlay marks a finished render; without it, require two stable
+      // polls so a progressive preview is not grabbed mid-generation.
+      stableHits += 1;
+      if (state.overlay || stableHits >= 2) {
+        return { status: "image", src: state.images[state.images.length - 1], text: state.text };
+      }
+    } else {
+      stableHits = 0;
+    }
     if (ERROR_TEXT.test(state.text)) return { status: "error", text: state.text };
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
     if (onTick && elapsed - lastBeat >= 30) {

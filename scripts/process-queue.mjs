@@ -119,7 +119,9 @@ async function main() {
         await sendMessage(page);
         runLog.log("message sent; waiting for the image (polling every 5s)");
         const reply = await waitForImageReply(page, {
-          onTick: (elapsed) => runLog.log(`still generating… ${elapsed}s`),
+          onTick: (elapsed, state) => runLog.log(
+            `waiting ${elapsed}s — ${state.streaming ? "model is responding" : "no completed image detected yet"} (turns:${state.turns} imgs:${state.images.length}${state.overlay ? " overlay" : ""})`,
+          ),
         });
         await runLog.shot(page, `reply-${row.entryId}`);
         if (reply.status === "image") {
