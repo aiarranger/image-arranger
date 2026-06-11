@@ -530,6 +530,7 @@ function buildRequest(state, body, context) {
       assetFile: target.assetFile ?? null,
       overview: target.overview,
       prompt: target.prompt,
+      referenceUrl: target.referenceUrl ?? null,
       basePrompt: target.basePrompt ?? "",
       improvementPrompt: target.improvementPrompt ?? "",
       inputs: target.inputs ?? { startFrame: null, endFrame: null, refImages: [] },
@@ -712,6 +713,7 @@ function listRequestedTargets(context, state = null) {
         overview: target.overview ?? entryItem?.overview ?? target.entryId,
         assetName: target.assetName ?? assetItem?.name ?? "",
         prompt: target.prompt ?? "",
+        referenceUrl: target.referenceUrl ?? "",
         basePrompt: target.basePrompt ?? "",
         improvementPrompt: target.improvementPrompt ?? "",
         inputs: target.inputs ?? { startFrame: null, endFrame: null, refImages: [] },
@@ -981,6 +983,15 @@ async function handleApi(request, response, context, url) {
   }
   if (request.method === "PUT" && url.pathname === "/api/state") {
     const body = await readBody(request);
+    const current = readState(context.stateFile, context.projectRoot, context.init);
+    if (body.updatedAt && current.updatedAt && body.updatedAt !== current.updatedAt) {
+      sendJson(response, 409, {
+        ok: false,
+        error: "State was updated elsewhere. Reload before saving.",
+        serverUpdatedAt: current.updatedAt,
+      });
+      return true;
+    }
     normalizeState(body);
     body.updatedAt = nowIso();
     writeJson(context.stateFile, body);

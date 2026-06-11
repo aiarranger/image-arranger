@@ -668,3 +668,23 @@ test("server rejects unsafe paths and oversized bodies with sanitized errors", a
     assert.equal((await tooLarge.json()).error, "Request body too large");
   });
 });
+
+test("PUT /api/state rejects a stale snapshot with 409", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const snapshot = await (await fetch(`${baseUrl}/api/state`)).json();
+    const first = await fetch(`${baseUrl}/api/state`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(snapshot),
+    });
+    assert.equal(first.status, 200);
+
+    const stale = await fetch(`${baseUrl}/api/state`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(snapshot),
+    });
+    assert.equal(stale.status, 409);
+    assert.equal((await stale.json()).ok, false);
+  });
+});

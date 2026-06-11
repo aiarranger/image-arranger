@@ -58,6 +58,8 @@ const I18N = {
     kitNoAdopted: "採用済みの画像がありません。ベース／画像タブのカードで「採用」にチェックを入れると、ここに表示されます。",
     promptShown: "この画像を生成したプロンプト",
     promptNext: "プロンプト（次の生成用）",
+    refUrl: "参考URL（任意）",
+    refUrlHelp: "雰囲気・構図の参考にしたい投稿やページのURL。キュー依頼のJSONに含まれます。",
     genImages: "生成画像",
     refRole: "元画像",
     sourceImages: "元画像（生成入力）",
@@ -222,6 +224,8 @@ const I18N = {
     kitNoAdopted: "No adopted images yet. Check 'Adopt' on cards in the Base / Image tabs to make them selectable here.",
     promptShown: "Prompt that generated this image",
     promptNext: "Prompt (for the next generation)",
+    refUrl: "Reference URL (optional)",
+    refUrlHelp: "URL of a post/page used as inspiration. Included in the queue request JSON.",
     genImages: "Generated images",
     refRole: "Source",
     sourceImages: "Source images (generation input)",
@@ -504,10 +508,24 @@ async function saveDeck(showMessage = true) {
     mode: state.mode,
     currentCharacterId: state.characterId,
   };
-  const result = await api("/api/state", {
-    method: "PUT",
-    body: JSON.stringify(state.deck),
-  });
+  let result;
+  try {
+    result = await api("/api/state", {
+      method: "PUT",
+      body: JSON.stringify(state.deck),
+    });
+  } catch (error) {
+    if (String(error.message).startsWith("409")) {
+      const message = state.lang === "en"
+        ? "Deck was updated elsewhere — reloaded latest. Redo your last change."
+        : "他の画面で更新されていたため最新を読み込みました。直前の変更はやり直してください。";
+      await loadDeck();
+      toast(message);
+      // 呼び出し元のフロー（キュー登録・自動採用など）を古い前提のまま続行させない
+      throw new Error(message);
+    }
+    throw error;
+  }
   state.deck = result.state;
   if (showMessage) toast("saved");
 }
@@ -748,6 +766,9 @@ function openEntryModal(entryId, shownAssetId = null) {
         <label class="emodal-prompt emodal-prompt-next">${t("promptNext")}
           <textarea id="entryModalPrompt" rows="${shown && !isSourceRef(shown) && (shown.prompt ?? "").trim() ? 3 : 6}">${escapeHtml(entry.prompt ?? "")}</textarea>
         </label>
+        <label class="emodal-prompt">${t("refUrl")}${(entry.referenceUrl ?? "").trim() ? ` <a href="${escapeHtml(entry.referenceUrl)}" target="_blank" rel="noopener" title="${t("refUrl")}">↗</a>` : ""}
+          <input id="entryModalRefUrl" type="url" placeholder="https://x.com/..." value="${escapeHtml(entry.referenceUrl ?? "")}">
+        </label>
         <h4>${t("genImages")}</h4>
         <div class="emodal-thumbs">
           ${generated.length ? generated.map((asset) => thumb(asset, "gen")).join("") : `<p class="form-note">${t("noImage")}</p>`}
@@ -772,6 +793,7 @@ function openEntryModal(entryId, shownAssetId = null) {
   const commitFields = () => {
     entry.overview = $("#entryModalTitle").value;
     entry.prompt = $("#entryModalPrompt").value;
+    if ($("#entryModalRefUrl")) entry.referenceUrl = $("#entryModalRefUrl").value.trim();
     if (shown && !isSourceRef(shown) && $("#entryModalAssetPrompt")) {
       shown.prompt = $("#entryModalAssetPrompt").value;
     }
@@ -1086,6 +1108,9 @@ function renderQueue() {
                     <textarea data-queue-improvement="${escapeHtml(item.requestId)}:${item.targetIndex}" rows="4">${escapeHtml(item.improvementPrompt ?? "")}</textarea>
                   </label>
                 ` : ""}
+                ${(item.referenceUrl ?? "").trim() ? `
+                  <p class="form-note">${t("refUrl")}: <a href="${escapeHtml(item.referenceUrl)}" target="_blank" rel="noopener">${escapeHtml(item.referenceUrl)}</a></p>
+                ` : ""}
                 <label>
                   ${t("refImages")}
                   <textarea readonly rows="3">${escapeHtml(refImages.length ? refImages.join("\n") : "-")}</textarea>
@@ -1126,9 +1151,18 @@ function renderFormModal() {
       ? `<input type="hidden" name="category" value="${escapeHtml(form.category ?? "master")}">
          <p class="form-note">${t("category")}: ${catText(form.category ?? "master")}</p>`
       : "";
-    const refPool = state.mode === "image" ? adoptedImagePool().filter((item) => item.asset.kind !== "video") : [];
+    const refFilter = form.refFilter ?? "base";
+    const refPool = state.mode === "image"
+      ? adoptedImagePool()
+        .filter((item) => item.asset.kind !== "video")
+        .filter((item) => refFilter === "all" || item.origin === refFilter)
+      : [];
     const refPicker = state.mode === "image" ? `
       <div class="form-note"><strong>${t("newEntryRefs")}</strong><br>${t("newEntryRefsHelp")}</div>
+      <div class="kit-filter">
+        ${[["base", t("base")], ["image", t("image")], ["all", t("allLabel")]].map(([key, label]) => `
+          <button type="button" class="kit-filter-chip ${refFilter === key ? "active" : ""}" data-form-ref-filter="${key}">${label}</button>`).join("")}
+      </div>
       <div class="kit-sources form-ref-pool">
         ${refPool.length ? refPool.map(({ asset, entry, origin }) => `
           <button type="button" class="kit-source ${(form.refSel ?? []).some((row) => row.assetId === asset.id) ? "selected" : ""}"
@@ -1144,6 +1178,7 @@ function renderFormModal() {
       ${categoryField}
       <label>${t("assetName")}<input name="overview" required value="${escapeHtml(form.draftOverview ?? "")}" placeholder="${state.mode === "video" ? "fish-jump-loop" : "new asset prompt"}"></label>
       <label>${t("prompt")}<textarea name="prompt" rows="7">${escapeHtml(form.draftPrompt ?? "")}</textarea></label>
+      <label>${t("refUrl")}<input name="referenceUrl" type="url" placeholder="https://x.com/..." value="${escapeHtml(form.draftReferenceUrl ?? "")}"><small>${t("refUrlHelp")}</small></label>
       <label>${t("entryFile")}<input type="file" name="entryFileUpload" accept=".png,.jpg,.jpeg,.webp,.gif,.mp4,.webm"><small>${t("entryFileHelp")}</small></label>
       <label class="inline"><input name="entryFileAdopt" type="checkbox" checked> ${t("adopt")}<small>${t("adoptOneHelp")}</small></label>
       ${refPicker}
@@ -1229,6 +1264,7 @@ function render() {
         <label>${t("mode")}</label>
         <div class="tabs">
           ${["kit", "base", "image", "video", "queue"].map((mode) => `<button data-mode="${mode}" class="${state.mode === mode ? "active" : ""}">${t(mode)}${mode === "queue" && state.requests.length ? ` (${state.requests.length})` : ""}</button>`).join("")}
+          <button id="galleryBtn" title="採用画像ギャラリー"><i class="fa-solid fa-images" aria-hidden="true"></i> Gallery</button>
         </div>
         <input class="grow" id="filterInput" value="${escapeHtml(state.filter)}" placeholder="${t("filter")}">
         ${isQueue ? `
@@ -1408,6 +1444,7 @@ function createEntryFromForm(form) {
   const overview = String(data.get("overview") ?? "").trim();
   if (!overview) throw new Error("overview is required");
   const prompt = String(data.get("prompt") ?? "");
+  const referenceUrl = String(data.get("referenceUrl") ?? "").trim();
   const ids = entryIds(ch);
   if (state.mode === "base") {
     const category = String(data.get("category") ?? "master");
@@ -1417,6 +1454,7 @@ function createEntryFromForm(form) {
       id,
       overview,
       prompt,
+      referenceUrl,
       version: 1,
       checked: false,
       requestStatus: "idle",
@@ -1432,6 +1470,7 @@ function createEntryFromForm(form) {
       id,
       overview,
       prompt,
+      referenceUrl,
       version: 1,
       checked: false,
       requestStatus: "idle",
@@ -1449,6 +1488,7 @@ function createEntryFromForm(form) {
     id,
     overview,
     prompt,
+    referenceUrl,
     version: 1,
     checked: false,
     requestStatus: "idle",
@@ -1541,6 +1581,14 @@ async function submitEntryForm(form) {
         setAdopted(entry, asset, true);
         await saveDeck(false);
       }
+    }
+  }
+  // 画像の新規作成（完成ファイルの登録ではない場合）は、そのまま生成キューに入れる
+  if (state.mode === "image" && !file && newId) {
+    const entry = findEntry(newId);
+    if (entry) {
+      await requestEntries([entry]);
+      return;
     }
   }
   render();
@@ -1676,6 +1724,8 @@ function bind() {
       render();
     };
   });
+  const galleryBtn = document.querySelector("#galleryBtn");
+  if (galleryBtn) galleryBtn.onclick = () => { location.href = "/gallery.html"; };
   document.querySelectorAll("[data-add-base-category]").forEach((button) => {
     button.onclick = () => openBaseCategoryForm(button.dataset.addBaseCategory);
   });
@@ -1872,15 +1922,26 @@ function bind() {
   document.querySelectorAll(".asset").forEach((card) => {
     card.onclick = () => openAsset(card.dataset.assetId, card.dataset.entryId);
   });
+  const captureEntryFormDrafts = () => {
+    const formEl = $("#activeForm");
+    if (!formEl || !state.form) return;
+    const data = new FormData(formEl);
+    state.form.draftOverview = String(data.get("overview") ?? "");
+    state.form.draftPrompt = String(data.get("prompt") ?? "");
+    state.form.draftReferenceUrl = String(data.get("referenceUrl") ?? "");
+  };
+  document.querySelectorAll("[data-form-ref-filter]").forEach((button) => {
+    button.onclick = () => {
+      if (!state.form) return;
+      captureEntryFormDrafts();
+      state.form.refFilter = button.dataset.formRefFilter;
+      render();
+    };
+  });
   document.querySelectorAll("[data-form-ref-asset]").forEach((button) => {
     button.onclick = () => {
       if (!state.form) return;
-      const formEl = $("#activeForm");
-      if (formEl) {
-        const data = new FormData(formEl);
-        state.form.draftOverview = String(data.get("overview") ?? "");
-        state.form.draftPrompt = String(data.get("prompt") ?? "");
-      }
+      captureEntryFormDrafts();
       state.form.refSel = state.form.refSel ?? [];
       const index = state.form.refSel.findIndex((row) => row.assetId === button.dataset.formRefAsset);
       if (index >= 0) state.form.refSel.splice(index, 1);
@@ -1919,6 +1980,7 @@ function requestTarget(entry) {
       entryId: entry.id,
       overview: entry.overview,
       prompt: entry.prompt,
+      referenceUrl: entry.referenceUrl ?? "",
       inputs: {
         startFrame: start?.file ?? null,
         endFrame: end?.file ?? null,
@@ -1935,6 +1997,7 @@ function requestTarget(entry) {
     entryId: entry.id,
     overview: entry.overview,
     prompt: state.mode === "image" ? composedPrompt(entry) : entry.prompt,
+    referenceUrl: entry.referenceUrl ?? "",
     inputs: {
       startFrame: null,
       endFrame: null,
@@ -2002,6 +2065,7 @@ function improveTarget({ entry, asset }) {
     assetFile: asset.file ?? "",
     overview: `${entry.overview} / ${asset.name ?? asset.id}`,
     prompt: improvePrompt(asset, entry, mode),
+    referenceUrl: entry.referenceUrl ?? "",
     basePrompt: asset.prompt || (state.mode === "image" ? composedPrompt(entry) : entry.prompt) || "",
     improvementPrompt: asset.improvementPrompt ?? "",
     service,

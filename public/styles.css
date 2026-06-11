@@ -110,6 +110,16 @@ h1 small { display: block; margin-top: 5px; font: 700 11px var(--mono); color: v
   background: var(--purple);
   box-shadow: 0 8px 22px rgba(155, 125, 255, 0.22);
 }
+.tabs button#galleryBtn {
+  border: 1px solid rgba(255, 94, 196, 0.35);
+  background: linear-gradient(120deg, rgba(255, 94, 196, 0.12), rgba(155, 125, 255, 0.12));
+  color: #d8409c;
+}
+.tabs button#galleryBtn:hover {
+  color: #fff;
+  background: linear-gradient(120deg, #ff5ec4, #9b7dff);
+  box-shadow: 0 8px 22px rgba(255, 94, 196, 0.3);
+}
 .primary {
   border: 0;
   border-radius: 10px;

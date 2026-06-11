@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gallery ｜ image-arranger</title>
+<style>
+:root {
+  --bg0: #06070b;
+  --bg1: #0d0613;
+  --bg2: #180a23;
+  --ink: #fff7ff;
+  --line: rgba(255,255,255,.15);
+}
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #050508; color: var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", "Hiragino Sans", "Yu Gothic", sans-serif; }
+.app { position: relative; width: 100vw; height: 100vh; overflow: hidden; isolation: isolate; background:
+  radial-gradient(900px 720px at 50% 38%, rgba(255,65,177,.18), transparent 62%),
+  radial-gradient(680px 560px at 14% 12%, rgba(151,75,255,.20), transparent 52%),
+  radial-gradient(720px 620px at 82% 78%, rgba(255,50,68,.15), transparent 62%),
+  linear-gradient(120deg, var(--bg0), var(--bg1) 45%, var(--bg2)); }
+.app::before { content:""; position:absolute; inset:0; background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px); background-size: 34px 34px; mask-image: radial-gradient(circle at center, black 0 56%, transparent 86%); opacity:.55; z-index:-3; }
+.app::after { content:""; position:absolute; inset:-20%; background: conic-gradient(from 180deg at 50% 50%, transparent 0 10%, rgba(255,66,183,.14) 12%, transparent 24%, rgba(129,72,255,.13) 34%, transparent 52%, rgba(255,70,62,.11) 66%, transparent 78%, rgba(255,66,183,.10) 88%, transparent 100%); filter: blur(28px); opacity:.85; z-index:-4; animation: slowSpin 32s linear infinite; }
+@keyframes slowSpin { to { transform: rotate(1turn); } }
+/* 1.5°の回転と千鳥配置を吸収できる最小限のはみ出しに留める（広げるほどカード数＝描画コストが増える） */
+.surfaceWrap { position:absolute; inset:-10vh -10vw -12vh -10vw; z-index:0; cursor: grab; overflow:visible; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-user-drag:none; }
+.surfaceWrap, .surfaceWrap * { cursor: grab; }
+.surfaceWrap.dragging, .surfaceWrap.dragging * { cursor: grabbing; }
+.columns { position:absolute; inset:0; opacity:.90; transform: rotate(-1.5deg); transform-origin:center; overflow:visible; }
+.panLayer { position:absolute; inset:0; will-change: transform; }
+.columns .expressionCard { position:absolute; width:300px; height:200px; }
+.expressionCard { position:absolute; width:300px; height:200px; transition: transform .25s ease, opacity .22s ease; }
+.expressionCard:hover { transform: translateY(-10px) scale(1.05); z-index:30; }
+.cardInner { position:absolute; inset:0; animation: breathe var(--breatheDur, 8s) ease-in-out var(--breatheDelay, 0s) infinite; }
+@keyframes breathe {
+  0%, 100% { transform: scale(1) translateY(0); }
+  50% { transform: scale(1.035) translateY(-5px); }
+}
+.cardFace { position:absolute; inset:0; border-radius:18px; overflow:hidden; background:#15101e; box-shadow: 0 10px 24px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.08); transition: box-shadow .25s ease; }
+.cardFace img { display:block; width:100%; height:100%; object-fit:cover; }
+.cardFace::after { content:""; position:absolute; left:0; right:0; bottom:0; height:42%; background: linear-gradient(transparent, rgba(5,4,10,.78)); pointer-events:none; }
+.expressionCard:hover .cardFace { box-shadow: 0 20px 40px rgba(0,0,0,.6), 0 0 22px rgba(255,110,200,.35), inset 0 0 0 1px rgba(255,255,255,.14); }
+.expressionCard.fav .cardFace { box-shadow: 0 10px 24px rgba(0,0,0,.45), 0 0 16px rgba(255,95,168,.35), inset 0 0 0 1.5px rgba(255,95,168,.55); }
+.expressionCard.fav:hover .cardFace { box-shadow: 0 20px 40px rgba(0,0,0,.6), 0 0 26px rgba(255,95,168,.5), inset 0 0 0 1.5px rgba(255,95,168,.7); }
+.cardComment { position:absolute; left:8px; right:8px; bottom:14px; z-index:2; text-align:center; color:#fff; font-weight:800; font-size:17px; line-height:1.35; letter-spacing:.02em; text-shadow: 0 2px 6px rgba(0,0,0,.95), 0 0 3px rgba(0,0,0,.9); -webkit-text-stroke: .6px rgba(0,0,0,.5); pointer-events:none; opacity:0; animation: captionCycle var(--capDur, 16s) ease-in-out var(--capDelay, 0s) infinite; }
+@keyframes captionCycle {
+  0%, 46% { opacity:0; transform: translateY(8px); }
+  56%, 80% { opacity:1; transform: translateY(0); }
+  92%, 100% { opacity:0; transform: translateY(-8px); }
+}
+.expressionCard:hover .cardComment { animation:none; opacity:1; transform:none; }
+/* backdrop-filterは使わない：タッチ端末で約200個常時表示になり、Safariのコンポジタを直撃する */
+.favBtn { position:absolute; top:4px; right:8px; z-index:3; width:38px; height:38px; padding:0; border:none; border-radius:50%; background:rgba(10,6,16,.55); color:#fff; font-size:20px; line-height:38px; text-align:center; opacity:0; transform:scale(.8); transition: opacity .2s ease, transform .2s ease, color .2s ease; }
+.surfaceWrap .favBtn { cursor:pointer; }
+.expressionCard:hover .favBtn { opacity:1; transform:scale(1); }
+.favBtn.on { color:#ff5fa8; opacity:.92; transform:scale(1); text-shadow: 0 0 10px rgba(255,95,168,.8); }
+.favBtn:hover { transform:scale(1.15); }
+.heartPop { position:absolute; z-index:5; font-size:16px; color:#ff5fa8; pointer-events:none; text-shadow: 0 0 8px rgba(255,95,168,.8); animation: heartFloat .9s ease-out forwards; }
+@keyframes heartFloat {
+  from { opacity:1; transform: translate(0, 0) scale(.6); }
+  to { opacity:0; transform: translate(var(--hx, 0px), -64px) scale(1.3); }
+}
+/* タッチ端末：:hoverが「貼り付く」のでカードの浮き上がりは無効化（タップでキャプション表示は残す）
+   GPU負荷も抑える：呼吸は半数のカードのみ、背景の回転ぼかしは停止 */
+@media (hover: none) {
+  .favBtn { opacity:.75; transform:scale(1); }
+  .expressionCard:hover { transform:none; }
+  .expressionCard:nth-child(even) .cardInner { animation:none; }
+  .app::after { animation:none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cardInner { animation:none; }
+  .cardComment { animation:none; opacity:1; }
+}
+@media (max-width: 820px) {
+  .columns .expressionCard { width:190px; height:127px; }
+  .expressionCard { width:190px; height:127px; }
+  .cardComment { font-size:12px; bottom:8px; }
+}
+/* ===== クリック演出（4種ランダム） ===== */
+/* 1) 波紋ショック：クリック地点から波が伝わりカードが順番に跳ねる */
+.clickRing { position:fixed; z-index:840; width:12px; height:12px; margin:-6px 0 0 -6px; border-radius:50%; border:2px solid rgba(255,110,200,.85); pointer-events:none; animation: ringGrow .8s ease-out forwards; }
+@keyframes ringGrow { from { transform:scale(1); opacity:.9; } to { transform:scale(30); opacity:0; } }
+.cardFace.rippling { animation: rippleJump .65s cubic-bezier(.3,1.4,.4,1) both; }
+@keyframes rippleJump {
+  0% { transform:none; }
+  35% { transform: translateY(-24px) scale(1.1) rotate(2deg); }
+  70% { transform: translateY(3px) scale(.98) rotate(-1deg); }
+  100% { transform:none; }
+}
+/* 2) ズームアップ登場 */
+#zoomLayer { position:fixed; inset:0; z-index:800; display:none; place-items:center; background:rgba(6,4,12,.62); cursor:pointer; }
+#zoomLayer.open { display:grid; animation: fadeBg .25s ease both; }
+#zoomLayer.closing { animation: fadeOutBg .28s ease both; }
+@keyframes fadeBg { from { opacity:0; } to { opacity:1; } }
+@keyframes fadeOutBg { from { opacity:1; } to { opacity:0; } }
+#zoomLayer figure { margin:0; text-align:center; animation: zoomPop .5s cubic-bezier(.3,1.4,.4,1) both; }
+#zoomLayer img { max-width:92vw; max-height:78vh; border-radius:22px; box-shadow: 0 30px 80px rgba(0,0,0,.7), 0 0 40px rgba(255,95,168,.25); }
+#zoomLayer figcaption { margin-top:14px; color:#fff; font-weight:800; font-size:clamp(16px, 2.4vw, 22px); text-shadow: 0 2px 8px rgba(0,0,0,.8); }
+@keyframes zoomPop { from { opacity:0; transform:scale(.2); } 60% { transform:scale(1.05); } to { opacity:1; transform:scale(1); } }
+/* 3) 弾け飛び：クリックしたカードが弾け、周囲が吹き飛んで戻る */
+.cardFace.bursting { animation: burstPop .6s cubic-bezier(.3,1.5,.4,1) both; }
+@keyframes burstPop { 0% { transform:scale(1); } 30% { transform:scale(1.28); } 55% { transform:scale(.92); } 100% { transform:scale(1); } }
+.cardFace.pushed { animation: burstPush .8s cubic-bezier(.25,1.6,.35,1) both; }
+@keyframes burstPush {
+  0% { transform:none; }
+  30% { transform: translate(var(--px,0), var(--py,0)) rotate(var(--pr,0deg)); }
+  100% { transform:none; }
+}
+.sparkle { position:fixed; z-index:850; font-size:18px; color:#ffb3dd; pointer-events:none; text-shadow: 0 0 10px rgba(255,95,168,.9); animation: sparkleFly .9s ease-out forwards; }
+@keyframes sparkleFly { from { opacity:1; transform:translate(0,0) scale(.5); } to { opacity:0; transform:translate(var(--sx,0), var(--sy,-60px)) scale(1.4); } }
+/* 4) ひとこと吹き出し */
+.speechBubble { position:fixed; z-index:860; transform:translate(-50%,-100%); background:#fff; color:#3a1030; font-weight:800; font-size:15px; padding:10px 16px; border-radius:18px; border:2px solid #ff5fa8; box-shadow: 0 6px 20px rgba(0,0,0,.35); pointer-events:none; white-space:nowrap; animation: bubblePop .32s cubic-bezier(.3,1.6,.4,1); }
+.speechBubble::after { content:""; position:absolute; left:50%; bottom:-14px; margin-left:-7px; border:7px solid transparent; border-top-color:#ff5fa8; }
+.speechBubble.gone { transition: opacity .45s ease, transform .45s ease; opacity:0; transform:translate(-50%,-140%); }
+@keyframes bubblePop { from { opacity:0; transform:translate(-50%,-80%) scale(.5); } to { opacity:1; transform:translate(-50%,-100%) scale(1); } }
+
+/* ポータルの光から繋がる入場フェード */
+#enterFade { position:fixed; inset:0; z-index:9999; background:#fff; pointer-events:none;
+  animation: enterReveal 1s ease-out .05s forwards; }
+@keyframes enterReveal { from { opacity:1; } to { opacity:0; } }
+@media (prefers-reduced-motion: reduce) { #enterFade { display:none; } }
+
+/* もどるチップ（image-arranger 本体へ） */
+.backChip { position:fixed; top:14px; left:14px; z-index:900; font: 800 12px/1 inherit; letter-spacing:.08em;
+  color:rgba(255,255,255,.8); text-decoration:none; background:rgba(10,6,16,.55); border:1px solid rgba(255,255,255,.25);
+  border-radius:999px; padding:8px 14px; opacity:.6; transition: opacity .2s ease, border-color .2s ease; }
+.backChip:hover { opacity:1; border-color:#ff5fa8; }
+.emptyMsg { position:fixed; inset:0; z-index:900; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; }
+.emptyMsg p { font-size:15px; letter-spacing:.1em; color:rgba(255,255,255,.85); }
+.emptyMsg a { color:#ff5fa8; font-weight:800; letter-spacing:.1em; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <main class="surfaceWrap" id="surfaceWrap" aria-label="adopted image card field">
+    <section class="columns" id="columns"></section>
+  </main>
+</div>
+<a class="backChip" href="/">← image-arranger</a>
+<div id="enterFade" aria-hidden="true"></div>
+<script>
+const assetUrl = (file) => `/asset?path=${encodeURIComponent(file)}`;
+const IMG_EXT = /\.(png|jpe?g|webp|gif|avif)$/i;
+let expressions = [];
+let surfacePan = { x:0, y:0 };
+let tileLayout = null;
+let tileCards = [];
+let bgDrag = null;
+let panLayerEl = null;
+let lastWorld = { col: NaN, row: NaN };
+const $ = (sel, root=document) => root.querySelector(sel);
+const surfaceWrap = $('#surfaceWrap');
+
+function positiveMod(n, m) { return ((n % m) + m) % m; }
+
+// 毎回ランダムに配置する。ページを開くたびに変わる種(shuffleSeed)と
+// タイル座標(col,row)からハッシュを取り、無限スクロールで同じタイルが
+// 再配置されても常に同じ画像に解決されるようにする（端が割れない）。
+const shuffleSeed = (Math.random() * 0x7fffffff) | 0;
+function tileHash(x, y) {
+  let h = (shuffleSeed ^ Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1)) | 0;
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) | 0;
+  h = Math.imul(h ^ (h >>> 12), 0x297a2d39) | 0;
+  return (h ^ (h >>> 15)) >>> 0;
+}
+// お気に入り：localStorageに保存し、出現プールに3倍の重みで入れる
+const FAV_KEY = 'imageArrangerGalleryFavs';
+let favs = new Set();
+try { favs = new Set(JSON.parse(localStorage.getItem(FAV_KEY) || '[]')); } catch {}
+// 出現率はスロット表で決める：各画像に5スロットの基本割り当てを置き、
+// お気に入りがある時は「最後の1巡」だけをお気に入りに再割り当てする。
+// 表の大部分が変わらないため、♥を押しても壁の並びはほぼそのまま保たれ、
+// 押したカード自体が別の画像にすり替わることもない。
+const SLOT_CYCLES = 5;
+let slotTable = [];
+function rebuildWeighted() {
+  const n = expressions.length;
+  slotTable = new Array(n * SLOT_CYCLES);
+  for (let i = 0; i < slotTable.length; i++) slotTable[i] = expressions[i % n];
+  const favList = expressions.filter(e => favs.has(e.id));
+  if (!favList.length) return;
+  let k = 0;
+  for (let i = slotTable.length - n; i < slotTable.length; i++) {
+    if (!favs.has(slotTable[i].id)) slotTable[i] = favList[k++ % favList.length];
+  }
+}
+function toggleFav(id) {
+  if (favs.has(id)) favs.delete(id); else favs.add(id);
+  localStorage.setItem(FAV_KEY, JSON.stringify([...favs]));
+  rebuildWeighted();
+  reflowTiles();
+}
+function burstHearts(card, btn) {
+  for (let i = 0; i < 3; i++) {
+    const h = document.createElement('span');
+    h.className = 'heartPop';
+    h.textContent = '♥';
+    h.style.top = `${btn.offsetTop + 10}px`;
+    h.style.left = `${btn.offsetLeft + 4 + (i - 1) * 10}px`;
+    h.style.setProperty('--hx', `${(Math.random() * 40 - 20).toFixed(0)}px`);
+    h.style.animationDelay = `${i * 0.08}s`;
+    card.appendChild(h);
+    setTimeout(() => h.remove(), 1200);
+  }
+}
+function expressionForTile(col, row) {
+  return slotTable[tileHash(col, row) % slotTable.length];
+}
+function setCardExpression(card, expr) {
+  if (!card._img) {
+    card._img = card.querySelector('.cardFace img');
+    card._comment = card.querySelector('.cardComment');
+    card._favBtn = card.querySelector('.favBtn');
+  }
+  const on = favs.has(expr.id);
+  card.classList.toggle('fav', on);
+  card._favBtn.textContent = on ? '♥' : '♡';
+  card._favBtn.classList.toggle('on', on);
+  if (card._expr && card._expr.id === expr.id) return;
+  card._expr = expr;
+  card.dataset.id = expr.id;
+  card._img.src = expr.img;
+  card._img.alt = expr.comment;
+  card._comment.textContent = expr.comment;
+}
+function makeCard(expr) {
+  const card = document.createElement('article');
+  card.className = 'expressionCard';
+  card.innerHTML = `<div class="cardInner"><div class="cardFace"><img alt="" draggable="false"></div><div class="cardComment"></div></div><button class="favBtn" type="button" aria-label="お気に入り">♡</button>`;
+  // 呼吸とキャプションの周期を1枚ごとにずらして有機的に見せる（負のdelayで途中から開始）
+  card.style.setProperty('--breatheDur', `${(7 + Math.random() * 6).toFixed(2)}s`);
+  card.style.setProperty('--breatheDelay', `${(-Math.random() * 12).toFixed(2)}s`);
+  card.style.setProperty('--capDur', `${(13 + Math.random() * 9).toFixed(2)}s`);
+  card.style.setProperty('--capDelay', `${(-Math.random() * 20).toFixed(2)}s`);
+  const btn = card.querySelector('.favBtn');
+  btn.addEventListener('pointerdown', e => e.stopPropagation());
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (!card._expr) return;
+    const turningOn = !favs.has(card._expr.id);
+    if (turningOn) burstHearts(card, btn);
+    toggleFav(card._expr.id);
+  });
+  setCardExpression(card, expr);
+  return card;
+}
+function buildColumns() {
+  if (!expressions.length) return;
+  const colsEl = $('#columns');
+  colsEl.innerHTML = '<div class="panLayer"></div>';
+  panLayerEl = colsEl.firstElementChild;
+  tileCards = [];
+  lastWorld = { col: NaN, row: NaN };
+  const small = window.innerWidth < 720;
+  // 画像は全て横長（16:9と4:3の混在）なので、中間の3:2タイルにすると切り抜きが最小で済む
+  const cardW = small ? 190 : Math.max(240, Math.min(320, Math.round(window.innerWidth * 0.20)));
+  const cardH = Math.round(cardW * 2 / 3);
+  const gap = small ? 14 : 22;
+  const stepX = cardW + gap;
+  const stepY = cardH + gap;
+  const wrapW = surfaceWrap.clientWidth || Math.round(window.innerWidth * 1.20);
+  const wrapH = surfaceWrap.clientHeight || Math.round(window.innerHeight * 1.22);
+  // 回転・千鳥配置・1ステップ分のラップを吸収するためのオフスクリーンバッファ
+  const bufferCols = 2;
+  const bufferRows = 2;
+  const colCount = Math.ceil(wrapW / stepX) + bufferCols * 2 + 1;
+  const rowCount = Math.ceil(wrapH / stepY) + bufferRows * 2 + 1;
+  tileLayout = { cardW, cardH, gap, stepX, stepY, colCount, rowCount, bufferCols, bufferRows };
+
+  const frag = document.createDocumentFragment();
+  for (let r=0; r<rowCount; r++) {
+    for (let c=0; c<colCount; c++) {
+      const card = makeCard(expressionForTile(c, r));
+      card.dataset.poolC = c;
+      card.dataset.poolR = r;
+      card.style.width = `${cardW}px`;
+      card.style.height = `${cardH}px`;
+      tileCards.push(card);
+      frag.appendChild(card);
+    }
+  }
+  panLayerEl.appendChild(frag);
+  renderInfiniteSurface();
+}
+// タイル境界を越えた時だけ呼ばれる。各カードのワールド座標を引き直して
+// 表情と千鳥オフセットを更新する（毎フレームは走らない）。
+function reflowTiles() {
+  if (!tileLayout || Number.isNaN(lastWorld.col)) return;
+  const L = tileLayout;
+  for (const card of tileCards) {
+    const poolC = Number(card.dataset.poolC);
+    const poolR = Number(card.dataset.poolR);
+    const worldCol = lastWorld.col + poolC;
+    const worldRow = lastWorld.row + poolR;
+    const stagger = (worldRow & 1) ? Math.round(L.stepX * .46) : 0;
+    setCardExpression(card, expressionForTile(worldCol, worldRow));
+    card.style.left = `${poolC * L.stepX + stagger}px`;
+    card.style.top = `${poolR * L.stepY}px`;
+  }
+}
+function renderInfiniteSurface() {
+  if (!tileLayout) return;
+  const L = tileLayout;
+  // 毎フレームの移動はレイヤー1枚のtransformだけ（GPU合成のみ、レイアウト不要）
+  const offsetX = positiveMod(surfacePan.x, L.stepX) - L.stepX * L.bufferCols;
+  const offsetY = positiveMod(surfacePan.y, L.stepY) - L.stepY * L.bufferRows;
+  panLayerEl.style.transform = `translate3d(${offsetX.toFixed(1)}px, ${offsetY.toFixed(1)}px, 0)`;
+  const worldCol0 = Math.floor(-surfacePan.x / L.stepX) - L.bufferCols;
+  const worldRow0 = Math.floor(-surfacePan.y / L.stepY) - L.bufferRows;
+  if (worldCol0 !== lastWorld.col || worldRow0 !== lastWorld.row) {
+    lastWorld = { col: worldCol0, row: worldRow0 };
+    reflowTiles();
+  }
+}
+
+// ===== クリック演出（4種ランダム） =====
+const SPEECH_LINES = [
+  'えへへ♪', 'びっくりした？', '見てくれてありがと！', 'ねぇ、どの私が好き？',
+  'ずっと見てていいよ♪', '今日も会えたね！', 'タップ、くすぐったいよ〜', 'お気に入り、増やしてくれた？'
+];
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+function surpriseAt(x, y, card) {
+  let pool = card ? ['ripple', 'zoom', 'burst', 'speech'] : ['ripple', 'speech'];
+  if (reducedMotion) pool = pool.filter(e => e === 'zoom' || e === 'speech');
+  const effect = pool[(Math.random() * pool.length) | 0];
+  if (effect === 'ripple') rippleFrom(x, y);
+  else if (effect === 'zoom') zoomUp(card);
+  else if (effect === 'burst') burstFrom(x, y, card);
+  else speechAt(x, y);
+}
+function rippleFrom(x, y) {
+  const ring = document.createElement('div');
+  ring.className = 'clickRing';
+  ring.style.left = `${x}px`;
+  ring.style.top = `${y}px`;
+  document.body.appendChild(ring);
+  setTimeout(() => ring.remove(), 900);
+  for (const card of tileCards) {
+    const r = card.getBoundingClientRect();
+    if (r.right < -300 || r.left > innerWidth + 300 || r.bottom < -300 || r.top > innerHeight + 300) continue;
+    const d = Math.hypot(r.left + r.width / 2 - x, r.top + r.height / 2 - y);
+    const face = card.querySelector('.cardFace');
+    if (face.classList.contains('rippling')) continue;
+    face.style.animationDelay = `${Math.round(d * 0.55)}ms`;
+    face.classList.add('rippling');
+    setTimeout(() => { face.classList.remove('rippling'); face.style.animationDelay = ''; }, d * 0.55 + 750);
+  }
+}
+let zoomLayer = null;
+function zoomUp(card) {
+  const expr = card._expr;
+  if (!expr) return;
+  if (!zoomLayer) {
+    zoomLayer = document.createElement('div');
+    zoomLayer.id = 'zoomLayer';
+    zoomLayer.innerHTML = '<figure><img alt=""><figcaption></figcaption></figure>';
+    zoomLayer.addEventListener('click', closeZoom);
+    document.body.appendChild(zoomLayer);
+  }
+  zoomLayer.querySelector('img').src = expr.img;
+  zoomLayer.querySelector('figcaption').textContent = expr.comment.replace(/^\d+\s*/, '');
+  zoomLayer.classList.remove('closing');
+  zoomLayer.classList.add('open');
+  sparkleAt(innerWidth / 2, innerHeight / 2, '♥');
+}
+function closeZoom() {
+  if (!zoomLayer || !zoomLayer.classList.contains('open') || zoomLayer.classList.contains('closing')) return;
+  zoomLayer.classList.add('closing');
+  setTimeout(() => zoomLayer.classList.remove('open', 'closing'), 280);
+}
+function burstFrom(x, y, card) {
+  const face = card.querySelector('.cardFace');
+  face.classList.add('bursting');
+  setTimeout(() => face.classList.remove('bursting'), 700);
+  sparkleAt(x, y);
+  for (const other of tileCards) {
+    if (other === card) continue;
+    const r = other.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const d = Math.hypot(cx - x, cy - y);
+    if (d > 700 || d < 1) continue;
+    const k = 90 * (1 - d / 700);
+    const f = other.querySelector('.cardFace');
+    f.style.setProperty('--px', `${((cx - x) / d * k).toFixed(1)}px`);
+    f.style.setProperty('--py', `${((cy - y) / d * k).toFixed(1)}px`);
+    f.style.setProperty('--pr', `${(Math.random() * 8 - 4).toFixed(1)}deg`);
+    f.classList.add('pushed');
+    setTimeout(() => f.classList.remove('pushed'), 850);
+  }
+}
+function sparkleAt(x, y, char) {
+  for (let i = 0; i < 10; i++) {
+    const s = document.createElement('span');
+    s.className = 'sparkle';
+    s.textContent = char || ['✦', '✧', '♥'][i % 3];
+    const a = Math.random() * Math.PI * 2;
+    const dist = 60 + Math.random() * 100;
+    s.style.left = `${x}px`;
+    s.style.top = `${y}px`;
+    s.style.setProperty('--sx', `${Math.round(Math.cos(a) * dist)}px`);
+    s.style.setProperty('--sy', `${Math.round(Math.sin(a) * dist)}px`);
+    s.style.animationDelay = `${i * 25}ms`;
+    document.body.appendChild(s);
+    setTimeout(() => s.remove(), 1200);
+  }
+}
+function speechAt(x, y) {
+  const b = document.createElement('div');
+  b.className = 'speechBubble';
+  b.textContent = SPEECH_LINES[(Math.random() * SPEECH_LINES.length) | 0];
+  b.style.left = `${Math.min(Math.max(x, 110), innerWidth - 110)}px`;
+  b.style.top = `${Math.max(y - 24, 60)}px`;
+  document.body.appendChild(b);
+  setTimeout(() => b.classList.add('gone'), 1600);
+  setTimeout(() => b.remove(), 2150);
+}
+
+// Background drag: infinite pan card world. The card field is recycled with modulo positions, so it never reaches an edge.
+// 8px未満の移動・600ms未満ならクリック扱いにして演出を発火する。
+surfaceWrap.addEventListener('pointerdown', e => {
+  if (e.button !== undefined && e.button !== 0) return;
+  bgDrag = { x:e.clientX, y:e.clientY, panX:surfacePan.x, panY:surfacePan.y, t:performance.now(), moved:false };
+  surfaceWrap.setPointerCapture(e.pointerId);
+  surfaceWrap.classList.add('dragging');
+});
+surfaceWrap.addEventListener('pointermove', e => {
+  if (!bgDrag) return;
+  const dx = e.clientX - bgDrag.x;
+  const dy = e.clientY - bgDrag.y;
+  if (Math.hypot(dx, dy) > 8) bgDrag.moved = true;
+  surfacePan.x = bgDrag.panX + dx;
+  surfacePan.y = bgDrag.panY + dy;
+  renderInfiniteSurface();
+});
+function finishBgDrag(e) {
+  if (!bgDrag) return;
+  const wasClick = !bgDrag.moved && (performance.now() - bgDrag.t) < 600;
+  const sx = bgDrag.x;
+  const sy = bgDrag.y;
+  bgDrag = null;
+  surfaceWrap.classList.remove('dragging');
+  if (wasClick && e && e.type === 'pointerup') {
+    // pointer captureでe.targetがsurfaceWrapになるため、座標からカードを引く
+    const el = document.elementFromPoint(sx, sy);
+    surpriseAt(sx, sy, el ? el.closest('.expressionCard') : null);
+  }
+}
+surfaceWrap.addEventListener('pointerup', finishBgDrag);
+surfaceWrap.addEventListener('pointercancel', finishBgDrag);
+surfaceWrap.addEventListener('wheel', e => {
+  e.preventDefault();
+  surfacePan.x -= e.deltaX;
+  surfacePan.y -= e.deltaY;
+  renderInfiniteSurface();
+}, { passive:false });
+
+window.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (zoomLayer && zoomLayer.classList.contains('open')) closeZoom();
+  else location.href = '/';
+});
+
+let lastTick = 0;
+function tick(t) {
+  if (!lastTick) lastTick = t;
+  const dt = Math.min(50, t - lastTick);
+  lastTick = t;
+  if (!bgDrag) {
+    surfacePan.y -= dt * .018;
+    surfacePan.x += Math.sin(t / 9000) * dt * .010;
+  }
+  renderInfiniteSurface();
+  requestAnimationFrame(tick);
+}
+
+// ===== データ読み込み：選択中の素材パターンの「採用」画像をカードにする =====
+function selectCharacter(state) {
+  const chars = state.characters ?? [];
+  const wanted = new URLSearchParams(location.search).get('character') || state.settings?.currentCharacterId;
+  return chars.find(ch => ch.id === wanted) ?? chars[0];
+}
+function collectAdopted(ch) {
+  const found = [];
+  if (!ch) return found;
+  // 画像タブのentryだけが対象（ベース・動画は含めない）
+  for (const entry of ch.images ?? []) {
+    for (const asset of entry.assets ?? []) {
+      if (asset.adopted && asset.file && IMG_EXT.test(asset.file)) {
+        found.push({ id: asset.id ?? `${entry.id}:${asset.file}`, img: assetUrl(asset.file), comment: entry.overview || asset.name || '' });
+      }
+    }
+  }
+  return found;
+}
+
+fetch('/api/state').then(r => r.json()).then(state => {
+  const ch = selectCharacter(state);
+  expressions = collectAdopted(ch);
+  if (!expressions.length) {
+    document.body.innerHTML = `<div class="emptyMsg"><p>${(ch?.name ?? 'この素材パターン')} に採用画像がまだありません。</p><a href="/">← image-arranger にもどる</a></div>`;
+    return;
+  }
+  // 全画像を先読みしておく。タイル使い回しでsrcを差し替えた瞬間の
+  // 「ちらつき」（読み込み中の空白が見える）を防ぐ。
+  for (const e of expressions) { const im = new Image(); im.src = e.img; }
+  rebuildWeighted();
+  window.addEventListener('resize', buildColumns);
+  buildColumns();
+  requestAnimationFrame(tick);
+}).catch(error => {
+  document.body.innerHTML = `<div class="emptyMsg"><p>読み込みに失敗しました: ${String(error.message || error)}</p><a href="/">← image-arranger にもどる</a></div>`;
+});
+</script>
+</body>
+</html>
