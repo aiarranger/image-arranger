@@ -512,6 +512,7 @@ textarea.prompt {
   overflow: hidden;
 }
 .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
 .asset-name {
   padding: 5px 6px;
   font-size: 11px;
@@ -811,6 +812,7 @@ textarea.prompt {
 }
 .modal-media { background: #1f1a2b; display: grid; place-items: center; min-height: 420px; }
 .modal-media img { max-width: 100%; max-height: 86vh; object-fit: contain; }
+.modal-media video { max-width: 100%; max-height: 86vh; }
 .modal-side { padding: 16px; overflow: auto; }
 .modal-side h3 { margin: 0 0 10px; }
 .modal-side pre {

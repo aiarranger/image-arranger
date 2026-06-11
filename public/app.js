@@ -644,11 +644,18 @@ function statusBadge(entry) {
   return `<span class="badge ${status}">${t(status)}</span>`;
 }
 
+function mediaTag(file, alt = "") {
+  if (/\.(mp4|webm)$/i.test(file ?? "")) {
+    return `<video src="${assetUrl(file)}" controls muted loop playsinline preload="metadata"></video>`;
+  }
+  return `<img src="${assetUrl(file)}" alt="${escapeHtml(alt)}" loading="lazy">`;
+}
+
 function assetCard(asset, entry) {
   const adopted = asset.adopted ? " adopted" : "";
   const requested = asset.requestStatus === "requested";
   const image = asset.file
-    ? `<img src="${assetUrl(asset.file)}" alt="${escapeHtml(asset.name)}" loading="lazy">`
+    ? mediaTag(asset.file, asset.name)
     : `<span>${asset.kind === "video" ? "VIDEO" : "NO FILE"}</span>`;
   return `
     <div class="asset${adopted}" data-asset-id="${escapeHtml(asset.id)}" data-entry-id="${escapeHtml(entry.id)}">
@@ -751,7 +758,7 @@ function openEntryModal(entryId, shownAssetId = null) {
     <button class="close" id="closeModal" title="${t("close")}" aria-label="${t("close")}">×</button>
     <div class="modal-card emodal">
       <div class="modal-media">
-        ${shownFile ? `<img src="${assetUrl(shownFile)}" alt="${escapeHtml(entry.overview)}">` : `<span class="emodal-empty">${t("noImage")}</span>`}
+        ${shownFile ? mediaTag(shownFile, entry.overview) : `<span class="emodal-empty">${t("noImage")}</span>`}
       </div>
       <div class="emodal-side">
         <div class="emodal-head">
@@ -2486,7 +2493,7 @@ function openAsset(assetId, entryId) {
   $("#modal").innerHTML = `
     <button class="close" id="closeModal" title="${t("close")}" aria-label="${t("close")}">×</button>
     <div class="modal-card">
-      <div class="modal-media">${asset.file ? `<img src="${assetUrl(asset.file)}" alt="${escapeHtml(asset.name)}">` : "No file"}</div>
+      <div class="modal-media">${asset.file ? mediaTag(asset.file, asset.name) : "No file"}</div>
       <div class="modal-side">
         <h3>${escapeHtml(asset.name ?? entry.overview)}</h3>
         <p>${escapeHtml(entry.overview ?? "")}</p>
