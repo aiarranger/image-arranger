@@ -4,6 +4,32 @@ This guide is for a human operator or a coding agent (Claude Code, Codex, etc.) 
 
 image-arranger never operates ChatGPT, Vidu, or any generation service directly. The processor reads a request file, performs the work in the generation service's normal UI (or via its own tooling), saves the results, and reports completion back.
 
+## Scripted Processing (preferred)
+
+Do not drive the generation service's browser UI by hand. The repository ships a deterministic processor that carries every queued ChatGPT image-generation target through the whole pipeline — fresh chat, attach references, insert and verify the prompt, send, wait, save into `outputDir`, register the result as an asset candidate, report completion — and records everything it does (steps + screenshots) into `agent-logs/run-*/` for the operator to review.
+
+```bash
+# one-time setup / health check: launches a dedicated automation Chrome
+# (its own profile + CDP port; it never touches the user's main browser).
+# Sign in to ChatGPT once in the window it opens.
+node scripts/process-queue.mjs --check --server http://127.0.0.1:4310
+
+# process every queued chatgpt generate target end to end
+node scripts/process-queue.mjs --server http://127.0.0.1:4310
+
+# useful variants
+node scripts/process-queue.mjs --dry-run            # list what would run
+node scripts/process-queue.mjs --request <id>       # one request only
+node scripts/process-queue.mjs --keep-tabs          # leave chats open to inspect
+```
+
+Division of labour:
+
+- **The script handles** `generate` targets for images (service `chatgpt`). It retries a refused/failed generation once in a fresh chat, then reports `error` via the complete API and moves on.
+- **You handle** `draft-prompt` (read the reference URL, write the prompt — see below) and `analyze` (image analysis JSON). Both are reported via the complete API with `curl`; no browser automation needed. After completing a `draft-prompt`, rerun the script to process the auto-queued generation.
+- Video targets (Vidu) are processed per the Video section below.
+- If the script exits with an error, read `agent-logs/run-*/log.md` first; fix the cause (for example reword a refused prompt via `POST /api/requests/update`) and rerun. Fall back to the manual browser procedure at the bottom of this file only when the script itself cannot be repaired, and when you do, write your own steps and screenshots into an `agent-logs/run-*/` folder so the operator gets the same record.
+
 ## Request Files
 
 Default location:
@@ -26,6 +52,8 @@ Target actions:
 Never process targets or requests whose `status` is `cancelled`.
 
 ## Image Generation (`generate`)
+
+Prefer the scripted processor above — the steps below define the contract it implements (and the manual fallback).
 
 1. Use the target `prompt` as-is.
 2. If `inputs.refImages` is present, attach only those files. They contain assets the user explicitly adopted (or the improvement source). Do not add other candidates on your own.
@@ -62,6 +90,8 @@ Same as generation, but treat `inputs.sourceAsset` / `assetFile` as the primary 
 2. Use the target `prompt` as the motion prompt.
 3. Generate one video first; check frame fidelity, locked camera, single action, and no extra objects before retrying.
 4. Save into `outputDir` and register the asset.
+
+## Manual Browser Fallback (only when the script cannot be repaired)
 
 ## One-time macOS Setup for Real-OS Keystrokes
 
