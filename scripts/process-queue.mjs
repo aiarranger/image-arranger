@@ -32,6 +32,8 @@ const SERVER = (option("--server", process.env.IMAGE_ARRANGER_SERVER ?? "http://
 const CDP_PORT = Number(option("--cdp-port", DEFAULTS.cdpPort));
 const MAX_TARGETS = Number(option("--max", "20"));
 const RETRIES_PER_TARGET = 3;
+// How many targets run at once, each in its own chat tab (--parallel <n>).
+const PARALLEL = Math.max(1, Number(option("--parallel", process.env.IMAGE_ARRANGER_PARALLEL ?? "1")) || 1);
 
 async function api(path, body = null) {
   const response = await fetch(`${SERVER}${path}`, body
@@ -97,9 +99,11 @@ async function main() {
   }
 
   const summary = [];
-  for (const row of wanted) {
+
+  async function processTarget(row) {
+    const tag = row.entryId;
     runLog.section(`${row.requestId}[${row.targetIndex}] ${row.overview ?? row.entryId}`);
-    runLog.attachJson("target", row);
+    runLog.attachJson(`target ${tag}`, row);
     const refImages = (row.inputs?.refImages ?? []).map((file) => isAbsolute(file) ? file : resolve(projectRoot, file));
     const outputDir = resolve(projectRoot, row.outputDir || "outputs");
     mkdirSync(outputDir, { recursive: true });
@@ -109,37 +113,37 @@ async function main() {
     for (let attempt = 1; attempt <= RETRIES_PER_TARGET && !outcome; attempt += 1) {
       const page = await openChat({ cdpPort: CDP_PORT });
       try {
-        runLog.log(`attempt ${attempt}/${RETRIES_PER_TARGET}: new chat opened`);
+        runLog.log(`[${tag}] attempt ${attempt}/${RETRIES_PER_TARGET}: new chat opened`);
         const attached = await attachImages(page, refImages);
-        runLog.log(`attached ${attached} reference image(s)`);
+        runLog.log(`[${tag}] attached ${attached} reference image(s)`);
         await runLog.shot(page, `attached-${row.entryId}`);
         await setPrompt(page, row.prompt);
-        runLog.log("prompt inserted and verified");
+        runLog.log(`[${tag}] prompt inserted and verified`);
         await runLog.shot(page, `before-send-${row.entryId}`);
         await sendMessage(page);
-        runLog.log("message sent; waiting for the image (polling every 5s)");
+        runLog.log(`[${tag}] message sent; waiting for the image (polling every 5s)`);
         const reply = await waitForImageReply(page, {
           onTick: (elapsed, state) => runLog.log(
-            `waiting ${elapsed}s — ${state.streaming ? "model is responding" : "no completed image detected yet"} (turns:${state.turns} imgs:${state.images.length}${state.overlay ? " overlay" : ""})`,
+            `[${tag}] waiting ${elapsed}s — ${state.streaming ? "model is responding" : "no completed image detected yet"} (turns:${state.turns} imgs:${state.images.length}${state.overlay ? " overlay" : ""})`,
           ),
         });
         await runLog.shot(page, `reply-${row.entryId}`);
         if (reply.status === "image") {
           const destination = join(outputDir, `${fileBase}.png`);
           const saved = await downloadImage(page, reply.src, destination);
-          runLog.log(`image saved via ${saved.method}: ${destination} (${Math.round(saved.bytes / 1024)} KB)`);
+          runLog.log(`[${tag}] image saved via ${saved.method}: ${destination} (${Math.round(saved.bytes / 1024)} KB)`);
           outcome = { status: "completed", file: destination };
         } else if (reply.status === "error") {
-          runLog.log(`generation refused/errored: ${reply.text.slice(0, 200)}`, "warn");
+          runLog.log(`[${tag}] generation refused/errored: ${reply.text.slice(0, 200)}`, "warn");
           if (attempt === RETRIES_PER_TARGET) outcome = { status: "error", message: `generation failed after ${attempt} attempts: ${reply.text.slice(0, 300)}` };
-          else runLog.log("retrying in a fresh chat (same prompt, per AGENTS.md retry rule)");
+          else runLog.log(`[${tag}] retrying in a fresh chat (same prompt, per AGENTS.md retry rule)`);
         } else {
-          runLog.log("timed out waiting for the image", "warn");
+          runLog.log(`[${tag}] timed out waiting for the image`, "warn");
           if (attempt === RETRIES_PER_TARGET) outcome = { status: "error", message: "generation timed out" };
         }
       } catch (error) {
         await runLog.shot(page, `failure-${row.entryId}`);
-        runLog.log(`attempt ${attempt} failed: ${error.message}`, "error");
+        runLog.log(`[${tag}] attempt ${attempt} failed: ${error.message}`, "error");
         if (attempt === RETRIES_PER_TARGET) outcome = { status: "error", message: error.message };
       } finally {
         if (!flag("--keep-tabs") && (outcome?.status !== "error")) await closePage(page);
@@ -158,24 +162,34 @@ async function main() {
         humanReviewed: false,
         adopted: false,
       });
-      runLog.log(`registered as asset candidate: ${registered.asset?.id} -> ${registered.asset?.file}`);
+      runLog.log(`[${tag}] registered as asset candidate: ${registered.asset?.id} -> ${registered.asset?.file}`);
       await api("/api/requests/complete", {
         requestId: row.requestId,
         targetIndex: row.targetIndex,
         results: [{ file: relFile, prompt: row.prompt }],
       });
-      runLog.log("reported completed via /api/requests/complete");
-      summary.push({ requestId: row.requestId, targetIndex: row.targetIndex, entryId: row.entryId, status: "completed", file: relFile, asset: registered.asset?.id });
-    } else {
-      await api("/api/requests/complete", {
-        requestId: row.requestId,
-        targetIndex: row.targetIndex,
-        error: outcome.message,
-      });
-      runLog.log(`reported error via /api/requests/complete: ${outcome.message}`, "error");
-      summary.push({ requestId: row.requestId, targetIndex: row.targetIndex, entryId: row.entryId, status: "error", message: outcome.message });
+      runLog.log(`[${tag}] reported completed via /api/requests/complete`);
+      return { requestId: row.requestId, targetIndex: row.targetIndex, entryId: row.entryId, status: "completed", file: relFile, asset: registered.asset?.id };
     }
+    await api("/api/requests/complete", {
+      requestId: row.requestId,
+      targetIndex: row.targetIndex,
+      error: outcome.message,
+    });
+    runLog.log(`[${tag}] reported error via /api/requests/complete: ${outcome.message}`, "error");
+    return { requestId: row.requestId, targetIndex: row.targetIndex, entryId: row.entryId, status: "error", message: outcome.message };
   }
+
+  // Worker pool: PARALLEL targets in flight, each in its own chat tab.
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(PARALLEL, wanted.length));
+  if (wanted.length) runLog.log(`processing with parallelism ${workerCount}`);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (cursor < wanted.length) {
+      const row = wanted[cursor++];
+      summary.push(await processTarget(row));
+    }
+  }));
 
   runLog.section("Summary");
   runLog.attachJson("summary", summary);

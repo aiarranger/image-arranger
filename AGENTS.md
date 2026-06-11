@@ -20,6 +20,7 @@ node scripts/process-queue.mjs --server http://127.0.0.1:4310
 # useful variants
 node scripts/process-queue.mjs --dry-run            # list what would run
 node scripts/process-queue.mjs --request <id>       # one request only
+node scripts/process-queue.mjs --parallel 3         # N targets at once, each in its own chat tab (default 1)
 node scripts/process-queue.mjs --keep-tabs          # leave chats open to inspect
 ```
 
@@ -171,5 +172,6 @@ Fallback — edit the request JSON directly: set the target `status` to `done`, 
 ## On Failure
 
 - Do not silently retry the same request, and do not substitute screenshots, cached files, or internal blob URLs for a real export.
+- Exception: if the generation service reports a terms-of-service, policy, moderation, refusal, or safety violation, retry in a fresh chat up to 3 attempts total before marking the target `error`. Keep the same deliverable intent and required references, but reword the prompt conservatively to remove likely trigger wording; record each attempt in the run log.
 - Set the target `status` to `error` with an `errorMessage` explaining what failed in the normal procedure.
 - Report what user action or prompt change is needed next.
