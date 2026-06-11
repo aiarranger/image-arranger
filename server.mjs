@@ -16,6 +16,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { deflateSync } from "node:zlib";
 
 const TOOL_ROOT = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = 4217;
@@ -1595,6 +1596,85 @@ export function runDoctor(options = {}) {
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// Sample workspace placeholders: dependency-free PNG generation so a fresh
+// `--init sample` workspace shows canonical / adopted / candidate assets
+// without bundling binary fixtures.
+// ---------------------------------------------------------------------------
+
+function pngChunk(type, data) {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+  const crcBuffer = Buffer.alloc(4);
+  crcBuffer.writeUInt32BE(crc32(body), 0);
+  return Buffer.concat([length, body, crcBuffer]);
+}
+
+function makePlaceholderPng(width, height, fromColor, toColor) {
+  const rows = [];
+  for (let y = 0; y < height; y += 1) {
+    const row = Buffer.alloc(1 + width * 3);
+    const mix = y / height;
+    for (let x = 0; x < width; x += 1) {
+      const stripe = (x + y) % 96 < 48 ? 1 : 0.84;
+      for (let channel = 0; channel < 3; channel += 1) {
+        row[1 + x * 3 + channel] = Math.round((fromColor[channel] * (1 - mix) + toColor[channel] * mix) * stripe);
+      }
+    }
+    rows.push(row);
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // truecolor
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(Buffer.concat(rows))),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function seedSampleAssets(context) {
+  if (context.init !== "sample") return;
+  const state = readState(context.stateFile, context.projectRoot, context.init);
+  const character = state.characters?.[0];
+  if (!character || character.id !== "sample-character") return;
+  const master = character.base?.master?.[0];
+  const imageEntry = character.images?.[0];
+  if (!master || !imageEntry) return;
+  if ((master.assets ?? []).length || (imageEntry.assets ?? []).length) return;
+  const placeholders = [
+    { name: "base-reference.png", colors: [[108, 92, 231], [36, 30, 66]], target: master, adopted: true, label: "Canonical reference (placeholder)" },
+    { name: "studio-smile-adopted.png", colors: [[26, 158, 110], [16, 52, 38]], target: imageEntry, adopted: true, label: "Adopted candidate (placeholder)" },
+    { name: "studio-smile-candidate.png", colors: [[199, 125, 10], [66, 42, 8]], target: imageEntry, adopted: false, label: "Unadopted candidate (placeholder)" },
+  ];
+  for (const item of placeholders) {
+    const destination = join(context.assetDir, item.name);
+    if (!existsSync(destination)) {
+      writeFileSync(destination, makePlaceholderPng(640, 400, item.colors[0], item.colors[1]));
+    }
+    item.target.assets = [...(item.target.assets ?? []), {
+      id: `asset-${safeSlug(item.target.id)}-${item.name.replace(/[^a-z0-9]+/gi, "-")}`,
+      kind: "image",
+      file: toPosixPath(relative(context.projectRoot, destination)),
+      name: item.label,
+      adopted: item.adopted,
+      prompt: "",
+      sourceLicense: "CC0 (generated placeholder)",
+      aiGenerated: false,
+      humanReviewed: true,
+      usageNotes: "Placeholder bundled with the sample workspace so candidates and adoption are visible on first run.",
+      tags: [],
+    }];
+  }
+  state.updatedAt = nowIso();
+  writeJson(context.stateFile, state);
+}
+
 export function createImageArrangerServer(options = {}) {
   const context = {
     port: options.port ?? DEFAULT_PORT,
@@ -1610,6 +1690,7 @@ export function createImageArrangerServer(options = {}) {
   ensureDir(context.outputDir);
   ensureDir(context.assetDir);
   readState(context.stateFile, context.projectRoot, context.init);
+  seedSampleAssets(context);
 
   const publicRoot = join(TOOL_ROOT, "public");
   const server = createServer(async (request, response) => {

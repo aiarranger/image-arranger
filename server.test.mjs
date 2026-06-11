@@ -146,7 +146,7 @@ test("server queues mixed generation and improvement targets and cancels them", 
     assert.equal(queueResult.request.targets[0].outputDir, "outputs/sample-character");
     assert.equal(queueResult.request.targets[1].outputDir, "outputs/sample-character/improvements");
     assert.equal(queueResult.state.characters[0].images[0].requestStatus, "requested");
-    assert.equal(queueResult.state.characters[0].images[0].assets[0].requestStatus, "requested");
+    assert.equal(queueResult.state.characters[0].images[0].assets.find((item) => item.id === asset.id).requestStatus, "requested");
 
     const listed = await fetch(`${baseUrl}/api/requests`).then((response) => response.json());
     assert.equal(listed.requests.length, 2);
@@ -164,7 +164,7 @@ test("server queues mixed generation and improvement targets and cancels them", 
     assert.equal(firstCancel.ok, true);
     assert.equal(firstCancel.cancelled, 1);
     assert.equal(firstCancel.state.characters[0].images[0].requestStatus, "idle");
-    assert.equal(firstCancel.state.characters[0].images[0].assets[0].requestStatus, "requested");
+    assert.equal(firstCancel.state.characters[0].images[0].assets.find((item) => item.id === asset.id).requestStatus, "requested");
 
     const cancelResult = await fetch(`${baseUrl}/api/requests/cancel`, {
       method: "POST",
@@ -176,7 +176,7 @@ test("server queues mixed generation and improvement targets and cancels them", 
     assert.equal(cancelResult.ok, true);
     assert.equal(cancelResult.cancelled, 1);
     assert.equal(cancelResult.state.characters[0].images[0].requestStatus, "idle");
-    assert.equal(cancelResult.state.characters[0].images[0].assets[0].requestStatus, "idle");
+    assert.equal(cancelResult.state.characters[0].images[0].assets.find((item) => item.id === asset.id).requestStatus, "idle");
 
     const requestFile = readFileSync(join(context.requestDir, `${queueResult.request.requestId}.json`), "utf8");
     const requestPayload = JSON.parse(requestFile);
@@ -822,5 +822,26 @@ test("absolute sourceFile paths are rejected when registering assets", async () 
       }),
     });
     assert.equal(response.status, 400);
+  });
+});
+
+test("sample init seeds placeholder assets with provenance", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const state = await (await fetch(`${baseUrl}/api/state`)).json();
+    const character = state.characters[0];
+    const masterAssets = character.base.master[0].assets;
+    const imageAssets = character.images[0].assets;
+    assert.equal(masterAssets.length, 1);
+    assert.equal(masterAssets[0].adopted, true);
+    assert.equal(imageAssets.length, 2);
+    assert.equal(imageAssets.filter((asset) => asset.adopted).length, 1);
+    for (const asset of [...masterAssets, ...imageAssets]) {
+      assert.ok(asset.sourceLicense, "placeholder has a sourceLicense");
+      assert.equal(typeof asset.aiGenerated, "boolean");
+      const served = await fetch(`${baseUrl}/asset?path=${encodeURIComponent(asset.file)}`);
+      assert.equal(served.status, 200);
+      assert.equal(served.headers.get("content-type"), "image/png");
+    }
+    assert.ok(masterAssets[0].file.endsWith("base-reference.png"));
   });
 });
