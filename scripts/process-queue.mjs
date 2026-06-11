@@ -31,7 +31,7 @@ function option(name, fallback = null) {
 const SERVER = (option("--server", process.env.IMAGE_ARRANGER_SERVER ?? "http://127.0.0.1:4310")).replace(/\/$/, "");
 const CDP_PORT = Number(option("--cdp-port", DEFAULTS.cdpPort));
 const MAX_TARGETS = Number(option("--max", "20"));
-const RETRIES_PER_TARGET = 2;
+const RETRIES_PER_TARGET = 3;
 
 async function api(path, body = null) {
   const response = await fetch(`${SERVER}${path}`, body
@@ -130,7 +130,7 @@ async function main() {
         } else if (reply.status === "error") {
           runLog.log(`generation refused/errored: ${reply.text.slice(0, 200)}`, "warn");
           if (attempt === RETRIES_PER_TARGET) outcome = { status: "error", message: `generation failed after ${attempt} attempts: ${reply.text.slice(0, 300)}` };
-          else runLog.log("retrying once in a fresh chat (same prompt, per AGENTS.md retry rule)");
+          else runLog.log("retrying in a fresh chat (same prompt, per AGENTS.md retry rule)");
         } else {
           runLog.log("timed out waiting for the image", "warn");
           if (attempt === RETRIES_PER_TARGET) outcome = { status: "error", message: "generation timed out" };

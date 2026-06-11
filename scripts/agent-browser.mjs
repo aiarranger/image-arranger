@@ -98,6 +98,12 @@ export class Cdp {
     this.nextId = 1;
     this.pending = new Map();
     this.eventHandlers = new Map();
+    ws.addEventListener("close", () => {
+      for (const { reject: rejectCall } of this.pending.values()) {
+        rejectCall(new Error("CDP WebSocket closed (tab gone or Chrome quit)"));
+      }
+      this.pending.clear();
+    });
     ws.addEventListener("message", (event) => {
       const message = JSON.parse(event.data);
       if (message.id && this.pending.has(message.id)) {
