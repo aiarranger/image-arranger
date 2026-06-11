@@ -1,5 +1,8 @@
 # image-arranger
 
+[![CI](https://github.com/aiarranger/image-arranger/actions/workflows/ci.yml/badge.svg)](https://github.com/aiarranger/image-arranger/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-6c5ce7.svg)](LICENSE)
+
 **A local-first prompt & asset request manager for AI image / video generation — it doesn't generate, it keeps your generation workflow organized.**
 
 image-arranger manages the layer that image generators don't: which reference is canonical, which candidates you adopted, what is queued, and what prompt produced what. It works with any generation service (ChatGPT, Midjourney, Vidu, ...) because it never calls one — it writes request files that you, or a coding agent, process in the service's normal UI.
