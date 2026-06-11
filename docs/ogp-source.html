@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<!-- Source for ogp.png (1200x630). Render in a browser and capture the #card region. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #555; }
+  #card {
+    position: fixed; top: 0; left: 0; width: 1200px; height: 630px; overflow: hidden;
+    background: linear-gradient(135deg, #e8f4f8 0%, #f2effb 40%, #fdeef7 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #2b2640; padding: 64px 72px;
+  }
+  .chip {
+    display: inline-block; background: #2b2640; color: #a99df5;
+    font-family: "SF Mono", Menlo, monospace; font-size: 22px; letter-spacing: .22em;
+    padding: 12px 24px; border-radius: 14px; font-weight: 700; margin-bottom: 38px;
+  }
+  h1 { font-size: 72px; line-height: 1.18; letter-spacing: -0.01em; margin-bottom: 30px; }
+  h1 .em { color: #6c5ce7; }
+  p { font-size: 28px; color: #6f6a86; margin-bottom: 44px; }
+  .tabs { display: flex; gap: 12px; align-items: center; }
+  .t {
+    font-size: 22px; font-weight: 600; padding: 12px 26px; border-radius: 14px;
+    background: #efedfd; color: #5546c8;
+  }
+  .t.on { background: #6c5ce7; color: #fff; }
+  .arrow { color: #6f6a86; font-size: 20px; }
+  .corner {
+    position: absolute; right: 72px; bottom: 56px; font-family: "SF Mono", Menlo, monospace;
+    font-size: 22px; color: #6f6a86;
+  }
+</style>
+</head>
+<body>
+<div id="card">
+  <div class="chip">IMAGE ARRANGER</div>
+  <h1>The <span class="em">missing management layer</span><br>for AI image generation.</h1>
+  <p>Local-first prompt &amp; asset request manager — it doesn't generate, it keeps you organized.</p>
+  <div class="tabs">
+    <span class="t">Create kit</span><span class="arrow">→</span>
+    <span class="t">Base</span><span class="arrow">→</span>
+    <span class="t on">Image</span><span class="arrow">→</span>
+    <span class="t">Video</span><span class="arrow">→</span>
+    <span class="t">Queue</span>
+  </div>
+  <div class="corner">github.com/aiarranger/image-arranger</div>
+</div>
+</body>
+</html>

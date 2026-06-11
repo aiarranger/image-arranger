@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>image-arranger — the missing management layer for AI image generation</title>
+<meta name="description" content="Local-first prompt &amp; asset request manager for AI image/video generation. It doesn't generate — it keeps your workflow organized: canonical references, adopted candidates, queued requests.">
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;rect width='100' height='100' rx='20' fill='%232b2640'/&gt;&lt;text x='50' y='68' font-size='52' text-anchor='middle' fill='%23a99df5' font-family='monospace'&gt;ia&lt;/text&gt;&lt;/svg&gt;">
+<meta property="og:type" content="website">
+<meta property="og:title" content="image-arranger — the missing management layer for AI image generation">
+<meta property="og:description" content="Local-first prompt &amp; asset request manager for AI image/video generation. It doesn't generate — it keeps your workflow organized.">
+<meta property="og:url" content="https://aiarranger.github.io/image-arranger/">
+<meta property="og:image" content="https://aiarranger.github.io/image-arranger/ogp.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root {
+    --ink: #2b2640;
+    --sub: #6f6a86;
+    --accent: #6c5ce7;
+    --accent-deep: #5546c8;
+    --accent-soft: #efedfd;
+    --ok: #1a9e6e;
+    --ok-soft: #e3f6ee;
+    --warn: #c77d0a;
+    --line: #e6e2f3;
+    --panel: #ffffff;
+    --mono: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    background: linear-gradient(135deg, #e8f4f8 0%, #f2effb 40%, #fdeef7 100%);
+    line-height: 1.7;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 0 24px; }
+
+  /* hero */
+  header { padding: 64px 0 40px; }
+  .brand { display: inline-flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+  .brand .chip {
+    background: var(--ink); color: #a99df5; font-family: var(--mono);
+    font-size: 13px; letter-spacing: .22em; padding: 7px 14px; border-radius: 9px; font-weight: 700;
+  }
+  .brand .ver { font-size: 12px; color: var(--sub); }
+  h1 { font-size: clamp(30px, 5.2vw, 52px); line-height: 1.25; margin: 0 0 18px; letter-spacing: -0.01em; }
+  h1 .em { color: var(--accent); }
+  .lede { font-size: clamp(15px, 2vw, 18px); color: var(--sub); max-width: 640px; margin: 0 0 30px; }
+  .lede strong { color: var(--ink); }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+    padding: 12px 22px; border-radius: 11px; font-weight: 700; font-size: 15px;
+    border: 2px solid transparent; transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(108, 92, 231, .25); }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.ghost { background: #fff; color: var(--accent-deep); border-color: var(--accent); }
+  .meta-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; }
+  .meta-pills span {
+    font-size: 12px; background: #ffffffb8; border: 1px solid var(--line);
+    padding: 4px 12px; border-radius: 999px; color: var(--sub);
+  }
+
+  /* mockup */
+  .mock { margin: 46px auto 0; max-width: 880px; filter: drop-shadow(0 24px 50px rgba(85, 70, 200, .18)); }
+  .mock .bar {
+    background: #2b2640; border-radius: 14px 14px 0 0; padding: 11px 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .mock .bar i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .mock .bar i:nth-child(1) { background: #ff5f57; } .mock .bar i:nth-child(2) { background: #febc2e; } .mock .bar i:nth-child(3) { background: #28c840; }
+  .mock .bar .url { margin-left: 12px; font-family: var(--mono); font-size: 11px; color: #9d96bd; }
+  .mock .body { background: var(--panel); border-radius: 0 0 14px 14px; padding: 20px; }
+  .mock .tabs { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+  .mock .tabs .t {
+    font-size: 12.5px; font-weight: 600; padding: 6px 14px; border-radius: 9px;
+    background: var(--accent-soft); color: var(--accent-deep);
+  }
+  .mock .tabs .t.on { background: var(--accent); color: #fff; }
+  .mock .tabs .arrow { color: var(--sub); font-size: 11px; }
+  .mock .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+  .mock .card { border: 1px solid var(--line); border-radius: 11px; overflow: hidden; background: #fdfcff; }
+  .mock .card .ph { height: 92px; position: relative; }
+  .mock .card:nth-child(1) .ph { background: linear-gradient(140deg, #c9b8f7, #8ec5ef); }
+  .mock .card:nth-child(2) .ph { background: linear-gradient(140deg, #f7b8d4, #c9b8f7); }
+  .mock .card:nth-child(3) .ph { background: linear-gradient(140deg, #b8e8f7, #b8f7d8); }
+  .mock .card:nth-child(4) .ph { background: linear-gradient(140deg, #f7e3b8, #f7b8c4); }
+  .mock .card .ph .badge {
+    position: absolute; top: 7px; right: 7px; font-size: 10px; font-weight: 700;
+    padding: 2px 8px; border-radius: 999px; background: #ffffffd9;
+  }
+  .mock .card .ph .badge.adopted { color: var(--ok); }
+  .mock .card .ph .badge.queued { color: var(--warn); }
+  .mock .card .cap { font-size: 11px; padding: 7px 10px; color: var(--sub); }
+  .mock .json {
+    margin-top: 14px; background: #2b2640; color: #c6bff0; border-radius: 10px;
+    font-family: var(--mono); font-size: 11.5px; padding: 12px 16px; overflow-x: auto; white-space: pre;
+  }
+  .mock .json .k { color: #8ec5ef; } .mock .json .s { color: #b8f7d8; }
+  .swapnote { text-align: center; font-size: 11.5px; color: var(--sub); margin-top: 10px; }
+
+  /* sections */
+  section { padding: 54px 0 8px; }
+  h2 { font-size: clamp(22px, 3vw, 30px); margin: 0 0 10px; letter-spacing: -0.01em; }
+  .sec-sub { color: var(--sub); margin: 0 0 30px; max-width: 640px; }
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .feature {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 24px 24px 20px;
+  }
+  .feature .ico {
+    width: 44px; height: 44px; border-radius: 12px; background: var(--accent-soft);
+    display: flex; align-items: center; justify-content: center; font-size: 21px; margin-bottom: 14px;
+  }
+  .feature h3 { margin: 0 0 8px; font-size: 17px; }
+  .feature p { margin: 0; font-size: 14px; color: var(--sub); }
+
+  /* workflow */
+  .flow { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
+  .step {
+    flex: 1 1 160px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 16px 14px; position: relative;
+  }
+  .step .n {
+    font-family: var(--mono); font-size: 11px; color: var(--accent); font-weight: 700;
+    letter-spacing: .12em; margin-bottom: 6px;
+  }
+  .step h3 { margin: 0 0 6px; font-size: 15px; }
+  .step p { margin: 0; font-size: 12.5px; color: var(--sub); }
+
+  /* quick start */
+  .qs {
+    background: #2b2640; border-radius: 16px; padding: 26px 28px; color: #e8e4fb;
+  }
+  .qs h2 { color: #fff; }
+  .qs .sec-sub { color: #b3abd6; }
+  .qs pre {
+    background: #201c33; border-radius: 10px; padding: 16px 18px; overflow-x: auto;
+    font-family: var(--mono); font-size: 13.5px; line-height: 1.7; margin: 0; position: relative;
+  }
+  .qs pre .c { color: #7d76a3; }
+  .qs .copy {
+    position: absolute; top: 10px; right: 10px; background: #3a3357; color: #c6bff0;
+    border: none; border-radius: 7px; font-size: 11.5px; padding: 5px 12px; cursor: pointer;
+  }
+  .qs .copy:hover { background: var(--accent); color: #fff; }
+  .qs .req { font-size: 12.5px; color: #b3abd6; margin-top: 12px; }
+
+  /* japanese */
+  .ja { background: #ffffffa8; border: 1px solid var(--line); border-radius: 16px; padding: 28px 30px; }
+  .ja h2 { font-size: 22px; }
+  .ja ul { padding-left: 20px; color: var(--sub); font-size: 14px; margin: 12px 0 0; }
+  .ja li { margin-bottom: 7px; }
+  .ja li strong { color: var(--ink); }
+
+  footer { padding: 50px 0 40px; text-align: center; color: var(--sub); font-size: 13px; }
+  footer a { font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <div class="brand">
+    <span class="chip">IMAGE ARRANGER</span>
+    <span class="ver">MIT License · Node.js 20+ · zero dependencies</span>
+  </div>
+  <h1>The <span class="em">missing management layer</span><br>for AI image generation.</h1>
+  <p class="lede">
+    image-arranger <strong>doesn't generate</strong> — it keeps track of what you generated:
+    canonical references, adopted candidates, queued requests, and the prompt behind every image.
+    Local-first. Works with any generation service.
+  </p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/aiarranger/image-arranger">★ View on GitHub</a>
+    <a class="btn ghost" href="#quickstart">Quick Start ↓</a>
+  </div>
+  <div class="meta-pills">
+    <span>🏠 runs on 127.0.0.1 only</span>
+    <span>📄 all data = plain JSON + files</span>
+    <span>🤖 agent-ready request queue</span>
+  </div>
+
+  <!-- TODO(T13): replace this CSS mockup with the hero GIF cut from Friday's demo recording -->
+  <div class="mock" aria-hidden="true">
+    <div class="bar"><i></i><i></i><i></i><span class="url">127.0.0.1:4217 — your machine, your data</span></div>
+    <div class="body">
+      <div class="tabs">
+        <span class="t">Create kit</span><span class="arrow">→</span>
+        <span class="t">Base</span><span class="arrow">→</span>
+        <span class="t on">Image</span><span class="arrow">→</span>
+        <span class="t">Video</span><span class="arrow">→</span>
+        <span class="t">Queue</span>
+      </div>
+      <div class="grid">
+        <div class="card"><div class="ph"><span class="badge adopted">✓ adopted</span></div><div class="cap">studio smile / canonical</div></div>
+        <div class="card"><div class="ph"><span class="badge">candidate</span></div><div class="cap">retry #2</div></div>
+        <div class="card"><div class="ph"><span class="badge queued">⧖ queued</span></div><div class="cap">red dress, full body</div></div>
+        <div class="card"><div class="ph"><span class="badge">candidate</span></div><div class="cap">paper-craft style</div></div>
+      </div>
+      <div class="json">{ <span class="k">"prompt"</span>: <span class="s">"full body, red dress…"</span>, <span class="k">"refImages"</span>: [<span class="s">"assets/face-canonical.png"</span>], <span class="k">"service"</span>: <span class="s">"chatgpt"</span> }</div>
+    </div>
+  </div>
+</header>
+
+<section class="wrap" id="features">
+  <h2>Why image-arranger?</h2>
+  <p class="sec-sub">Character-consistent generation is a reference-image game. The generators are great — the bookkeeping around them is a spreadsheet and a folder of PNGs. This fixes that.</p>
+  <div class="features">
+    <div class="feature">
+      <div class="ico">🏠</div>
+      <h3>Local-first, zero dependencies</h3>
+      <p>One Node.js file, no build step, no accounts. Your prompts and assets never leave your machine — everything lives in a workspace folder you choose, as plain JSON and files you can read and version.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">✓</div>
+      <h3>Adoption, not chaos</h3>
+      <p>Every output is a candidate; you adopt the good ones. Adopted images become the canonical references for the next round — per part, per character — and source links always resolve to the <em>current</em> canonical at queue time.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">🤖</div>
+      <h3>Any generator, human or agent</h3>
+      <p>Requests are JSON files, not API calls. Process them yourself in ChatGPT, Midjourney or Vidu — or hand the queue to a coding agent (AGENTS.md included) and review what comes back.</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" id="workflow">
+  <h2>The tab order <em>is</em> the workflow</h2>
+  <p class="sec-sub">From one key visual to a consistent character across stills and video — every step feeds the next.</p>
+  <div class="flow">
+    <div class="step"><div class="n">01 · CREATE KIT</div><h3>Identity sheet</h3><p>One-shot generate the character's canonical sheet from a reusable prompt template. Fix one part without rerolling everything: decompose into per-part references.</p></div>
+    <div class="step"><div class="n">02 · BASE</div><h3>Part references</h3><p>Manage per-part reference entries (face, expression, outfit…) with candidates. Only approved ones get adopted.</p></div>
+    <div class="step"><div class="n">03 · IMAGE</div><h3>One prompt, one output</h3><p>Compose prompts that attach adopted images as source inputs. Improve or retry; adoption stays exclusive.</p></div>
+    <div class="step"><div class="n">04 · VIDEO</div><h3>Frames for i2v</h3><p>Point start/end frames at adopted images for image-to-video services like Vidu.</p></div>
+    <div class="step"><div class="n">05 · QUEUE</div><h3>Requests as files</h3><p>Each request is a JSON file with prompt, references and output dir. Edit, cancel or complete from the UI.</p></div>
+  </div>
+</section>
+
+<section class="wrap" id="quickstart">
+  <div class="qs">
+    <h2>Quick Start</h2>
+    <p class="sec-sub">Requires Node.js 20+. No dependencies, no build step.</p>
+    <pre><button class="copy" data-copy="git clone https://github.com/aiarranger/image-arranger.git
+cd image-arranger
+node server.mjs --workspace ./workspace/demo --init sample --port 4217">copy</button><span class="c"># clone &amp; run</span>
+git clone https://github.com/aiarranger/image-arranger.git
+cd image-arranger
+node server.mjs --workspace ./workspace/demo --init sample --port 4217
+<span class="c"># then open http://127.0.0.1:4217/</span></pre>
+    <p class="req">Before publishing a workspace, run <code>--doctor</code>: it scans for secret-like strings, local paths and missing provenance fields. Every asset records license, AI-generated and human-reviewed flags.</p>
+  </div>
+</section>
+
+<section class="wrap" id="japanese">
+  <div class="ja">
+    <h2>🇯🇵 日本語</h2>
+    <p class="sec-sub" style="margin-bottom:0">
+      <strong>image-arranger は「生成しない」画像・動画生成ワークフロー管理ツールです。</strong>
+      どのリファレンスを正とするか、どの候補を採用したか、何を依頼中か——生成サービス側が持っていない管理層をローカルで完結させます。
+    </p>
+    <ul>
+      <li><strong>素材作成</strong>：採用画像を参照に、キャラの正となるリファレンスシートをテンプレプロンプトで一発生成。一部だけ直したいときはパーツ分解→そのパーツだけ改善→再生成</li>
+      <li><strong>ベース</strong>：パーツ別リファレンスを候補管理し、承認したものだけ「採用」に</li>
+      <li><strong>画像</strong>：1プロンプト＝1アウトプット。採用済み画像を元画像として添付（リンクはキュー時に最新の「正」へ解決）</li>
+      <li><strong>動画</strong>：採用画像を start/end フレームに指定して image-to-video へ</li>
+      <li><strong>キュー</strong>：依頼はすべて JSON ファイル。人間でもコーディングエージェントでも処理できます</li>
+    </ul>
+  </div>
+</section>
+
+<footer class="wrap">
+  <p>
+    <a href="https://github.com/aiarranger/image-arranger">GitHub</a> ·
+    <a href="https://github.com/aiarranger/image-arranger/blob/main/README.md">README</a> ·
+    <a href="https://github.com/aiarranger/image-arranger/blob/main/AGENTS.md">AGENTS.md</a> ·
+    <a href="https://github.com/aiarranger/image-arranger/blob/main/SECURITY.md">Security</a>
+  </p>
+  <p>MIT License © 2026 AI Arranger</p>
+</footer>
+
+<script>
+document.querySelectorAll(".copy").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(btn.dataset.copy);
+      btn.textContent = "copied!";
+      setTimeout(() => { btn.textContent = "copy"; }, 1500);
+    } catch { btn.textContent = "select & copy"; }
+  });
+});
+document.querySelectorAll('a[href^="#"]').forEach((a) => {
+  a.addEventListener("click", (e) => {
+    const el = document.querySelector(a.getAttribute("href"));
+    if (el) { e.preventDefault(); el.scrollIntoView({ behavior: "smooth" }); }
+  });
+});
+</script>
+</body>
+</html>
