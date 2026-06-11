@@ -878,6 +878,27 @@ function frameCard(label, assetId, entryId, field) {
     </select></div>`;
 }
 
+function videoCard(entry) {
+  const generated = (entry.assets ?? []).filter((asset) => !isSourceRef(asset));
+  const main = generated.find((asset) => asset.adopted && asset.file) ?? generated.find((asset) => asset.file);
+  return `
+    <div class="bcard vcard ${entry.checked ? "selected" : ""}" data-open-entry="${escapeHtml(entry.id)}" title="${escapeHtml(entry.overview)}">
+      ${main ? `<label class="bcard-check" title="${t("adopt")}">
+        <input type="checkbox" data-adopt-card="${escapeHtml(entry.id)}" ${main.adopted ? "checked" : ""}>
+      </label>` : ""}
+      <div class="bcard-thumb">
+        ${main ? mediaTag(main.file, entry.overview) : `<span class="no-image">${t("noImage")}</span>`}
+      </div>
+      <div class="bcard-title">${escapeHtml(entry.overview)}</div>
+      <div class="bcard-meta">${main?.adopted ? `<span class="kit-chip adopted-chip">${t("adopted")}</span>` : ""}${statusBadge(entry)}</div>
+      <div class="vcard-frames">
+        ${frameCard(t("start"), entry.startFrame, entry.id, "startFrame")}
+        ${frameCard(t("end"), entry.endFrame, entry.id, "endFrame")}
+      </div>
+    </div>
+  `;
+}
+
 function videoRow(entry) {
   return `
     <div class="row ${entry.checked ? "selected" : ""}" data-row-id="${escapeHtml(entry.id)}">
@@ -1080,7 +1101,7 @@ function renderRows() {
   }
   return `
     ${renderListToolbar()}
-    ${filtered.length ? filtered.map(videoRow).join("") : `<div class="empty">${t("noRows")}</div>`}
+    ${filtered.length ? `<div class="bgrid">${filtered.map(videoCard).join("")}</div>` : `<div class="empty">${t("noRows")}</div>`}
   `;
 }
 
@@ -1774,7 +1795,7 @@ function bind() {
   });
   document.querySelectorAll("[data-open-entry]").forEach((card) => {
     card.onclick = (event) => {
-      if (event.target.closest(".bcard-check")) return;
+      if (event.target.closest(".bcard-check, .vcard-frames, video")) return;
       openEntryModal(card.dataset.openEntry);
     };
   });

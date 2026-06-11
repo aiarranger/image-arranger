@@ -1003,6 +1003,14 @@ textarea.prompt {
 .bcard-title { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bcard-meta { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .bcard-meta .badge, .bcard-meta .kit-chip { font-size: 10px; padding: 1px 8px; }
+.vcard-frames { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.vcard-frames .frame-card .thumb { height: 54px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #f1eff9; }
+.vcard-frames .frame-card .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.vcard-frames .frame-card .thumb span { font-size: 10px; color: var(--muted); }
+.vcard-frames .frame-card .label { padding: 2px 6px; font-size: 9.5px; }
+.vcard-frames .frame-select { font-size: 9.5px; padding: 2px 3px; }
+.bcard-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+
 
 /* ---- base entry detail modal ---- */
 .entry-modal {
