@@ -165,6 +165,13 @@ test("server preserves qualityGate requests and completion reports", async () =>
     const payload = JSON.parse(readFileSync(join(context.requestDir, `${created.request.requestId}.json`), "utf8"));
     assert.equal(payload.targets[0].qualityReport.passed, true);
     assert.equal(payload.targets[0].qualityReport.attempts[0].ok, true);
+
+    const reports = await fetch(`${baseUrl}/api/quality-reports`).then((response) => response.json());
+    assert.equal(reports.ok, true);
+    const reportRow = reports.qualityReports.find((row) => row.requestId === created.request.requestId);
+    assert.equal(reportRow.entryId, target.id);
+    assert.equal(reportRow.qualityReport.passed, true);
+    assert.deepEqual(reportRow.resultFiles, ["outputs/sample-character/generated.png"]);
   });
 });
 

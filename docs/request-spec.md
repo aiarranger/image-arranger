@@ -247,6 +247,10 @@ Process a target only when both the request `status` and the target `status` are
   This is the fastest inspection endpoint for tests, agents, and UI bootstrapping.
 - `GET /api/requests` returns `{ ok, projectRoot, requests }`, where `requests` is the
   flattened list of currently requested targets that processors should handle.
+- `GET /api/quality-reports` returns `{ ok, qualityReports }`, a flattened read model
+  of completed/error targets that carry `target.qualityReport`. This is additive UI
+  state for timelines and repair suggestions; it does not change the request-file
+  schema or processor completion payload.
 
 ## Asset registration API — `POST /api/assets`
 

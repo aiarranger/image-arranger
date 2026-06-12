@@ -50,6 +50,45 @@ const I18N = {
     kitPendingHint: "キューに入っています。お試しなら別ターミナルで npm run demo-agent、通常は依頼文コピーをエージェントへ渡してください。",
     kitRouteQueueHint: "登録後はキュータブで確認できます。生成結果が戻ると候補素材として自動登録されます。",
     kitAnalysisFlow: "解析依頼 → 待機 → 結果からパーツ選択 → ベースへ取り込み",
+    queueFlowTitle: "いま何が起きているか",
+    queueFlowCreated: "依頼作成済み",
+    queueFlowWaiting: "処理待ち",
+    queueFlowCandidate: "候補登録",
+    queueFlowAdopt: "採用判断",
+    queueMiniFile: "依頼ファイル",
+    queueMiniProcessor: "人間/エージェント",
+    queueMiniCandidate: "候補として戻る",
+    queueFlowHint: "この行は依頼JSONとして保存済みです。依頼文コピーで渡すか、お試しなら demo-agent を実行します。",
+    promptAssist: "候補を挿入",
+    promptChipNoText: "文字なし",
+    promptChipNoWatermark: "透かしなし",
+    promptChipOneImage: "1枚だけ",
+    promptChipSingleCharacter: "単独キャラ",
+    promptChipKeepIdentity: "同一性維持",
+    promptChipCleanBg: "白背景",
+    promptChipVideoTimeline: "秒刻み",
+    promptChipLockedCamera: "固定カメラ",
+    promptChipPalette: "色を固定",
+    requestPreviewTitle: "最終リクエストの反映プレビュー",
+    requestPreviewRefs: (n) => `参照画像 ${n}枚`,
+    requestPreviewPaletteOn: "パレット指示: 付加されます",
+    requestPreviewPaletteOff: "パレット指示: 付加されません",
+    requestPreviewQualityOn: "品質ゲート: 有効",
+    requestPreviewQualityOff: "品質ゲート: 無効",
+    pendingReturnSlot: "完了後、この欄に候補が戻ります",
+    qualityTimeline: "品質ゲート履歴",
+    qualityTimelineEmpty: "品質ゲート履歴はまだありません。",
+    qualityAttempt: (n) => `試行 ${n}`,
+    qualityPassed: "合格",
+    qualityFailed: "不合格",
+    qualitySkipped: "スキップ",
+    qualityIssues: "修正候補",
+    improveDirection: "修正方向",
+    improveChipExpression: "表情を強く",
+    improveChipPalette: "色をパレットに合わせる",
+    improveChipBackground: "背景だけ変える",
+    improveChipQuality: "画質向上",
+    improveChipIssue: "検査指摘",
     kitResultsReady: "取り込み待ちの分析結果があります",
     kitResultsWaiting: (n) => `解析結果 ${n}件 待ち`,
     kitSelectParts: "パーツを選択して取り込む",
@@ -318,6 +357,45 @@ const I18N = {
     kitPendingHint: "This is queued. For a local demo, run npm run demo-agent in another terminal; for real work, copy the agent prompt.",
     kitRouteQueueHint: "After queueing, check the Queue tab. Completed results return as candidate assets.",
     kitAnalysisFlow: "Request analysis → wait → choose result parts → import to Base",
+    queueFlowTitle: "What is happening now",
+    queueFlowCreated: "Request created",
+    queueFlowWaiting: "Waiting",
+    queueFlowCandidate: "Candidate registered",
+    queueFlowAdopt: "Adoption review",
+    queueMiniFile: "Request file",
+    queueMiniProcessor: "Human / agent",
+    queueMiniCandidate: "Returns as candidate",
+    queueFlowHint: "This row is saved as request JSON. Copy the agent prompt, or run demo-agent for a local demo.",
+    promptAssist: "Insert suggestion",
+    promptChipNoText: "No text",
+    promptChipNoWatermark: "No watermark",
+    promptChipOneImage: "One image",
+    promptChipSingleCharacter: "Single character",
+    promptChipKeepIdentity: "Keep identity",
+    promptChipCleanBg: "White background",
+    promptChipVideoTimeline: "Timeline",
+    promptChipLockedCamera: "Locked camera",
+    promptChipPalette: "Lock colors",
+    requestPreviewTitle: "Final request preview",
+    requestPreviewRefs: (n) => `${n} reference image${n === 1 ? "" : "s"}`,
+    requestPreviewPaletteOn: "Palette instruction: included",
+    requestPreviewPaletteOff: "Palette instruction: not included",
+    requestPreviewQualityOn: "Quality gate: on",
+    requestPreviewQualityOff: "Quality gate: off",
+    pendingReturnSlot: "Completed results return to this slot",
+    qualityTimeline: "Quality gate history",
+    qualityTimelineEmpty: "No quality gate history yet.",
+    qualityAttempt: (n) => `Attempt ${n}`,
+    qualityPassed: "Passed",
+    qualityFailed: "Failed",
+    qualitySkipped: "Skipped",
+    qualityIssues: "Repair suggestions",
+    improveDirection: "Repair direction",
+    improveChipExpression: "Stronger expression",
+    improveChipPalette: "Match palette colors",
+    improveChipBackground: "Change background only",
+    improveChipQuality: "Improve quality",
+    improveChipIssue: "Gate issue",
     kitResultsReady: "Analysis results are ready to import",
     kitResultsWaiting: (n) => `${n} analysis result${n === 1 ? "" : "s"} waiting`,
     kitSelectParts: "Select parts to import",
@@ -578,6 +656,7 @@ const state = {
   kit: { sources: [], characterName: "", extra: "", json: "", preview: null, route: "", includePalette: true },
   kitPresets: [],
   kitResults: [],
+  qualityReports: [],
   projectRoot: "",
 };
 
@@ -848,17 +927,19 @@ async function api(path, options = {}) {
 }
 
 async function loadDeck() {
-  const [deck, queuePayload, kitPresets, kitResults] = await Promise.all([
+  const [deck, queuePayload, kitPresets, kitResults, qualityReports] = await Promise.all([
     api("/api/state"),
     api("/api/requests").catch(() => ({ requests: [] })),
     api("/api/base-kit/presets").catch(() => ({ parts: [] })),
     api("/api/base-kit/results").catch(() => ({ kitResults: [] })),
+    api("/api/quality-reports").catch(() => ({ qualityReports: [] })),
   ]);
   state.deck = deck;
   state.requests = queuePayload.requests ?? [];
   state.projectRoot = queuePayload.projectRoot ?? state.projectRoot ?? "";
   state.kitPresets = kitPresets.parts ?? [];
   state.kitResults = kitResults.kitResults ?? [];
+  state.qualityReports = qualityReports.qualityReports ?? [];
   normalizeDeck();
   state.lang = state.deck.settings?.lang ?? state.lang;
   state.mode = state.deck.settings?.mode ?? state.mode;
@@ -870,8 +951,12 @@ async function loadQueue(showMessage = true) {
   const payload = await api("/api/requests");
   state.requests = payload.requests ?? [];
   state.projectRoot = payload.projectRoot ?? state.projectRoot ?? "";
-  const resultsPayload = await api("/api/base-kit/results").catch(() => null);
+  const [resultsPayload, qualityPayload] = await Promise.all([
+    api("/api/base-kit/results").catch(() => null),
+    api("/api/quality-reports").catch(() => null),
+  ]);
   if (resultsPayload) state.kitResults = resultsPayload.kitResults ?? [];
+  if (qualityPayload) state.qualityReports = qualityPayload.qualityReports ?? [];
   if (showMessage) render();
 }
 
@@ -964,15 +1049,17 @@ async function livePollTick() {
       .filter(Boolean);
     const beforeAssetIds = new Set(deckAssetPairs(state.deck).map((pair) => pair.assetId));
     const beforeKitResults = (state.kitResults ?? []).length;
-    const [deck, resultsPayload] = await Promise.all([
+    const [deck, resultsPayload, qualityPayload] = await Promise.all([
       api("/api/state"),
       api("/api/base-kit/results").catch(() => null),
+      api("/api/quality-reports").catch(() => null),
     ]);
     state.deck = deck;
     normalizeDeck();
     state.requests = fresh;
     state.projectRoot = payload.projectRoot ?? state.projectRoot ?? "";
     if (resultsPayload) state.kitResults = resultsPayload.kitResults ?? [];
+    if (qualityPayload) state.qualityReports = qualityPayload.qualityReports ?? [];
     const newAssets = deckAssetPairs(deck).filter((pair) => !beforeAssetIds.has(pair.assetId));
     await renderT();
     // Celebrate only genuine completions (new candidate assets / analysis
@@ -1126,7 +1213,8 @@ function normalizeKitSources(ch = character()) {
 
 function isPaletteEntry(entry) {
   if (entry?.partKey) return entry.partKey === "palette";
-  return /^base-kit-palette(?:-|$)/.test(String(entry?.id ?? ""));
+  const id = String(entry?.id ?? "");
+  return /^base-kit-palette(?:-|$)/.test(id) || /(?:^|-)palette(?:-|$)/.test(id);
 }
 
 function kitPaletteEntries(ch = character()) {
@@ -1191,6 +1279,214 @@ function paletteGenerationPrompt(ch = character()) {
 function palettePrompt(promptText, palette) {
   if (!palette || state.kit.includePalette === false) return promptText;
   return `${promptText}\n\n${t("palettePromptBlock")}`;
+}
+
+function promptChipPresets(kind = "image") {
+  const common = [
+    { label: t("promptChipNoText"), text: "No text, no typography, no UI." },
+    { label: t("promptChipNoWatermark"), text: "No logo, no watermark, no signature." },
+    { label: t("promptChipOneImage"), text: "Create exactly ONE image, not a grid, not A/B variants." },
+  ];
+  const identity = [
+    { label: t("promptChipSingleCharacter"), text: "Single character only; no extra people." },
+    { label: t("promptChipKeepIdentity"), text: "Faithfully preserve the attached character identity: face, hair, colors, outfit, and proportions." },
+  ];
+  if (kind === "video") {
+    return [
+      { label: t("promptChipVideoTimeline"), text: "0-2s: establish the pose. 2-5s: perform one clear motion. 5-8s: settle naturally." },
+      { label: t("promptChipLockedCamera"), text: "Locked camera, no cuts, no zoom, no extra objects entering the frame." },
+      ...common,
+    ];
+  }
+  if (kind === "kit") {
+    const partHints = (state.kitPresets ?? [])
+      .filter((part) => part?.hint)
+      .slice(0, 5)
+      .map((part) => ({
+        label: state.lang === "en" ? (part.labelEn ?? part.key) : (part.label ?? part.key),
+        text: part.hint,
+      }));
+    return [
+      { label: t("promptChipCleanBg"), text: "Clean neutral white background, readable silhouette, production reference style." },
+      { label: t("promptChipPalette"), text: "Keep hair, eyes, skin, and outfit colors consistent with the attached references." },
+      ...partHints,
+      ...common,
+    ];
+  }
+  return [...identity, ...common];
+}
+
+function renderPromptChips(targetSelector, kind = "image") {
+  const chips = promptChipPresets(kind);
+  return `
+    <div class="prompt-assist" aria-label="${escapeHtml(t("promptAssist"))}">
+      <span>${t("promptAssist")}</span>
+      ${chips.map((chip) => `
+        <button type="button" class="prompt-chip" data-prompt-target="${escapeHtml(targetSelector)}" data-prompt-chip="${escapeHtml(chip.text)}">${escapeHtml(chip.label)}</button>
+      `).join("")}
+    </div>`;
+}
+
+function insertTextAtCursor(textarea, text) {
+  if (!textarea) return;
+  const insertion = String(text ?? "").trim();
+  if (!insertion) return;
+  const start = textarea.selectionStart ?? textarea.value.length;
+  const end = textarea.selectionEnd ?? start;
+  const before = textarea.value.slice(0, start);
+  const after = textarea.value.slice(end);
+  const prefix = before && !/\s$/.test(before) ? "\n" : "";
+  const suffix = after && !/^\s/.test(after) ? "\n" : "";
+  textarea.value = `${before}${prefix}${insertion}${suffix}${after}`;
+  const nextCursor = before.length + prefix.length + insertion.length;
+  textarea.focus();
+  textarea.setSelectionRange(nextCursor, nextCursor);
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  textarea.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function bindPromptChipButtons(root = document) {
+  root.querySelectorAll("[data-prompt-chip]").forEach((button) => {
+    button.onclick = () => {
+      const textarea = document.querySelector(button.dataset.promptTarget);
+      insertTextAtCursor(textarea, button.dataset.promptChip);
+    };
+  });
+}
+
+function pendingRowsForEntry(entry) {
+  return (state.requests ?? []).filter((row) => row.characterId === character().id && row.entryId === entry.id);
+}
+
+function queueFlowSteps() {
+  return [t("queueFlowCreated"), t("queueFlowWaiting"), t("queueFlowCandidate"), t("queueFlowAdopt")];
+}
+
+function renderQueueFlow() {
+  return `
+    <div class="queue-flow" aria-label="${escapeHtml(t("queueFlowTitle"))}">
+      ${queueFlowSteps().map((label, index) => `
+        <span class="queue-flow-step ${index === 0 ? "done" : index === 1 ? "active" : "next"}">
+          <span class="queue-flow-dot">${index < 2 ? "✓" : index + 1}</span>
+          <span>${escapeHtml(label)}</span>
+        </span>
+      `).join("")}
+    </div>`;
+}
+
+function renderQueueMiniDiagram() {
+  return `
+    <div class="queue-mini">
+      <span>${t("queueMiniFile")}</span>
+      <b>→</b>
+      <span>${t("queueMiniProcessor")}</span>
+      <b>→</b>
+      <span>${t("queueMiniCandidate")}</span>
+    </div>`;
+}
+
+function qualityReportsForEntry(entry) {
+  return (state.qualityReports ?? [])
+    .filter((row) => row.characterId === character().id && row.entryId === entry.id)
+    .sort((a, b) => String(b.completedAt ?? "").localeCompare(String(a.completedAt ?? "")));
+}
+
+function qualityReportMatchesAsset(row, asset) {
+  if (!asset?.file) return true;
+  return (row.resultFiles ?? []).some((file) => file === asset.file || file.endsWith(`/${asset.file.split("/").pop()}`));
+}
+
+function issueSummary(issue) {
+  if (!issue) return "";
+  if (typeof issue === "string") return issue;
+  return String(
+    issue.repairPrompt
+      ?? issue.summary
+      ?? issue.problem
+      ?? issue.message
+      ?? issue.issue
+      ?? issue.reason
+      ?? issue.detail
+      ?? issue.label
+      ?? issue.entryId
+      ?? "",
+  ).trim();
+}
+
+function qualityIssuesForEntry(entry, asset = null) {
+  const seen = new Set();
+  const issues = [];
+  for (const row of qualityReportsForEntry(entry)) {
+    if (asset && !qualityReportMatchesAsset(row, asset)) continue;
+    for (const attempt of row.qualityReport?.attempts ?? []) {
+      for (const issue of attempt?.issues ?? []) {
+        const summary = issueSummary(issue);
+        if (!summary || seen.has(summary)) continue;
+        seen.add(summary);
+        issues.push(summary);
+      }
+    }
+  }
+  return issues.slice(0, 5);
+}
+
+function renderQualityTimeline(entry) {
+  const reports = qualityReportsForEntry(entry).slice(0, 4);
+  if (!reports.length) return "";
+  return `
+    <div class="quality-timeline">
+      <h4>${t("qualityTimeline")}</h4>
+      ${reports.map((row) => {
+        const report = row.qualityReport ?? {};
+        const status = report.skipped ? t("qualitySkipped") : report.passed ? t("qualityPassed") : t("qualityFailed");
+        const statusClass = report.skipped ? "skipped" : report.passed ? "passed" : "failed";
+        const attempts = Array.isArray(report.attempts) ? report.attempts : [];
+        const parts = Array.isArray(report.parts) ? report.parts : [];
+        return `
+          <div class="quality-run ${statusClass}">
+            <div class="quality-run-head">
+              <strong>${escapeHtml(row.overview || row.entryId)}</strong>
+              <span>${escapeHtml(status)}</span>
+            </div>
+            ${report.summary ? `<p>${escapeHtml(report.summary)}</p>` : ""}
+            ${parts.length ? `<div class="quality-parts">${parts.slice(0, 4).map((part) => `
+              <span class="quality-part-chip">
+                ${part.file ? `<img src="${assetUrl(part.file)}" alt="">` : ""}
+                <span>${escapeHtml(part.overview || part.label || part.entryId || part.category || "part")}</span>
+              </span>
+            `).join("")}</div>` : ""}
+            ${attempts.length ? `<ol>${attempts.map((attempt) => `
+              <li>
+                <span>${escapeHtml(t("qualityAttempt")(attempt.attempt ?? "?"))}</span>
+                <span>${escapeHtml(attempt.ok || attempt.skipped ? t("qualityPassed") : t("qualityFailed"))}</span>
+                ${attempt.summary ? `<small>${escapeHtml(attempt.summary)}</small>` : ""}
+              </li>
+            `).join("")}</ol>` : ""}
+          </div>`;
+      }).join("")}
+    </div>`;
+}
+
+function renderImproveChips(entry, asset) {
+  const palette = adoptedPalette(character());
+  const chips = [
+    { label: t("improveChipExpression"), text: "Make the expression clearer and more emotionally readable while preserving the same identity." },
+    ...(palette ? [{ label: t("improveChipPalette"), text: "Match hair, eyes, skin, and outfit colors to the adopted color palette reference." }] : []),
+    { label: t("improveChipBackground"), text: "Change only the background; preserve the character, pose, outfit, and composition." },
+    { label: t("improveChipQuality"), text: "Improve line clarity, anatomy readability, and artifact cleanup without redesigning the character." },
+  ];
+  const issueChips = qualityIssuesForEntry(entry, asset)
+    .map((issue) => ({ label: `${t("improveChipIssue")}: ${issue.slice(0, 32)}`, text: `Fix this quality-gate issue: ${issue}` }));
+  return `
+    <div class="prompt-assist improve-assist" aria-label="${escapeHtml(t("improveDirection"))}">
+      <span>${t("improveDirection")}</span>
+      ${chips.map((chip) => `
+        <button type="button" class="prompt-chip" data-prompt-target="#assetImprovePrompt" data-prompt-chip="${escapeHtml(chip.text)}">${escapeHtml(chip.label)}</button>
+      `).join("")}
+      ${issueChips.map((chip) => `
+        <button type="button" class="prompt-chip issue-chip" data-improve-queue-chip="${escapeHtml(chip.text)}">${escapeHtml(chip.label)}</button>
+      `).join("")}
+    </div>`;
 }
 
 function adoptedAssets(entry) {
@@ -1450,6 +1746,7 @@ function openEntryModal(entryId, shownAssetId = null) {
   const shownFile = shown ? (isSourceRef(shown) ? resolveReferenceFile(shown) : shown.file) : "";
   const comparePool = compareAssetsOf(entry);
   const requested = entry.requestStatus === "requested";
+  const pendingRows = pendingRowsForEntry(entry);
   const qualityGate = entryQualityGate(entry);
   const qualityParts = baseReferenceParts(entry);
   const wasOpen = $("#modal").classList.contains("open");
@@ -1476,7 +1773,12 @@ function openEntryModal(entryId, shownAssetId = null) {
     <button class="close" id="closeModal" title="${t("close")}" aria-label="${t("close")}">×</button>
     <div class="modal-card emodal">
       <div class="modal-media">
-        ${shownFile ? mediaTag(shownFile, entry.overview) : `<span class="emodal-empty">${t("noImage")}</span>`}
+        ${shownFile ? mediaTag(shownFile, entry.overview) : requested ? `
+          <div class="pending-slot">
+            <span class="pending-slot-icon">${icon("images")}</span>
+            <strong>${t("pendingReturnSlot")}</strong>
+            ${renderQueueFlow()}
+          </div>` : `<span class="emodal-empty">${t("noImage")}</span>`}
       </div>
       <div class="emodal-side">
         <div class="emodal-head">
@@ -1497,6 +1799,7 @@ function openEntryModal(entryId, shownAssetId = null) {
           <textarea id="entryModalAssetPrompt" rows="5">${escapeHtml(shown.prompt ?? "")}</textarea>
         </label>` : ""}
         <label class="emodal-prompt emodal-prompt-next">${t("promptNext")}
+          ${renderPromptChips("#entryModalPrompt", isVideo ? "video" : "image")}
           <textarea id="entryModalPrompt" rows="${shown && !isSourceRef(shown) && (shown.prompt ?? "").trim() ? 3 : 6}">${escapeHtml(entry.prompt ?? "")}</textarea>
         </label>
         <label class="emodal-prompt">${t("refUrl")}${safeLinkUrl(entry.referenceUrl) ? ` <a href="${escapeHtml(safeLinkUrl(entry.referenceUrl))}" target="_blank" rel="noopener" title="${t("refUrl")}">↗</a>` : ""}
@@ -1514,11 +1817,17 @@ function openEntryModal(entryId, shownAssetId = null) {
           </label>
           <p class="form-note">${qualityParts.length ? t("qualityGateHelp") : t("qualityGateNoParts")}</p>
         </div>` : ""}
+        ${renderQualityTimeline(entry)}
         <div class="emodal-h4row">
           <h4>${t("genImages")}</h4>
           ${comparePool.length >= 2 ? `<button class="ghost small compare-btn" id="entryModalCompare">⇆ ${t("compare")}</button>` : ""}
         </div>
         <div class="emodal-thumbs dropzone" id="entryModalThumbs">
+          ${pendingRows.length ? `
+            <div class="emodal-pending-thumb">
+              <span>${icon("images")}</span>
+              <small>${t("pendingReturnSlot")}</small>
+            </div>` : ""}
           ${generated.length ? generated.map((asset) => thumb(asset, "gen")).join("") : `<p class="form-note">${t("noImage")}</p>`}
           <button class="ghost small" id="entryModalRegisterImage">${icon("plus")} ${t("registerImage")}</button>
           <div class="drop-hint">${t("dropHere")}</div>
@@ -1556,6 +1865,7 @@ function openEntryModal(entryId, shownAssetId = null) {
       else video.addEventListener("loadedmetadata", seek, { once: true });
     });
   }
+  bindPromptChipButtons($("#modal"));
   // Dropzone: drag images straight onto the generated-images strip.
   const dropzone = $("#entryModalThumbs");
   if (dropzone) {
@@ -1961,17 +2271,46 @@ function isSheetQueueRow(row) {
 function pendingQueueRow(row) {
   return `
     <div class="kit-result kit-pending">
-      <span class="kit-result-info">
+      <div class="kit-result-info">
         <strong>${escapeHtml(row.overview || row.entryId)}</strong>
         <small>${t("requested")} ・ ${escapeHtml(formatDateTime(row.requestedAt))} ・ ${escapeHtml(row.requestId)}</small>
         <small>${escapeHtml(t("kitPendingHint"))}</small>
-      </span>
+        ${renderQueueFlow()}
+      </div>
       <span class="kit-actions">
         <button class="ghost small" data-copy-agent="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}">${icon("robot")} ${t("copyAgentPrompt")}</button>
         <button class="ghost small" data-mode-jump="queue">${t("queue")}</button>
         <button class="ghost small danger" data-cancel-queue="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}">${t("cancelRequest")}</button>
       </span>
     </div>`;
+}
+
+function renderSheetRequestPreview({ selected, palette, includePalette, qualityEnabled }) {
+  const refRows = selected.map((item) => ({
+    label: item.entry?.overview ?? item.asset?.name ?? item.assetId,
+    file: resolveReferenceFile(item.asset) || item.asset?.file || "",
+  }));
+  if (palette && includePalette) {
+    refRows.push({
+      label: palette.entry?.overview ?? palette.asset?.name ?? t("paletteSection"),
+      file: resolveReferenceFile(palette.asset) || palette.file || "",
+    });
+  }
+  return `
+    <details class="request-preview" open>
+      <summary>${t("requestPreviewTitle")}</summary>
+      <div class="request-preview-grid">
+        <span class="kit-chip">${escapeHtml(t("requestPreviewRefs")(refRows.filter((row) => row.file).length))}</span>
+        <span class="kit-chip ${palette && includePalette ? "adopted-chip" : ""}">${escapeHtml(palette && includePalette ? t("requestPreviewPaletteOn") : t("requestPreviewPaletteOff"))}</span>
+        <span class="kit-chip ${qualityEnabled ? "adopted-chip" : ""}">${escapeHtml(qualityEnabled ? t("requestPreviewQualityOn") : t("requestPreviewQualityOff"))}</span>
+      </div>
+      <div class="request-preview-refs">
+        ${refRows.length ? refRows.map((row) => `
+          <span class="ref-chip" title="${escapeHtml(row.file || row.label)}">${escapeHtml(row.label || row.file || "-")}</span>
+        `).join("") : `<span class="ref-chip">${escapeHtml(t("kitNoSource"))}</span>`}
+      </div>
+      <pre>${escapeHtml(palette && includePalette ? t("palettePromptBlock") : t("requestPreviewPaletteOff"))}</pre>
+    </details>`;
 }
 
 function renderKit() {
@@ -2052,7 +2391,11 @@ function renderKit() {
             ${sheetTemplates().map((tpl) => `<option value="${escapeHtml(tpl.id)}" ${kit.sheetTplId === tpl.id ? "selected" : ""}>${escapeHtml(tpl.name)}</option>`).join("")}
           </select>
         </label>
-        <label class="kit-name kit-extra">${t("prompt")}<textarea id="sheetPrompt" rows="7">${escapeHtml(kit.sheetPrompt ?? BUILTIN_SHEET_TEMPLATE.text)}</textarea></label>
+        <label class="kit-name kit-extra">${t("prompt")}
+          ${renderPromptChips("#sheetPrompt", "kit")}
+          <textarea id="sheetPrompt" rows="7">${escapeHtml(kit.sheetPrompt ?? BUILTIN_SHEET_TEMPLATE.text)}</textarea>
+        </label>
+        ${renderSheetRequestPreview({ selected: selectedSources, palette, includePalette, qualityEnabled: Boolean(kit.sheetQualityGateEnabled) })}
         <div class="quality-row sheet-quality">
           <label><input id="sheetQualityGateEnabled" type="checkbox" ${kit.sheetQualityGateEnabled ? "checked" : ""}> <span>${t("qualityGate")}</span></label>
           <label>${t("qualityGateAttempts")}<input id="sheetQualityGateAttempts" type="number" min="1" max="${MAX_QUALITY_ATTEMPTS}" step="1" value="${escapeHtml(kit.sheetQualityGateMaxAttempts ?? DEFAULT_QUALITY_ATTEMPTS)}"></label>
@@ -2073,7 +2416,10 @@ function renderKit() {
         <div class="kit-flow"><span>${t("kitAnalysisFlow")}</span></div>
         <p class="form-note">${t("kitPartsAuto")}</p>
         <label class="kit-name">${t("kitCharName")}<input id="kitCharName" value="${escapeHtml(kit.characterName || ch.name)}"></label>
-        <label class="kit-name kit-extra">${t("kitExtra")}<textarea id="kitExtra" rows="2" placeholder="${escapeHtml(t("kitExtraHelp"))}">${escapeHtml(kit.extra ?? "")}</textarea></label>
+        <label class="kit-name kit-extra">${t("kitExtra")}
+          ${renderPromptChips("#kitExtra", "kit")}
+          <textarea id="kitExtra" rows="2" placeholder="${escapeHtml(t("kitExtraHelp"))}">${escapeHtml(kit.extra ?? "")}</textarea>
+        </label>
         <div class="kit-actions">
           <button class="primary" id="kitAnalyzeBtn">${t("kitAnalyze")}</button>
           <button class="ghost" id="kitRouteBack">${t("kitBackToRoutes")}</button>
@@ -2206,6 +2552,14 @@ function renderQueue() {
                 <button class="ghost small danger" data-cancel-queue="${escapeHtml(item.requestId)}" data-target-index="${item.targetIndex}">${t("cancelRequest")}</button>
               </div>
             </div>
+            <div class="queue-flow-panel">
+              <div>
+                <strong>${t("queueFlowTitle")}</strong>
+                <p>${t("queueFlowHint")}</p>
+              </div>
+              ${renderQueueFlow()}
+              ${renderQueueMiniDiagram()}
+            </div>
             ${opened ? `
               <div class="queue-detail">
                 ${item.existsInDeck ? "" : `<p class="form-note">${t("requestOnlyTarget")}</p>`}
@@ -2308,7 +2662,10 @@ function renderFormModal() {
     body = `
       ${categoryField}
       <label>${t("assetName")}<input name="overview" required value="${escapeHtml(form.draftOverview ?? "")}" placeholder="${state.mode === "video" ? "fish-jump-loop" : "new asset prompt"}"></label>
-      <label>${t("prompt")}<textarea name="prompt" rows="7">${escapeHtml(form.draftPrompt ?? "")}</textarea></label>
+      <label>${t("prompt")}
+        ${renderPromptChips("#entryFormPrompt", state.mode === "video" ? "video" : "image")}
+        <textarea id="entryFormPrompt" name="prompt" rows="7">${escapeHtml(form.draftPrompt ?? "")}</textarea>
+      </label>
       <label>${t("refUrl")}
         <span class="form-refurl-row">
           <input name="referenceUrl" type="url" placeholder="https://x.com/..." value="${escapeHtml(form.draftReferenceUrl ?? "")}">
@@ -2358,7 +2715,10 @@ function renderFormModal() {
     body = `
       <p class="form-note">${form.count} ${t("improveSelected")}</p>
       <p class="form-note">${t("batchImproveNote")}</p>
-      <label>${t("commonImprovePrompt")}<textarea name="commonPrompt" rows="5" required></textarea></label>
+      <label>${t("commonImprovePrompt")}
+        ${renderPromptChips("#batchImprovePrompt", "image")}
+        <textarea id="batchImprovePrompt" name="commonPrompt" rows="5" required></textarea>
+      </label>
     `;
   }
   return `
@@ -3008,6 +3368,14 @@ function bind() {
     state.kit.extra = "";
     state.kit.json = "";
   };
+  const captureEntryFormDrafts = () => {
+    const formEl = $("#activeForm");
+    if (!formEl || !state.form) return;
+    const data = new FormData(formEl);
+    state.form.draftOverview = String(data.get("overview") ?? "");
+    state.form.draftPrompt = String(data.get("prompt") ?? "");
+    state.form.draftReferenceUrl = String(data.get("referenceUrl") ?? "");
+  };
   // Optimistic switches (audit P1-3): paint first, persist in the background.
   $("#characterSelect").onchange = (event) => {
     state.characterId = event.target.value;
@@ -3170,12 +3538,12 @@ function bind() {
   if ($("#kitJson")) $("#kitJson").oninput = () => { state.kit.json = $("#kitJson").value; };
   if ($("#kitAnalyzeBtn")) $("#kitAnalyzeBtn").onclick = (event) =>
     withBusy(event.currentTarget, requestKitAnalysis).catch((error) => toast(error.message, { kind: "error" }));
-  if ($("#kitIncludePalette")) $("#kitIncludePalette").onchange = () => { state.kit.includePalette = $("#kitIncludePalette").checked; };
+  if ($("#kitIncludePalette")) $("#kitIncludePalette").onchange = () => { state.kit.includePalette = $("#kitIncludePalette").checked; render(); };
   if ($("#kitPaletteQueueBtn")) $("#kitPaletteQueueBtn").onclick = (event) =>
     withBusy(event.currentTarget, requestPaletteGeneration).catch((error) => toast(error.message, { kind: "error" }));
   if ($("#sheetName")) $("#sheetName").onchange = () => { state.kit.sheetName = $("#sheetName").value; };
   if ($("#sheetPrompt")) $("#sheetPrompt").oninput = () => { state.kit.sheetPrompt = $("#sheetPrompt").value; };
-  if ($("#sheetQualityGateEnabled")) $("#sheetQualityGateEnabled").onchange = () => { state.kit.sheetQualityGateEnabled = $("#sheetQualityGateEnabled").checked; };
+  if ($("#sheetQualityGateEnabled")) $("#sheetQualityGateEnabled").onchange = () => { state.kit.sheetQualityGateEnabled = $("#sheetQualityGateEnabled").checked; render(); };
   if ($("#sheetQualityGateAttempts")) $("#sheetQualityGateAttempts").oninput = () => { state.kit.sheetQualityGateMaxAttempts = clampQualityAttempts($("#sheetQualityGateAttempts").value); };
   if ($("#sheetTplSelect")) {
     $("#sheetTplSelect").onchange = () => {
@@ -3217,6 +3585,7 @@ function bind() {
       render();
     };
   });
+  bindPromptChipButtons(document);
   document.querySelectorAll("[data-copy-agent]").forEach((button) => {
     button.onclick = async (event) => {
       event.stopPropagation();
@@ -3347,14 +3716,6 @@ function bind() {
   document.querySelectorAll(".asset").forEach((card) => {
     card.onclick = () => openAsset(card.dataset.assetId, card.dataset.entryId);
   });
-  const captureEntryFormDrafts = () => {
-    const formEl = $("#activeForm");
-    if (!formEl || !state.form) return;
-    const data = new FormData(formEl);
-    state.form.draftOverview = String(data.get("overview") ?? "");
-    state.form.draftPrompt = String(data.get("prompt") ?? "");
-    state.form.draftReferenceUrl = String(data.get("referenceUrl") ?? "");
-  };
   document.querySelectorAll("[data-form-ref-filter]").forEach((button) => {
     button.onclick = () => {
       if (!state.form) return;
@@ -4130,6 +4491,7 @@ function openAsset(assetId, entryId) {
         <label class="modal-field">${t("improvePrompt")}
           <textarea id="assetImprovePrompt" rows="5">${escapeHtml(asset.improvementPrompt ?? "")}</textarea>
         </label>
+        ${renderImproveChips(entry, asset)}
         <div class="modal-field improve-mode">
           ${t("improveMode")}
           <label><input type="radio" name="improveMode" value="tweak" ${asset.improveMode !== "rebuild" ? "checked" : ""}> ${t("improveModeTweak")}</label>
@@ -4149,9 +4511,19 @@ function openAsset(assetId, entryId) {
   const assetModalWasOpen = $("#modal").classList.contains("open");
   $("#modal").classList.add("open");
   if (assetModalWasOpen) $("#modal").querySelector(".modal-card")?.classList.add("no-anim");
+  bindPromptChipButtons($("#modal"));
   $("#closeModal").onclick = () => $("#modal").classList.remove("open");
   $("#deleteAssetBtn").onclick = () => deleteAsset(entry, asset);
   const readImproveMode = () => document.querySelector('input[name="improveMode"]:checked')?.value ?? "tweak";
+  $("#modal").querySelectorAll("[data-improve-queue-chip]").forEach((button) => {
+    button.onclick = (event) => withBusy(event.currentTarget, async () => {
+      asset.improvementPrompt = button.dataset.improveQueueChip;
+      asset.improveMode = "rebuild";
+      $("#assetImprovePrompt").value = asset.improvementPrompt;
+      await enqueueTargets([improveTarget({ entry, asset })]);
+      $("#modal").classList.remove("open");
+    }).catch((error) => toast(error.message, { kind: "error" }));
+  });
   $("#saveImprovePrompt").onclick = async () => {
     asset.improvementPrompt = $("#assetImprovePrompt").value;
     asset.improveMode = readImproveMode();

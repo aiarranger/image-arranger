@@ -764,6 +764,43 @@ function listKitResults(context) {
   return rows;
 }
 
+function qualityIssueRows(report) {
+  const attempts = Array.isArray(report?.attempts) ? report.attempts : [];
+  return attempts.flatMap((attempt) => Array.isArray(attempt?.issues) ? attempt.issues : []);
+}
+
+function listQualityReports(context) {
+  const rows = [];
+  for (const { file, requestPayload } of readRequestFiles(context)) {
+    for (const [targetIndex, target] of (requestPayload.targets ?? []).entries()) {
+      if (!target.qualityReport) continue;
+      const attempts = Array.isArray(target.qualityReport.attempts) ? target.qualityReport.attempts : [];
+      const resultFiles = [...new Set([
+        ...(Array.isArray(target.results) ? target.results.map((item) => item?.file).filter(Boolean) : []),
+        ...attempts.map((item) => item?.file).filter(Boolean),
+      ])];
+      rows.push({
+        requestId: requestPayload.requestId,
+        targetIndex,
+        requestFile: file,
+        characterId: requestPayload.character ?? "",
+        characterName: requestPayload.characterName ?? "",
+        mode: requestPayload.mode ?? "",
+        action: target.action ?? (target.assetId ? "improve" : "generate"),
+        entryId: target.entryId ?? "",
+        assetId: target.assetId ?? "",
+        overview: target.overview ?? target.entryId ?? "",
+        status: target.status ?? requestPayload.status ?? "",
+        completedAt: target.completedAt ?? target.erroredAt ?? requestPayload.updatedAt ?? requestPayload.completedAt ?? "",
+        resultFiles,
+        issueCount: qualityIssueRows(target.qualityReport).length,
+        qualityReport: target.qualityReport,
+      });
+    }
+  }
+  return rows.sort((a, b) => String(b.completedAt ?? "").localeCompare(String(a.completedAt ?? "")));
+}
+
 function markKitResultImported(context, requestId, targetIndex) {
   for (const { requestPath, requestPayload } of readRequestFiles(context)) {
     if (requestPayload.requestId !== requestId) continue;
@@ -1289,6 +1326,10 @@ async function handleApi(request, response, context, url) {
   }
   if (request.method === "GET" && url.pathname === "/api/base-kit/results") {
     sendJson(response, 200, { ok: true, kitResults: listKitResults(context) });
+    return true;
+  }
+  if (request.method === "GET" && url.pathname === "/api/quality-reports") {
+    sendJson(response, 200, { ok: true, qualityReports: listQualityReports(context) });
     return true;
   }
   if (request.method === "POST" && url.pathname === "/api/base-kit/analyze") {
