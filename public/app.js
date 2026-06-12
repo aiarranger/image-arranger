@@ -183,6 +183,24 @@ const I18N = {
     referenceSheetSuffix: "リファレンスシート",
     sampleLabelFace: "顔アップ（正面）",
     refLinkNote: "元画像（リンク参照：キュー登録時にリンク先の最新の採用画像へ解決）",
+    saved: "保存しました",
+    deleted: "削除しました",
+    undo: "元に戻す",
+    restored: "元に戻しました",
+    emptyPrompt: "（未入力）",
+    noFileLabel: "ファイルなし",
+    videoLabel: "動画",
+    missingLabel: "見つかりません",
+    categorySaved: "カテゴリを追加しました",
+    newEntrySaved: "新規エントリを保存しました",
+    emptyRowsHint: "まだ何もありません。最初の素材を作りましょう。",
+    emptyQueueHint: "依頼中のキューはありません。画像タブから登録できます。",
+    goImageTab: "画像タブへ",
+    dropHere: "ここに画像をドロップ（⌘V 貼り付けもOK）",
+    unsupportedFile: "対応していないファイル形式です",
+    uploading: "アップロード中…",
+    loadFailed: "読み込みに失敗しました",
+    reloadPage: "再読み込み",
   },
   en: {
     title: "Image / Video Prompt Manager",
@@ -368,6 +386,24 @@ const I18N = {
     referenceSheetSuffix: "Reference Sheet",
     sampleLabelFace: "Face close-up (front)",
     refLinkNote: "Source image (linked: resolves to the linked entry's latest adopted image when queued)",
+    saved: "Saved",
+    deleted: "Deleted",
+    undo: "Undo",
+    restored: "Restored",
+    emptyPrompt: "(empty)",
+    noFileLabel: "No file",
+    videoLabel: "Video",
+    missingLabel: "Missing",
+    categorySaved: "Category added",
+    newEntrySaved: "New entry saved",
+    emptyRowsHint: "Nothing here yet. Create your first entry.",
+    emptyQueueHint: "No queued requests. Queue something from the Image tab.",
+    goImageTab: "Go to Image tab",
+    dropHere: "Drop images here (or paste with ⌘V)",
+    unsupportedFile: "Unsupported file type",
+    uploading: "Uploading…",
+    loadFailed: "Failed to load the app",
+    reloadPage: "Reload",
   },
 };
 
@@ -441,6 +477,164 @@ const catText = (key, ch = character()) => {
   return custom?.[state.lang] ?? custom?.ja ?? CAT_LABEL[key]?.[state.lang] ?? key;
 };
 const assetUrl = (file) => `/asset?path=${encodeURIComponent(file)}`;
+
+// ---- Motion & feedback helpers (Round 1 UI uplift) ----------------------
+
+const reducedMotion = () =>
+  typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// View-transition wrapper around render(): user-triggered state changes go
+// through here so card moves / tab-pill slides animate for free. Falls back
+// to a plain render() (Safari 17, reduced motion, re-entrancy).
+// Returns a promise that resolves once the DOM update has been applied, so
+// callers can sequence work (e.g. toasts) after the re-render.
+let viewTransitionBusy = false;
+function renderT() {
+  if (viewTransitionBusy || !document.startViewTransition || reducedMotion() || document.hidden) {
+    render();
+    return Promise.resolve();
+  }
+  viewTransitionBusy = true;
+  try {
+    const transition = document.startViewTransition(() => render());
+    // ready/finished reject when the transition is skipped (hidden tab,
+    // superseded render) — expected, swallow so it never hits the console.
+    transition.ready.catch(() => {});
+    transition.finished.catch(() => {}).finally(() => { viewTransitionBusy = false; });
+    return transition.updateCallbackDone.catch(() => {});
+  } catch {
+    viewTransitionBusy = false;
+    render();
+    return Promise.resolve();
+  }
+}
+
+// Per-card view-transition-name (must be a unique CSS ident per render).
+let vtNamesThisRender = null;
+function vtStyle(entryId) {
+  const name = `e-${String(entryId).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  if (vtNamesThisRender) {
+    if (vtNamesThisRender.has(name)) return "";
+    vtNamesThisRender.add(name);
+  }
+  return ` style="view-transition-name: ${name}"`;
+}
+
+// One-shot adopted-tag entrance: only the asset adopted by the current
+// interaction gets the tagIn animation, so full-innerHTML re-renders (filter
+// keystrokes etc.) don't replay the pop on every visible adopted tag.
+let justAdoptedAssetId = null;
+function tagPopClass(assetId) {
+  return assetId && assetId === justAdoptedAssetId ? " tag-pop" : "";
+}
+
+// One-shot heart/sparkle burst at viewport coordinates (adopt feedback).
+function popAt(x, y) {
+  if (reducedMotion()) return;
+  const glyphs = ["♥", "✦", "✧"];
+  for (let i = 0; i < 3; i += 1) {
+    const node = document.createElement("span");
+    node.className = `pop-spark${i % 2 ? " alt" : ""}`;
+    node.textContent = glyphs[i % glyphs.length];
+    const angle = -Math.PI / 2 + (i - 1) * 0.75 + (Math.random() - 0.5) * 0.4;
+    const dist = 26 + Math.random() * 22;
+    node.style.left = `${x}px`;
+    node.style.top = `${y}px`;
+    node.style.setProperty("--dx", `${Math.cos(angle) * dist}px`);
+    node.style.setProperty("--dy", `${Math.sin(angle) * dist}px`);
+    node.style.animationDelay = `${i * 40}ms`;
+    node.addEventListener("animationend", () => node.remove());
+    document.body.appendChild(node);
+    // Safety net in case animationend never fires (e.g. display:none).
+    setTimeout(() => node.remove(), 1200);
+  }
+}
+
+// Queue-tab count bump (always) + thumbnail flight (motion allowed only).
+function bumpQueueTab() {
+  const button = document.querySelector('[data-mode="queue"]');
+  if (!button) return;
+  button.classList.remove("bump");
+  void button.offsetWidth;
+  button.classList.add("bump");
+  button.addEventListener("animationend", () => button.classList.remove("bump"), { once: true });
+}
+
+function flyToQueue(sourceEl) {
+  if (reducedMotion() || !sourceEl || typeof sourceEl.animate !== "function") {
+    bumpQueueTab();
+    return;
+  }
+  const queueBtn = document.querySelector('[data-mode="queue"]');
+  if (!queueBtn) return;
+  const from = sourceEl.getBoundingClientRect();
+  const to = queueBtn.getBoundingClientRect();
+  if (!from.width || !from.height) {
+    bumpQueueTab();
+    return;
+  }
+  // A cloned <video> paints blank (autoplay stripped, no poster); snapshot the
+  // current frame to a canvas instead, with a soft-gradient fallback.
+  let clone;
+  if (sourceEl.tagName === "VIDEO") {
+    clone = null;
+    if (sourceEl.readyState >= 2 && sourceEl.videoWidth) {
+      const canvas = document.createElement("canvas");
+      canvas.width = sourceEl.videoWidth;
+      canvas.height = sourceEl.videoHeight;
+      try {
+        canvas.getContext("2d").drawImage(sourceEl, 0, 0);
+        clone = canvas;
+      } catch { clone = null; }
+    }
+    if (!clone) {
+      clone = document.createElement("div");
+      clone.style.background = "linear-gradient(140deg, var(--soft), var(--line))";
+    }
+  } else {
+    clone = sourceEl.cloneNode(true);
+  }
+  clone.classList.add("fly-clone");
+  Object.assign(clone.style, {
+    left: `${from.left}px`,
+    top: `${from.top}px`,
+    width: `${from.width}px`,
+    height: `${from.height}px`,
+  });
+  document.body.appendChild(clone);
+  const dx = (to.left + to.width / 2) - (from.left + from.width / 2);
+  const dy = (to.top + to.height / 2) - (from.top + from.height / 2);
+  const flight = clone.animate(
+    [
+      { transform: "translate(0, 0) scale(1)", opacity: 1 },
+      { transform: `translate(${dx}px, ${dy}px) scale(.15)`, opacity: 0.25 },
+    ],
+    { duration: 450, easing: "cubic-bezier(.2,.7,.3,1)", fill: "forwards" },
+  );
+  flight.onfinish = () => {
+    clone.remove();
+    bumpQueueTab();
+  };
+  setTimeout(() => clone.remove(), 1000);
+}
+
+// Busy state for async button handlers: prevents double-queue and shows a
+// spinner while the work is in flight.
+async function withBusy(button, work) {
+  if (button && button.classList.contains("busy")) return undefined;
+  if (button) {
+    button.disabled = true;
+    button.classList.add("busy");
+  }
+  try {
+    return await work();
+  } finally {
+    if (button && document.contains(button)) {
+      button.disabled = false;
+      button.classList.remove("busy");
+    }
+  }
+}
 
 function formatDateTime(value) {
   if (!value) return "";
@@ -604,7 +798,7 @@ async function saveDeck(showMessage = true) {
     throw error;
   }
   state.deck = result.state;
-  if (showMessage) toast("saved");
+  if (showMessage) toast(t("saved"), { kind: "ok" });
 }
 
 function character() {
@@ -716,7 +910,7 @@ function statusBadge(entry) {
 function mediaTag(file, alt = "", opts = {}) {
   if (/\.(mp4|webm)$/i.test(file ?? "")) {
     return opts.preview
-      ? `<video src="${assetUrl(file)}" muted loop autoplay playsinline style="pointer-events:none"></video>`
+      ? `<video src="${assetUrl(file)}" muted loop autoplay playsinline preload="metadata" style="pointer-events:none"></video>`
       : `<video src="${assetUrl(file)}" controls muted loop playsinline preload="metadata"></video>`;
   }
   return `<img src="${assetUrl(file)}" alt="${escapeHtml(alt)}" loading="lazy">`;
@@ -727,10 +921,10 @@ function assetCard(asset, entry) {
   const requested = asset.requestStatus === "requested";
   const image = asset.file
     ? mediaTag(asset.file, asset.name)
-    : `<span>${asset.kind === "video" ? "VIDEO" : "NO FILE"}</span>`;
+    : `<span>${escapeHtml(asset.kind === "video" ? t("videoLabel") : t("noFileLabel"))}</span>`;
   return `
     <div class="asset${adopted}" data-asset-id="${escapeHtml(asset.id)}" data-entry-id="${escapeHtml(entry.id)}">
-      ${asset.adopted ? `<div class="asset-tag">${t("adopted")}</div>` : ""}
+      ${asset.adopted ? `<div class="asset-tag${tagPopClass(asset.id)}">${t("adopted")}</div>` : ""}
       ${requested ? `<div class="asset-tag is-requested">${t("requested")}</div>` : ""}
       <div class="thumb">${image}</div>
       <div class="asset-name">${escapeHtml(asset.name ?? asset.file ?? asset.id)}</div>
@@ -758,7 +952,7 @@ function promptBlock(entry) {
   return `
     <button class="prompt-toggle" data-toggle="${escapeHtml(key)}">
       <strong>${t("prompt")}</strong>
-      <span class="prompt-preview">${escapeHtml(prompt || "empty")}</span>
+      <span class="prompt-preview">${escapeHtml(prompt || t("emptyPrompt"))}</span>
       <span>${opened ? "▲" : "▼"}</span>
     </button>
     ${opened ? `<textarea class="prompt" data-prompt-entry="${escapeHtml(entry.id)}">${escapeHtml(entry.prompt ?? "")}</textarea>` : ""}
@@ -789,7 +983,7 @@ function entryCard(entry) {
   const main = generated.find((asset) => asset.adopted && asset.file) ?? generated.find((asset) => asset.file);
   const requested = entry.requestStatus === "requested";
   return `
-    <div class="bcard ${entry.checked ? "selected" : ""}" data-open-entry="${escapeHtml(entry.id)}" title="${escapeHtml(entry.overview)}">
+    <div class="bcard ${entry.checked ? "selected" : ""}" data-open-entry="${escapeHtml(entry.id)}" title="${escapeHtml(entry.overview)}"${vtStyle(entry.id)}>
       <label class="bcard-check" title="${t("downloadSelected")}">
         <input type="checkbox" data-select-card="${escapeHtml(entry.id)}" ${entry.checked ? "checked" : ""}>
       </label>
@@ -797,7 +991,7 @@ function entryCard(entry) {
         ${main ? `<img src="${assetUrl(main.file)}" alt="${escapeHtml(entry.overview)}" loading="lazy">` : `<span class="no-image">${t("noImage")}</span>`}
       </div>
       <div class="bcard-title">${escapeHtml(entry.overview)}</div>
-      <div class="bcard-meta">${main ? `<button class="kit-chip adopt-toggle ${main.adopted ? "adopted-chip" : ""}" data-adopt-chip="${escapeHtml(entry.id)}">${main.adopted ? "✓ " : ""}${t("adopted")}</button>` : ""}${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}${statusBadge(entry)}</div>
+      <div class="bcard-meta">${main ? `<button class="kit-chip adopt-toggle ${main.adopted ? `adopted-chip${tagPopClass(main.id)}` : ""}" data-adopt-chip="${escapeHtml(entry.id)}">${main.adopted ? "✓ " : ""}${t("adopted")}</button>` : ""}${(entry.tags ?? []).includes("base-kit") ? `<span class="kit-chip">${t("kitChip")}</span>` : ""}${statusBadge(entry)}</div>
     </div>
   `;
 }
@@ -816,6 +1010,7 @@ function openEntryModal(entryId, shownAssetId = null) {
     ?? null;
   const shownFile = shown ? (isSourceRef(shown) ? resolveReferenceFile(shown) : shown.file) : "";
   const requested = entry.requestStatus === "requested";
+  const wasOpen = $("#modal").classList.contains("open");
   const refresh = () => openEntryModal(entry.id, shown?.id ?? null);
   const thumb = (asset, role) => {
     const file = role === "src" ? resolveReferenceFile(asset) : asset.file;
@@ -823,10 +1018,18 @@ function openEntryModal(entryId, shownAssetId = null) {
     return `
     <button class="emodal-thumb ${shown && shown.id === asset.id ? "shown" : ""}" data-show-asset="${escapeHtml(asset.id)}" title="${escapeHtml(thumbName)}">
       ${file ? mediaTag(file, thumbName, { preview: true }) : "—"}
-      ${role === "src" ? `<span class="emodal-thumb-tag">${t("refRole")}</span>` : asset.adopted ? `<span class="emodal-thumb-tag adopted">${t("adopted")}</span>` : ""}
+      ${role === "src" ? `<span class="emodal-thumb-tag">${t("refRole")}</span>` : asset.adopted ? `<span class="emodal-thumb-tag adopted${tagPopClass(asset.id)}">${t("adopted")}</span>` : ""}
       <span class="emodal-thumb-x" data-del-asset="${escapeHtml(asset.id)}" title="${t("deleteAsset")}">×</span>
     </button>`;
   };
+  // Thumb switches rebuild the modal innerHTML; carry autoplaying video
+  // positions across the rebuild so thumbs don't visibly restart (spec §3.1.4c).
+  const videoTimes = new Map();
+  if (wasOpen) {
+    $("#modal").querySelectorAll("video").forEach((video) => {
+      if (video.currentTime > 0) videoTimes.set(video.getAttribute("src"), video.currentTime);
+    });
+  }
   $("#modal").innerHTML = `
     <button class="close" id="closeModal" title="${t("close")}" aria-label="${t("close")}">×</button>
     <div class="modal-card emodal">
@@ -858,9 +1061,10 @@ function openEntryModal(entryId, shownAssetId = null) {
           <input id="entryModalRefUrl" type="url" placeholder="https://x.com/..." value="${escapeHtml(entry.referenceUrl ?? "")}">
         </label>
         <h4>${t("genImages")}</h4>
-        <div class="emodal-thumbs">
+        <div class="emodal-thumbs dropzone" id="entryModalThumbs">
           ${generated.length ? generated.map((asset) => thumb(asset, "gen")).join("") : `<p class="form-note">${t("noImage")}</p>`}
           <button class="ghost small" id="entryModalRegisterImage">${icon("plus")} ${t("registerImage")}</button>
+          <div class="drop-hint">${t("dropHere")}</div>
         </div>
         ${isVideo ? `
         <h4>${t("framePair")}</h4>
@@ -881,6 +1085,38 @@ function openEntryModal(entryId, shownAssetId = null) {
       </div>
     </div>`;
   $("#modal").classList.add("open");
+  $("#modal").dataset.entryId = entry.id;
+  // Re-opens while already open (thumb switches, adopt refresh) skip the
+  // entrance animation so the modal doesn't pop on every interaction.
+  if (wasOpen) $("#modal").querySelector(".modal-card")?.classList.add("no-anim");
+  if (videoTimes.size) {
+    $("#modal").querySelectorAll("video").forEach((video) => {
+      const at = videoTimes.get(video.getAttribute("src"));
+      if (!at) return;
+      const seek = () => { try { video.currentTime = at; } catch { /* not seekable yet */ } };
+      if (video.readyState >= 1) seek();
+      else video.addEventListener("loadedmetadata", seek, { once: true });
+    });
+  }
+  // Dropzone: drag images straight onto the generated-images strip.
+  const dropzone = $("#entryModalThumbs");
+  if (dropzone) {
+    dropzone.ondragover = (event) => {
+      event.preventDefault();
+      dropzone.classList.add("droppable");
+    };
+    dropzone.ondragleave = (event) => {
+      // Entering a child (thumb/button) fires dragleave on the zone; only
+      // clear the highlight when the pointer actually leaves the dropzone.
+      if (event.relatedTarget && dropzone.contains(event.relatedTarget)) return;
+      dropzone.classList.remove("droppable");
+    };
+    dropzone.ondrop = (event) => {
+      event.preventDefault();
+      dropzone.classList.remove("droppable");
+      uploadFilesToEntry(entry.id, Array.from(event.dataTransfer?.files ?? []));
+    };
+  }
   document.querySelectorAll("#modal [data-pick-frame-entry]").forEach((button) => {
     button.onclick = (event) => {
       event.stopPropagation();
@@ -902,7 +1138,7 @@ function openEntryModal(entryId, shownAssetId = null) {
     commitFields();
     await saveDeck(false);
     render();
-    toast(t("save"));
+    toast(t("saved"), { kind: "ok" });
   };
   $("#entryModalDelete").onclick = () => { closeModal(); deleteEntry(entry.id); };
   $("#entryModalDup").onclick = async () => {
@@ -914,11 +1150,11 @@ function openEntryModal(entryId, shownAssetId = null) {
   $("#entryModalAddAsset").onclick = () => { closeModal(); openAssetForm(entry.id); };
   if ($("#entryModalRegisterImage")) $("#entryModalRegisterImage").onclick = () => { closeModal(); openAssetForm(entry.id); };
   if ($("#entryModalQueue")) {
-    $("#entryModalQueue").onclick = async () => {
+    $("#entryModalQueue").onclick = (event) => withBusy(event.currentTarget, async () => {
       commitFields();
       closeModal();
       await requestEntries([entry]);
-    };
+    }).catch((error) => toast(error.message, { kind: "error" }));
   }
   if ($("#entryModalCancelReq")) {
     $("#entryModalCancelReq").onclick = async () => {
@@ -928,10 +1164,18 @@ function openEntryModal(entryId, shownAssetId = null) {
   }
   if ($("#entryModalAdoptShown")) {
     $("#entryModalAdoptShown").onchange = async () => {
-      setAdopted(entry, shown, $("#entryModalAdoptShown").checked);
+      const checkbox = $("#entryModalAdoptShown");
+      const adopting = checkbox.checked;
+      if (adopting) {
+        const rect = checkbox.getBoundingClientRect();
+        popAt(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      }
+      setAdopted(entry, shown, adopting);
+      justAdoptedAssetId = adopting ? shown.id : null;
       await saveDeck(false);
       render();
       refresh();
+      justAdoptedAssetId = null;
     };
   }
   if ($("#entryModalAssetDetail")) {
@@ -945,8 +1189,9 @@ function openEntryModal(entryId, shownAssetId = null) {
       event.stopPropagation();
       const target = (entry.assets ?? []).find((item) => item.id === span.dataset.delAsset);
       if (!target) return;
-      await deleteAsset(entry, target);
+      await deleteAsset(entry, target, { keepModal: true });
       if (findEntry(entry.id)) openEntryModal(entry.id);
+      else $("#modal").classList.remove("open");
     };
   });
 }
@@ -965,8 +1210,8 @@ function frameCard(label, assetId, entryId, field) {
   const found = allImageAssets().find((asset) => asset.id === assetId);
   const image = found?.file
     ? `<img src="${assetUrl(found.file)}" alt="${escapeHtml(found.name)}" loading="lazy">`
-    : `<span>${assetId ? "missing" : t("unset")}</span>`;
-  const chosen = found ? (found.entry?.overview || found.name || found.id) : (assetId ? "missing" : t("unset"));
+    : `<span>${escapeHtml(assetId ? t("missingLabel") : t("unset"))}</span>`;
+  const chosen = found ? (found.entry?.overview || found.name || found.id) : (assetId ? t("missingLabel") : t("unset"));
   return `<button type="button" class="frame-card" data-pick-frame-entry="${escapeHtml(entryId)}" data-pick-frame-field="${escapeHtml(field)}" title="${t("pickImage")}">
     <div class="thumb">${image}</div><div class="label">${label}: ${escapeHtml(chosen)}</div></button>`;
 }
@@ -977,7 +1222,7 @@ function openFramePicker(entryId, field, returnToModal = false) {
   const closePicker = () => $("#modal").classList.remove("open");
   const finish = async (value) => {
     entry[field] = value;
-    await saveDeck(false).catch((error) => toast(error.message));
+    await saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
     render();
     if (returnToModal && findEntry(entryId)) openEntryModal(entryId);
     else closePicker();
@@ -995,7 +1240,9 @@ function openFramePicker(entryId, field, returnToModal = false) {
       </div>
       <div class="btns"><button class="ghost" id="framePickClear">${t("clearFrame")}</button></div>
     </div>`;
+  const pickerWasOpen = $("#modal").classList.contains("open");
   $("#modal").classList.add("open");
+  if (pickerWasOpen) $("#modal").querySelector(".modal-card")?.classList.add("no-anim");
   $("#closeModal").onclick = () => (returnToModal ? openEntryModal(entryId) : closePicker());
   $("#modal").onclick = (event) => { if (event.target.id === "modal") closePicker(); };
   $("#framePickClear").onclick = () => finish("");
@@ -1008,7 +1255,7 @@ function videoCard(entry) {
   const generated = (entry.assets ?? []).filter((asset) => !isSourceRef(asset));
   const main = generated.find((asset) => asset.adopted && asset.file) ?? generated.find((asset) => asset.file);
   return `
-    <div class="bcard vcard ${entry.checked ? "selected" : ""}" data-open-entry="${escapeHtml(entry.id)}" title="${escapeHtml(entry.overview)}">
+    <div class="bcard vcard ${entry.checked ? "selected" : ""}" data-open-entry="${escapeHtml(entry.id)}" title="${escapeHtml(entry.overview)}"${vtStyle(entry.id)}>
       <label class="bcard-check" title="${t("downloadSelected")}">
         <input type="checkbox" data-select-card="${escapeHtml(entry.id)}" ${entry.checked ? "checked" : ""}>
       </label>
@@ -1016,7 +1263,7 @@ function videoCard(entry) {
         ${main ? mediaTag(main.file, entry.overview, { preview: true }) : `<span class="no-image">${t("noImage")}</span>`}
       </div>
       <div class="bcard-title">${escapeHtml(entry.overview)}</div>
-      <div class="bcard-meta">${main ? `<button class="kit-chip adopt-toggle ${main.adopted ? "adopted-chip" : ""}" data-adopt-chip="${escapeHtml(entry.id)}">${main.adopted ? "✓ " : ""}${t("adopted")}</button>` : ""}<span class="kit-chip">${entry.durationSec ?? 8}s</span>${statusBadge(entry)}</div>
+      <div class="bcard-meta">${main ? `<button class="kit-chip adopt-toggle ${main.adopted ? `adopted-chip${tagPopClass(main.id)}` : ""}" data-adopt-chip="${escapeHtml(entry.id)}">${main.adopted ? "✓ " : ""}${t("adopted")}</button>` : ""}<span class="kit-chip">${entry.durationSec ?? 8}s</span>${statusBadge(entry)}</div>
       <div class="vcard-frames">
         ${frameCard(t("start"), entry.startFrame, entry.id, "startFrame")}
         ${frameCard(t("end"), entry.endFrame, entry.id, "endFrame")}
@@ -1063,6 +1310,23 @@ function renderBase() {
     `;
   }).join("");
   return groups;
+}
+
+function emptyState(kind) {
+  if (kind === "queue") {
+    return `
+      <div class="empty-state">
+        <span class="empty-glyph">${icon("robot")}</span>
+        <p>${t("emptyQueueHint")}</p>
+        <button class="primary" id="emptyGoImage">${icon("images")} ${t("goImageTab")}</button>
+      </div>`;
+  }
+  return `
+    <div class="empty-state">
+      <span class="empty-glyph">${icon("images")}</span>
+      <p>${t("emptyRowsHint")}</p>
+      <button class="primary" id="emptyNewEntry">${icon("plus")} ${t("newEntry")}</button>
+    </div>`;
 }
 
 function renderListToolbar() {
@@ -1233,12 +1497,12 @@ function renderRows() {
   if (state.mode === "image") {
     return `
       ${renderListToolbar()}
-      ${filtered.length ? `<div class="bgrid">${filtered.map(entryCard).join("")}</div>` : `<div class="empty">${t("noRows")}</div>`}
+      ${filtered.length ? `<div class="bgrid">${filtered.map(entryCard).join("")}</div>` : (rows.length ? `<div class="empty">${t("noRows")}</div>` : emptyState("rows"))}
     `;
   }
   return `
     ${renderListToolbar()}
-    ${filtered.length ? `<div class="bgrid">${filtered.map(videoCard).join("")}</div>` : `<div class="empty">${t("noRows")}</div>`}
+    ${filtered.length ? `<div class="bgrid">${filtered.map(videoCard).join("")}</div>` : (rows.length ? `<div class="empty">${t("noRows")}</div>` : emptyState("rows"))}
   `;
 }
 
@@ -1249,7 +1513,10 @@ function renderQueue() {
     return [item.overview, item.characterName, item.requestFile, item.action]
       .some((value) => String(value ?? "").toLowerCase().includes(filter));
   });
-  if (!rows.length) return `<div class="empty">${t("noQueue")}</div>`;
+  if (!rows.length) {
+    if (state.requests.length) return `<div class="empty">${t("noQueue")}</div>`;
+    return emptyState("queue");
+  }
   return `
     <div class="queue-list">
       ${rows.map((item) => {
@@ -1264,6 +1531,7 @@ function renderQueue() {
                 <span>${escapeHtml(item.characterName || item.characterId)} / ${escapeHtml(item.mode)} / ${escapeHtml(item.service)}</span>
               </button>
               <div class="queue-meta">
+                <span class="badge requested">${t("requested")}</span>
                 <span class="chip">${t(item.action === "improve" ? "improve" : item.action === "analyze" ? "analyze" : item.action === "draft-prompt" ? "draftPrompt" : "generate")}</span>
                 <span class="chip">${t("requestedAt")}: ${escapeHtml(formatDateTime(item.requestedAt))}</span>
                 <span class="queue-file" title="${escapeHtml(`${item.requestFile} / ${t("target")}: ${item.targetIndex}`)}">${escapeHtml(item.requestId)}</span>
@@ -1442,6 +1710,13 @@ function render() {
     : t("request");
   const isQueue = state.mode === "queue";
   document.documentElement.lang = state.lang;
+  vtNamesThisRender = new Set();
+  // Full-innerHTML re-render drops focus; keep the filter input usable while
+  // typing (audit P0-1) by restoring focus + caret after the rebuild.
+  const activeBefore = document.activeElement;
+  const filterFocus = activeBefore && activeBefore.id === "filterInput"
+    ? { start: activeBefore.selectionStart, end: activeBefore.selectionEnd }
+    : null;
   $("#app").innerHTML = `
     <div class="app">
       <header class="top">
@@ -1463,7 +1738,7 @@ function render() {
       <div class="toolbar action-bar">
         <label>${t("mode")}</label>
         <div class="tabs">
-          ${["kit", "base", "image", "video", "queue"].map((mode) => `<button data-mode="${mode}" class="${state.mode === mode ? "active" : ""}">${t(mode)}${mode === "queue" && state.requests.length ? ` (${state.requests.length})` : ""}</button>`).join("")}
+          ${["kit", "base", "image", "video", "queue"].map((mode) => `<button data-mode="${mode}" class="${state.mode === mode ? "active" : ""}"${state.mode === mode ? ' style="view-transition-name: tab-active"' : ""}>${t(mode)}${mode === "queue" && state.requests.length ? `<span class="tab-count">${state.requests.length}</span>` : ""}</button>`).join("")}
           <button id="galleryBtn" title="${t("galleryTooltip")}" aria-label="${t("galleryTooltip")}">${icon("images")} ${t("gallery")}</button>
         </div>
         <input class="grow" id="filterInput" value="${escapeHtml(state.filter)}" placeholder="${t("filter")}">
@@ -1481,11 +1756,17 @@ function render() {
         <div class="panel-body">${renderRows()}</div>
       </section>
     </div>
-    <div class="modal" id="modal"></div>
     ${renderFormModal()}
-    <div class="toast" id="toast"></div>
   `;
   bind();
+  vtNamesThisRender = null;
+  if (filterFocus) {
+    const input = $("#filterInput");
+    if (input) {
+      input.focus();
+      try { input.setSelectionRange(filterFocus.start, filterFocus.end); } catch { /* type=text only */ }
+    }
+  }
 }
 
 function findEntry(id) {
@@ -1533,30 +1814,116 @@ async function cancelTargetsBeforeDelete(targets) {
   await cancelTargets(requestedTargets, false);
 }
 
+// Locate an entry inside its character collections so a deleted clone can be
+// restored at the exact same position (undo support).
+function locateEntry(id, ch = character()) {
+  for (const [category, rows] of Object.entries(ch.base ?? {})) {
+    const index = rows.findIndex((entry) => entry.id === id);
+    if (index >= 0) return { where: "base", category, index };
+  }
+  const imageIndex = (ch.images ?? []).findIndex((entry) => entry.id === id);
+  if (imageIndex >= 0) return { where: "images", index: imageIndex };
+  const videoIndex = (ch.videos ?? []).findIndex((entry) => entry.id === id);
+  if (videoIndex >= 0) return { where: "videos", index: videoIndex };
+  return null;
+}
+
+function restoreEntry(characterId, location, clone) {
+  const ch = (state.deck?.characters ?? []).find((item) => item.id === characterId);
+  if (!ch || !location || !clone) return false;
+  let collection;
+  if (location.where === "base") {
+    ch.base = ch.base ?? {};
+    ch.base[location.category] = ch.base[location.category] ?? [];
+    collection = ch.base[location.category];
+  } else {
+    ch[location.where] = ch[location.where] ?? [];
+    collection = ch[location.where];
+  }
+  if (collection.some((entry) => entry.id === clone.id)) return false;
+  collection.splice(Math.min(location.index, collection.length), 0, clone);
+  return true;
+}
+
+// Deletes are optimistic with an Undo toast when nothing is queued for the
+// target (research P4). Queued targets keep the native confirm because the
+// cancellation is a server-side, non-undoable operation.
 async function deleteEntry(id) {
   const entry = findEntry(id);
   if (!entry) return;
   const targets = cancellationTargetsForEntry(entry);
   const hasQueued = targets.some(hasRequestedTarget);
-  if (!confirm(hasQueued ? t("deleteQueuedConfirm") : t("deleteConfirm"))) return;
-  await cancelTargetsBeforeDelete(targets);
+  if (hasQueued) {
+    if (!confirm(t("deleteQueuedConfirm"))) return;
+    await cancelTargetsBeforeDelete(targets);
+    removeEntry(id);
+    await saveDeck(false);
+    await loadQueue(false);
+    render();
+    return;
+  }
+  const characterId = state.characterId;
+  const location = locateEntry(id);
+  const clone = structuredClone(entry);
   removeEntry(id);
+  await renderT();
+  toast(t("deleted"), {
+    kind: "warn",
+    action: {
+      label: t("undo"),
+      fn: () => {
+        if (!restoreEntry(characterId, location, clone)) return;
+        renderT().then(() => saveDeck(false))
+          .then(() => toast(t("restored"), { kind: "ok" }))
+          .catch((error) => toast(error.message, { kind: "error" }));
+      },
+    },
+  });
   await saveDeck(false);
-  await loadQueue(false);
-  render();
 }
 
-async function deleteAsset(entry, asset) {
+// keepModal: callers that re-open the entry modal right after (thumb ×) leave
+// it open so the rebuild reuses the no-anim path instead of blinking.
+async function deleteAsset(entry, asset, { keepModal = false } = {}) {
   if (!entry || !asset) return;
   const targets = [{ action: "improve", entryId: entry.id, assetId: asset.id }];
   const hasQueued = targets.some(hasRequestedTarget);
-  if (!confirm(hasQueued ? t("deleteQueuedConfirm") : t("deleteConfirm"))) return;
-  await cancelTargetsBeforeDelete(targets);
+  if (hasQueued) {
+    if (!confirm(t("deleteQueuedConfirm"))) return;
+    await cancelTargetsBeforeDelete(targets);
+    entry.assets = (entry.assets ?? []).filter((item) => item.id !== asset.id);
+    await saveDeck(false);
+    await loadQueue(false);
+    if (!keepModal) $("#modal").classList.remove("open");
+    render();
+    return;
+  }
+  const characterId = state.characterId;
+  const entryId = entry.id;
+  const assetIndex = (entry.assets ?? []).findIndex((item) => item.id === asset.id);
+  const clone = structuredClone(asset);
   entry.assets = (entry.assets ?? []).filter((item) => item.id !== asset.id);
+  if (!keepModal) $("#modal").classList.remove("open");
+  await renderT();
+  toast(t("deleted"), {
+    kind: "warn",
+    action: {
+      label: t("undo"),
+      fn: () => {
+        const ch = (state.deck?.characters ?? []).find((item) => item.id === characterId);
+        const target = ch
+          ? [...allBaseEntries(ch), ...ch.images, ...ch.videos].find((row) => row.id === entryId)
+          : null;
+        if (!target || (target.assets ?? []).some((item) => item.id === clone.id)) return;
+        target.assets = target.assets ?? [];
+        target.assets.splice(Math.min(assetIndex < 0 ? target.assets.length : assetIndex, target.assets.length), 0, clone);
+        renderT().then(() => saveDeck(false))
+          .then(() => toast(t("restored"), { kind: "ok" }))
+          .catch((error) => toast(error.message, { kind: "error" }));
+      },
+    },
+  });
   await saveDeck(false);
-  await loadQueue(false);
-  $("#modal").classList.remove("open");
-  render();
 }
 
 function duplicateEntry(id) {
@@ -1635,7 +2002,7 @@ async function submitCategoryForm(form) {
   state.form = null;
   await saveDeck(false);
   render();
-  toast(`${t("addCategory")} saved`);
+  toast(t("categorySaved"), { kind: "ok" });
 }
 
 function createEntryFromForm(form) {
@@ -1764,6 +2131,42 @@ async function uploadAssetFile(entryId, file, name = "") {
   return response.json();
 }
 
+// Drag-drop / paste-to-register (research P7): upload files straight into an
+// entry's generated images, then re-open the modal on the fresh state.
+const UPLOADABLE_FILE_RE = /\.(png|jpe?g|webp|gif|mp4|webm)$/i;
+async function uploadFilesToEntry(entryId, files) {
+  const usable = (files ?? []).filter((file) => UPLOADABLE_FILE_RE.test(file.name));
+  if ((files ?? []).length > usable.length) toast(t("unsupportedFile"), { kind: "warn" });
+  if (!usable.length || !findEntry(entryId)) return;
+  try {
+    toast(t("uploading"));
+    for (const file of usable) {
+      const result = await uploadAssetFile(entryId, file);
+      state.deck = result.state;
+    }
+    normalizeDeck();
+    render();
+    if (findEntry(entryId)) openEntryModal(entryId);
+    toast(t("assetAdded"), { kind: "ok" });
+  } catch (error) {
+    toast(error.message, { kind: "error" });
+  }
+}
+
+// Cmd/Ctrl+V with the entry modal open registers a clipboard image.
+document.addEventListener("paste", (event) => {
+  const modal = $("#modal");
+  if (!modal || !modal.classList.contains("open") || !modal.querySelector(".emodal")) return;
+  const entryId = modal.dataset.entryId;
+  if (!entryId || !findEntry(entryId)) return;
+  const file = Array.from(event.clipboardData?.files ?? []).find((item) => item.type.startsWith("image/"));
+  if (!file) return;
+  event.preventDefault();
+  const ext = (file.type.split("/")[1] || "png").replace("jpeg", "jpg");
+  const named = new File([file], `pasted-${Date.now()}.${ext}`, { type: file.type });
+  uploadFilesToEntry(entryId, [named]);
+});
+
 async function submitEntryForm(form, aiDraftForce = false) {
   const data = new FormData(form);
   const entryFileAdopt = Boolean(data.get("entryFileAdopt"));
@@ -1795,7 +2198,7 @@ async function submitEntryForm(form, aiDraftForce = false) {
     }
   }
   render();
-  toast(`${t("newEntry")} saved`);
+  toast(t("newEntrySaved"), { kind: "ok" });
 }
 
 async function submitImproveBatchForm(form) {
@@ -1881,33 +2284,37 @@ async function saveQueueTarget(requestId, targetIndex) {
 async function handleFormSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  try {
-    if (state.form?.type === "character") {
-      await submitCharacterForm(form);
-    } else if (state.form?.type === "category") {
-      await submitCategoryForm(form);
-    } else if (state.form?.type === "entry") {
-      await submitEntryForm(form);
-    } else if (state.form?.type === "asset") {
-      await submitAssetForm(form);
-    } else if (state.form?.type === "improveBatch") {
-      await submitImproveBatchForm(form);
+  const submitButton = form.querySelector('button[type="submit"], button:not([type])');
+  await withBusy(submitButton, async () => {
+    try {
+      if (state.form?.type === "character") {
+        await submitCharacterForm(form);
+      } else if (state.form?.type === "category") {
+        await submitCategoryForm(form);
+      } else if (state.form?.type === "entry") {
+        await submitEntryForm(form);
+      } else if (state.form?.type === "asset") {
+        await submitAssetForm(form);
+      } else if (state.form?.type === "improveBatch") {
+        await submitImproveBatchForm(form);
+      }
+    } catch (error) {
+      toast(error.message, { kind: "error" });
     }
-  } catch (error) {
-    toast(error.message);
-  }
+  });
 }
 
 function bind() {
-  $("#characterSelect").onchange = async (event) => {
+  // Optimistic switches (audit P1-3): paint first, persist in the background.
+  $("#characterSelect").onchange = (event) => {
     state.characterId = event.target.value;
-    await saveDeck(false).catch((error) => toast(error.message));
-    render();
+    renderT();
+    saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
   };
-  $("#langBtn").onclick = async () => {
+  $("#langBtn").onclick = () => {
     state.lang = state.lang === "ja" ? "en" : "ja";
-    await saveDeck(false).catch((error) => toast(error.message));
-    render();
+    renderT();
+    saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
   };
   $("#filterInput").oninput = (event) => {
     state.filter = event.target.value;
@@ -1922,18 +2329,40 @@ function bind() {
     if (!ids.length) { toast(`${t("downloadSelected")}: 0`); return; }
     window.location.href = `/api/export?characterId=${encodeURIComponent(character().id)}&entries=${encodeURIComponent(ids.join(","))}`;
   };
-  if ($("#requestBtn")) $("#requestBtn").onclick = requestSelected;
-  if ($("#cancelAllQueueBtn")) $("#cancelAllQueueBtn").onclick = cancelAllQueued;
+  if ($("#requestBtn")) $("#requestBtn").onclick = (event) =>
+    withBusy(event.currentTarget, requestSelected).catch((error) => toast(error.message, { kind: "error" }));
+  if ($("#cancelAllQueueBtn")) $("#cancelAllQueueBtn").onclick = (event) =>
+    withBusy(event.currentTarget, cancelAllQueued).catch((error) => toast(error.message, { kind: "error" }));
+  if ($("#emptyNewEntry")) $("#emptyNewEntry").onclick = openEntryForm;
+  if ($("#emptyGoImage")) $("#emptyGoImage").onclick = () => {
+    state.mode = "image";
+    renderT();
+    saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
+  };
   document.querySelectorAll("[data-mode]").forEach((button) => {
-    button.onclick = async () => {
+    button.onclick = () => {
       state.mode = button.dataset.mode;
-      if (state.mode === "queue") await loadQueue(false);
-      await saveDeck(false).catch((error) => toast(error.message));
-      render();
+      renderT();
+      if (state.mode === "queue") {
+        loadQueue(false).then(() => render()).catch((error) => toast(error.message, { kind: "error" }));
+      }
+      saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
     };
   });
   const galleryBtn = document.querySelector("#galleryBtn");
-  if (galleryBtn) galleryBtn.onclick = () => { location.href = "/gallery.html"; };
+  if (galleryBtn) galleryBtn.onclick = () => {
+    // Exit flash matching gallery.html's #enterFade so the cut reads as one
+    // continuous move on video (research P14.2).
+    if (reducedMotion()) {
+      location.href = "/gallery.html";
+      return;
+    }
+    const flash = document.createElement("div");
+    flash.id = "exitFlash";
+    document.body.appendChild(flash);
+    requestAnimationFrame(() => flash.classList.add("on"));
+    setTimeout(() => { location.href = "/gallery.html"; }, 170);
+  };
   const refUrlQueueBtn = document.querySelector("#refUrlQueueBtn");
   if (refUrlQueueBtn) refUrlQueueBtn.onclick = async () => {
     const formEl = $("#activeForm");
@@ -1965,7 +2394,7 @@ function bind() {
       const entry = findEntry(input.dataset.selectCard);
       if (!entry) return;
       entry.checked = input.checked;
-      saveDeck(false).catch((error) => toast(error.message));
+      saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
       render();
     };
   });
@@ -1977,9 +2406,15 @@ function bind() {
       const generated = (entry.assets ?? []).filter((asset) => !isSourceRef(asset));
       const main = generated.find((asset) => asset.adopted && asset.file) ?? generated.find((asset) => asset.file);
       if (!main) return;
-      setAdopted(entry, main, !main.adopted);
-      saveDeck(false).catch((error) => toast(error.message));
-      render();
+      const adopting = !main.adopted;
+      setAdopted(entry, main, adopting);
+      justAdoptedAssetId = adopting ? main.id : null;
+      if (adopting) {
+        const rect = button.getBoundingClientRect();
+        popAt(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      }
+      saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
+      renderT().then(() => { justAdoptedAssetId = null; });
     };
   });
   document.querySelectorAll("#app [data-pick-frame-entry]").forEach((button) => {
@@ -2016,7 +2451,8 @@ function bind() {
   if ($("#kitCharName")) $("#kitCharName").onchange = () => { state.kit.characterName = $("#kitCharName").value; };
   if ($("#kitExtra")) $("#kitExtra").oninput = () => { state.kit.extra = $("#kitExtra").value; };
   if ($("#kitJson")) $("#kitJson").oninput = () => { state.kit.json = $("#kitJson").value; };
-  if ($("#kitAnalyzeBtn")) $("#kitAnalyzeBtn").onclick = () => requestKitAnalysis().catch((error) => toast(error.message));
+  if ($("#kitAnalyzeBtn")) $("#kitAnalyzeBtn").onclick = (event) =>
+    withBusy(event.currentTarget, requestKitAnalysis).catch((error) => toast(error.message, { kind: "error" }));
   if ($("#sheetName")) $("#sheetName").onchange = () => { state.kit.sheetName = $("#sheetName").value; };
   if ($("#sheetPrompt")) $("#sheetPrompt").oninput = () => { state.kit.sheetPrompt = $("#sheetPrompt").value; };
   if ($("#sheetTplSelect")) {
@@ -2028,7 +2464,8 @@ function bind() {
       render();
     };
   }
-  if ($("#sheetQueueBtn")) $("#sheetQueueBtn").onclick = () => requestSheetGeneration().catch((error) => toast(error.message));
+  if ($("#sheetQueueBtn")) $("#sheetQueueBtn").onclick = (event) =>
+    withBusy(event.currentTarget, requestSheetGeneration).catch((error) => toast(error.message, { kind: "error" }));
   if ($("#sheetSaveTplBtn")) {
     $("#sheetSaveTplBtn").onclick = async () => {
       const text = ($("#sheetPrompt")?.value ?? "").trim();
@@ -2045,7 +2482,7 @@ function bind() {
     };
   }
   if ($("#kitParseBtn")) $("#kitParseBtn").onclick = openKitPreviewFromPaste;
-  if ($("#kitCreateBtn")) $("#kitCreateBtn").onclick = () => importSelectedKitParts().catch((error) => toast(error.message));
+  if ($("#kitCreateBtn")) $("#kitCreateBtn").onclick = () => importSelectedKitParts().catch((error) => toast(error.message, { kind: "error" }));
   if ($("#kitQueueAfter")) $("#kitQueueAfter").onchange = () => { if (state.kit.preview) state.kit.preview.queueAfter = $("#kitQueueAfter").checked; };
   if ($("#kitPreviewCancel")) $("#kitPreviewCancel").onclick = () => { state.kit.preview = null; render(); };
   document.querySelectorAll("[data-kit-result]").forEach((button) => {
@@ -2064,7 +2501,18 @@ function bind() {
       const item = (state.requests ?? []).find((row) => row.requestId === button.dataset.copyAgent && row.targetIndex === Number(button.dataset.targetIndex));
       if (!item) return;
       await navigator.clipboard.writeText(agentPromptFor(item));
-      toast(t("copiedAgentPrompt"));
+      // Success morph at the cursor (research P10), toast as secondary signal.
+      if (!button.classList.contains("copied")) {
+        const original = button.innerHTML;
+        button.classList.add("copied");
+        button.innerHTML = `✓ ${escapeHtml(t("copied"))}`;
+        setTimeout(() => {
+          if (!document.contains(button)) return;
+          button.classList.remove("copied");
+          button.innerHTML = original;
+        }, 1200);
+      }
+      toast(t("copiedAgentPrompt"), { kind: "ok" });
     };
   });
   if ($("#addCategoryBtn")) $("#addCategoryBtn").onclick = openCategoryForm;
@@ -2072,7 +2520,7 @@ function bind() {
     input.onchange = () => {
       const entry = findEntry(input.dataset.check);
       entry.checked = input.checked;
-      saveDeck(false).catch((error) => toast(error.message));
+      saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
       render();
     };
   });
@@ -2106,7 +2554,7 @@ function bind() {
   document.querySelectorAll("[data-dup]").forEach((button) => {
     button.onclick = () => {
       duplicateEntry(button.dataset.dup);
-      render();
+      renderT();
     };
   });
   document.querySelectorAll("[data-delete]").forEach((button) => {
@@ -2116,13 +2564,15 @@ function bind() {
     button.onclick = () => openAssetForm(button.dataset.addAsset);
   });
   document.querySelectorAll("[data-request-one]").forEach((button) => {
-    button.onclick = () => requestEntries([findEntry(button.dataset.requestOne)].filter(Boolean));
+    button.onclick = () =>
+      withBusy(button, () => requestEntries([findEntry(button.dataset.requestOne)].filter(Boolean)))
+        .catch((error) => toast(error.message, { kind: "error" }));
   });
   document.querySelectorAll("[data-cancel-entry-request]").forEach((button) => {
     button.onclick = () => cancelTargets([{ action: "generate", entryId: button.dataset.cancelEntryRequest }]);
   });
   document.querySelectorAll("[data-save-queue]").forEach((button) => {
-    button.onclick = () => saveQueueTarget(button.dataset.saveQueue, button.dataset.targetIndex).catch((error) => toast(error.message));
+    button.onclick = () => saveQueueTarget(button.dataset.saveQueue, button.dataset.targetIndex).catch((error) => toast(error.message, { kind: "error" }));
   });
   document.querySelectorAll("[data-adopt-asset]").forEach((input) => {
     input.onclick = (event) => event.stopPropagation();
@@ -2131,8 +2581,13 @@ function bind() {
       const asset = (entry.assets ?? []).find((item) => item.id === input.dataset.adoptAsset);
       if (!asset) return;
       setAdopted(entry, asset, input.checked);
-      saveDeck(false);
-      render();
+      justAdoptedAssetId = input.checked ? asset.id : null;
+      if (input.checked) {
+        const rect = input.getBoundingClientRect();
+        popAt(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      }
+      saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
+      renderT().then(() => { justAdoptedAssetId = null; });
     };
   });
   document.querySelectorAll("[data-improve-asset]").forEach((input) => {
@@ -2142,7 +2597,7 @@ function bind() {
       const asset = (entry.assets ?? []).find((item) => item.id === input.dataset.improveAsset);
       if (!asset) return;
       asset.improveChecked = input.checked;
-      saveDeck(false).catch((error) => toast(error.message));
+      saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
       render();
     };
   });
@@ -2215,7 +2670,7 @@ function bind() {
 
 function setVisibleChecked(checked) {
   for (const entry of visibleRows()) entry.checked = checked;
-  saveDeck(false).catch((error) => toast(error.message));
+  saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
   render();
 }
 
@@ -2359,7 +2814,16 @@ async function enqueueTargets(targets, saveBeforeRequest = true) {
   state.deck = result.state;
   await loadQueue(false);
   render();
-  toast(`${t("requestDone")}\n${result.requestFile}`);
+  // Fly the queued entry's thumbnail to the Queue tab, then bump the count
+  // (research P8). Queried after render so the clone matches the fresh DOM.
+  const firstEntryId = targets[0]?.entryId;
+  const flySource = firstEntryId
+    ? document.querySelector(
+      `[data-open-entry="${CSS.escape(firstEntryId)}"] .bcard-thumb img, [data-open-entry="${CSS.escape(firstEntryId)}"] .bcard-thumb video`,
+    )
+    : null;
+  flyToQueue(flySource);
+  toast(`${t("requestDone")}\n${result.requestFile}`, { kind: "ok" });
 }
 
 async function requestSheetGeneration() {
@@ -2822,7 +3286,9 @@ function openAsset(assetId, entryId) {
       </div>
     </div>
   `;
+  const assetModalWasOpen = $("#modal").classList.contains("open");
   $("#modal").classList.add("open");
+  if (assetModalWasOpen) $("#modal").querySelector(".modal-card")?.classList.add("no-anim");
   $("#closeModal").onclick = () => $("#modal").classList.remove("open");
   $("#deleteAssetBtn").onclick = () => deleteAsset(entry, asset);
   const readImproveMode = () => document.querySelector('input[name="improveMode"]:checked')?.value ?? "tweak";
@@ -2855,12 +3321,37 @@ function openAsset(assetId, entryId) {
   };
 }
 
-function toast(message) {
+// toast("message") stays backward compatible; opts adds colored kinds and an
+// inline action button (used for delete + Undo):
+//   toast(t("deleted"), { kind: "warn", action: { label: t("undo"), fn } })
+function toast(message, opts = {}) {
   clearTimeout(state.toastTimer);
   const node = $("#toast");
-  node.textContent = message;
+  if (!node) return;
+  node.classList.remove("show", "ok", "warn", "error");
+  node.textContent = "";
+  const body = document.createElement("div");
+  body.className = "toast-body";
+  body.textContent = String(message ?? "");
+  node.appendChild(body);
+  if (["ok", "warn", "error"].includes(opts.kind)) node.classList.add(opts.kind);
+  if (opts.action && typeof opts.action.fn === "function") {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "toast-action";
+    button.textContent = opts.action.label ?? t("undo");
+    button.onclick = () => {
+      clearTimeout(state.toastTimer);
+      node.classList.remove("show");
+      opts.action.fn();
+    };
+    node.appendChild(button);
+  }
+  // Restart the entrance transition even when a toast is already showing.
+  void node.offsetWidth;
   node.classList.add("show");
-  state.toastTimer = setTimeout(() => node.classList.remove("show"), 4200);
+  const ttl = opts.duration ?? (opts.action ? 8000 : 4200);
+  state.toastTimer = setTimeout(() => node.classList.remove("show"), ttl);
 }
 
 // ---- Modal accessibility: Escape-to-close, focus trap, focus restore ----
@@ -2962,7 +3453,16 @@ const modalObserver = new MutationObserver(() => {
   const modal = modalA11y.activeModal();
   const open = Boolean(modal);
   if (open && !modalWasOpen) modalA11y.onOpened(modal);
-  else if (!open && modalWasOpen) modalA11y.onClosed();
+  else if (!open && modalWasOpen) {
+    modalA11y.onClosed();
+    // #modal now persists across render(); drop stale content on close so
+    // hidden autoplaying videos stop and the next open starts clean.
+    const sheet = $("#modal");
+    if (sheet && !sheet.classList.contains("open")) {
+      sheet.innerHTML = "";
+      delete sheet.dataset.entryId;
+    }
+  }
   modalWasOpen = open;
 });
 modalObserver.observe(document.body, {
@@ -2972,6 +3472,49 @@ modalObserver.observe(document.body, {
   attributeFilter: ["class"],
 });
 
+// ---- Keyboard shortcuts (guarded: never while typing or with a modal open) --
+document.addEventListener("keydown", (event) => {
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (modalA11y.activeModal()) return;
+  const active = document.activeElement;
+  const tag = active?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || active?.isContentEditable) return;
+  if (!state.deck) return;
+  if (event.key === "/") {
+    event.preventDefault();
+    $("#filterInput")?.focus();
+    return;
+  }
+  if (event.key === "n" && ["base", "image", "video"].includes(state.mode)) {
+    event.preventDefault();
+    openEntryForm();
+    return;
+  }
+  if (event.key === "g") {
+    document.querySelector("#galleryBtn")?.click();
+    return;
+  }
+  const tabKeys = { 1: "kit", 2: "base", 3: "image", 4: "video", 5: "queue" };
+  if (tabKeys[event.key]) {
+    document.querySelector(`[data-mode="${tabKeys[event.key]}"]`)?.click();
+  }
+});
+
 loadDeck().catch((error) => {
-  document.body.innerHTML = `<pre>${escapeHtml(error.stack || error.message)}</pre>`;
+  // Styled fatal panel instead of a raw stack dump (audit P1-2). Built with
+  // DOM APIs because CSP 'self' blocks inline handlers.
+  const panel = document.createElement("div");
+  panel.className = "fatal";
+  const heading = document.createElement("h2");
+  heading.textContent = t("loadFailed");
+  const detail = document.createElement("pre");
+  detail.textContent = error.stack || error.message;
+  const reload = document.createElement("button");
+  reload.className = "primary";
+  reload.type = "button";
+  reload.textContent = t("reloadPage");
+  reload.onclick = () => location.reload();
+  panel.append(heading, detail, reload);
+  document.body.textContent = "";
+  document.body.appendChild(panel);
 });

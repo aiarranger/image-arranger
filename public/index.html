@@ -4,10 +4,44 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>image-arranger</title>
+    <link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;rect width='100' height='100' rx='20' fill='%233d3550'/&gt;&lt;text x='50' y='68' font-size='52' text-anchor='middle' fill='%239b7dff' font-family='monospace'&gt;ia&lt;/text&gt;&lt;/svg&gt;" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <!-- First-paint skeleton: replaced by render() as soon as the deck loads. -->
+      <div class="app sk" aria-hidden="true">
+        <div class="sk-top">
+          <div class="sk-block sk-mark"></div>
+          <div class="sk-block sk-title"></div>
+          <div class="sk-block sk-toolbar"></div>
+        </div>
+        <div class="sk-tabs">
+          <div class="sk-block sk-tab"></div>
+          <div class="sk-block sk-tab"></div>
+          <div class="sk-block sk-tab"></div>
+          <div class="sk-block sk-tab"></div>
+          <div class="sk-block sk-tab"></div>
+          <div class="sk-block sk-filter"></div>
+        </div>
+        <div class="sk-panel">
+          <div class="sk-grid">
+            <div class="sk-block sk-card"></div>
+            <div class="sk-block sk-card"></div>
+            <div class="sk-block sk-card"></div>
+            <div class="sk-block sk-card"></div>
+            <div class="sk-block sk-card"></div>
+            <div class="sk-block sk-card"></div>
+            <div class="sk-block sk-card"></div>
+            <div class="sk-block sk-card"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Persistent overlays: live outside #app so full-innerHTML re-renders
+         can't blink an open modal or destroy a pending Undo toast. -->
+    <div class="modal" id="modal"></div>
+    <div class="toast" id="toast"></div>
     <script type="module" src="./app.js"></script>
   </body>
 </html>
