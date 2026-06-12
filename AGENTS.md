@@ -31,6 +31,7 @@ node scripts/process-queue.mjs --keep-tabs          # leave chats open to inspec
 Division of labour:
 
 - **The script handles** `generate` targets for images (service `chatgpt`). It retries a refused/failed generation in a fresh chat up to 3 attempts total, then reports `error` via the complete API and moves on.
+- If a `generate` target has `qualityGate.enabled`, the script treats it as an important generation: after each generated candidate it asks ChatGPT to compare the candidate with the listed base/part references, retrying up to `qualityGate.maxAttempts`. This is a **compare-if-visible** check: hidden, absent, cropped-out, or too-small parts are not failures; a failure means a visible matching part is materially different from the canonical reference.
 - **You handle** `draft-prompt` (read the reference URL, write the prompt — see below) and `analyze` (image analysis JSON). Both are reported via the complete API with `curl`; no browser automation needed. After completing a `draft-prompt`, rerun the script to process the auto-queued generation.
 - Video targets (Vidu) are processed per the Video section below.
 - **Reference driver**: [`scripts/demo-agent.mjs`](scripts/demo-agent.mjs) (`npm run demo-agent`) is the smallest complete processor of this contract — it polls `GET /api/requests`, "generates" locally rendered placeholder PNGs, registers them via `POST /api/assets`, and reports `POST /api/requests/complete` with the same payload shapes as the real driver. Read it before writing your own.
@@ -64,9 +65,10 @@ Prefer the scripted processor above — the steps below define the contract it i
 1. Use the target `prompt` as-is.
 2. If `inputs.refImages` is present, attach only those files. They contain assets the user explicitly adopted (or the improvement source). Do not add other candidates on your own.
 3. Treat **1 queue target = 1 deliverable**. Do not produce grids, contact sheets, A/B comparisons, or multiple candidates for a single target.
-4. Save the result into the target `outputDir`.
-5. Register the file as an asset candidate on the matching entry (via the UI or `POST /api/assets`), marking `adopted` only if the user asked for auto-adoption.
-6. Mark the target completed (see Reporting below).
+4. If `qualityGate.enabled` is present, check the candidate against `qualityGate.requiredParts` before completion. Compare only parts/features that are actually visible in the candidate; do not fail missing/hidden/occluded parts. If a visible part differs, regenerate with the correct part reference plus the previous attempt as composition reference, up to `qualityGate.maxAttempts`.
+5. Save the passing result into the target `outputDir`.
+6. Register the file as an asset candidate on the matching entry (via the UI or `POST /api/assets`), marking `adopted` only if the user asked for auto-adoption.
+7. Mark the target completed (see Reporting below), including `qualityReport` when a quality gate was evaluated.
 
 ## Prompt Drafting (`draft-prompt`)
 

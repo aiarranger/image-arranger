@@ -84,6 +84,21 @@ contact sheets, or A/B variants for a single target.
   "inputs": { "startFrame": null, "endFrame": null, "refImages": ["workspace/demo/assets/face.png"] },
   "outputDir": "workspace/demo/outputs/sample-character",
   "service": "chatgpt",
+  "qualityGate": {
+    "enabled": true,
+    "mode": "compare-if-visible",
+    "maxAttempts": 3,
+    "requiredParts": [
+      {
+        "entryId": "base-accessory-horns",
+        "category": "accessory",
+        "overview": "Horns",
+        "prompt": "canonical horn description",
+        "file": "workspace/demo/assets/horns.png",
+        "visibilityRule": "compare-if-visible"
+      }
+    ]
+  },
   "status": "requested",
   "results": []
 }
@@ -104,10 +119,12 @@ contact sheets, or A/B variants for a single target.
 | `inputs` | object | Input files to attach (see below). |
 | `outputDir` | string \| null | Where to save results, relative to `projectRoot`. `null` for `analyze` targets (they produce JSON, not a file). |
 | `service` | string | Target service (`"chatgpt"`, `"vidu"`, …). |
+| `qualityGate` | object \| null | Optional important-generation check. When enabled, processors should inspect the generated candidate before completion and compare only visible matching parts against `requiredParts`. Missing/hidden/cropped-out parts are not failures. See below. |
 | `status` | string | `"requested"`, `"completed"`, `"error"`, or `"cancelled"`. |
 | `results` | array | Filled on completion: `[{ "file": "<relative path>", ... }]`. |
 | `completedAt` / `erroredAt` / `cancelledAt` | string | Set by the server when the status changes. |
 | `errorMessage` | string | Present when `status` is `"error"`. |
+| `qualityReport` | object | Optional completion record written by a processor when `qualityGate` was evaluated. |
 | `draftedPrompt` / `draftedOverview` | string | Stored on a completed `draft-prompt` target. |
 | `analysisParts` | array | Stored on a completed `analyze` target (parsed part prompts). |
 
@@ -125,15 +142,32 @@ contact sheets, or A/B variants for a single target.
 | `durationSec` | number | Video: requested clip length in seconds. |
 | `sourceAsset` | string \| null | Improve: the primary asset being improved. |
 
+### `qualityGate` sub-object
+
+`qualityGate` is optional and additive. Processors that do not support it may ignore
+it; supported processors should apply it before reporting completion.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `enabled` | boolean | `true` means this target should be checked before completion. |
+| `mode` | string | Currently `"compare-if-visible"`. |
+| `maxAttempts` | number | Maximum total generation attempts for this quality loop. Default UI value is `3`; processors should clamp to a safe range. |
+| `requiredParts` | array | Canonical base/part references to compare against. Each item carries `entryId`, `category`, `overview`, `prompt`, `file`, and `visibilityRule`. |
+
+Important: this check is **not** a required-presence test. A part is allowed to be
+absent, hidden, cropped out, or too small to identify. It fails only when the candidate
+visibly contains the same kind of part/feature and that visible part is materially
+different from the canonical reference.
+
 ## Actions
 
 Process a target only when both the request `status` and the target `status` are
 `"requested"`. Never process a `"cancelled"` target.
 
 - **`generate`** (or missing `action`) — produce one new image or video. Attach
-  `inputs.refImages`, save into `outputDir`, register the result as a candidate asset,
-  then report completion. For video, also pass `inputs.startFrame` / `inputs.endFrame`
-  / `inputs.durationSec`.
+  `inputs.refImages`, save into `outputDir`, optionally run `qualityGate` if present,
+  register the passing result as a candidate asset, then report completion. For video,
+  also pass `inputs.startFrame` / `inputs.endFrame` / `inputs.durationSec`.
 - **`improve`** — regenerate from an existing asset. Treat `inputs.sourceAsset` /
   `assetFile` as the primary reference and follow `improvementPrompt`.
 - **`analyze`** — base-kit analysis. **No image is generated.** The deliverable is JSON
@@ -169,7 +203,8 @@ Common envelope:
   ```
 
   Each result is `{ "file": "<path relative to projectRoot>", ... }`. Extra keys (e.g.
-  `assetId`) are preserved.
+  `assetId`) are preserved. A processor may also include `qualityReport` alongside
+  `results`; it is stored on the target.
 
 - **`parts`** — analysis result (analyze). `parts` is the analysis JSON (or its `parts`
   array):
@@ -196,6 +231,9 @@ Common envelope:
     -H "Content-Type: application/json" \
     -d '{"requestId": "<id>", "targetIndex": 0, "error": "<what failed>"}'
   ```
+
+  A quality-gate failure should be reported as `error` with `qualityReport` describing
+  the attempts and visible mismatches.
 
 The response includes `{ ok, completed, errored, kitResultsStored, draftQueued,
 kitResults, requests, state }`.

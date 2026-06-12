@@ -64,6 +64,11 @@ const I18N = {
     aiDraftHelp: "URLだけでOK。ボタンを押すと題名と生成プロンプトをAIエージェントが書き、取り込み後そのまま生成キューへ進みます。",
     draftPrompt: "AIプロンプト作成",
     aiDraftNeedsUrl: "プロンプト作成をAIに任せる場合は参考URLを入力してください",
+    qualityGate: "重要生成チェック",
+    qualityGateHelp: "生成後、見えているベースパーツだけを参照と同一か自動検査します。隠れている・未登場・小さすぎるパーツは不合格にしません。",
+    qualityGateAttempts: "最大試行回数",
+    qualityGateNoParts: "比較できるベース参照がありません。画像の元画像としてベース採用画像を選ぶと自動チェックできます。",
+    qualityGateMeta: (parts, attempts) => `自動チェック: ${parts}パーツ / 最大${attempts}回`,
     genImages: "生成画像",
     refRole: "元画像",
     sourceImages: "元画像（生成入力）",
@@ -299,6 +304,11 @@ const I18N = {
     aiDraftHelp: "URL only is fine. The AI agent writes the title and the generation prompt, then the entry is queued for generation automatically.",
     draftPrompt: "AI prompt draft",
     aiDraftNeedsUrl: "Enter a reference URL to let the AI draft the prompt",
+    qualityGate: "Important generation check",
+    qualityGateHelp: "After generation, automatically compare only visible base parts against their canonical references. Hidden, absent, or too-small parts do not fail the check.",
+    qualityGateAttempts: "Max attempts",
+    qualityGateNoParts: "No comparable base references. Select adopted Base images as source references to enable automatic checking.",
+    qualityGateMeta: (parts, attempts) => `Auto-check: ${parts} parts / max ${attempts} attempts`,
     genImages: "Generated images",
     refRole: "Source",
     sourceImages: "Source images (generation input)",
@@ -514,6 +524,9 @@ const state = {
   kitResults: [],
   projectRoot: "",
 };
+
+const DEFAULT_QUALITY_ATTEMPTS = 3;
+const MAX_QUALITY_ATTEMPTS = 10;
 
 // Locally vendored icons (replaces the Font Awesome CDN — keeps the app fully
 // offline / zero-dependency). Path data is from Font Awesome 6 Free Solid
@@ -1058,6 +1071,88 @@ function referenceAssets(entry) {
   return (entry.assets ?? []).filter((asset) => isSourceRef(asset) && asset.file);
 }
 
+function clampQualityAttempts(value) {
+  return Math.max(1, Math.min(MAX_QUALITY_ATTEMPTS, Number(value) || DEFAULT_QUALITY_ATTEMPTS));
+}
+
+function entryQualityGate(entry) {
+  const gate = entry?.qualityGate;
+  return {
+    enabled: Boolean(gate?.enabled),
+    maxAttempts: clampQualityAttempts(gate?.maxAttempts),
+  };
+}
+
+function setEntryQualityGate(entry, enabled, maxAttempts) {
+  if (!enabled) {
+    delete entry.qualityGate;
+    return;
+  }
+  entry.qualityGate = {
+    enabled: true,
+    maxAttempts: clampQualityAttempts(maxAttempts),
+  };
+}
+
+function baseCategoryOf(baseEntryId, ch = character()) {
+  for (const [category, rows] of Object.entries(ch.base ?? {})) {
+    if ((rows ?? []).some((item) => item.id === baseEntryId)) return category;
+  }
+  return "";
+}
+
+function canonicalFileForBaseEntry(entry) {
+  return adoptedAssets(entry).find((asset) => asset.file)?.file ?? "";
+}
+
+function baseReferenceParts(entry) {
+  const parts = [];
+  const seen = new Set();
+  const addBaseId = (baseEntryId) => {
+    if (!baseEntryId || seen.has(baseEntryId)) return;
+    const baseEntryItem = baseById(baseEntryId);
+    if (!baseEntryItem) return;
+    const category = baseCategoryOf(baseEntryId);
+    if (category === "background") return;
+    const file = canonicalFileForBaseEntry(baseEntryItem);
+    if (!file) return;
+    seen.add(baseEntryId);
+    parts.push({
+      entryId: baseEntryItem.id,
+      category,
+      overview: baseEntryItem.overview ?? baseEntryItem.id,
+      prompt: baseEntryItem.prompt ?? "",
+      file,
+      visibilityRule: "compare-if-visible",
+    });
+  };
+
+  for (const asset of referenceAssets(entry)) {
+    if (asset.linkEntryId) addBaseId(asset.linkEntryId);
+  }
+
+  const refs = entry.refs ?? {};
+  for (const value of Object.values(refs)) {
+    if (Array.isArray(value)) {
+      for (const id of value) addBaseId(id);
+    } else {
+      addBaseId(value);
+    }
+  }
+  return parts;
+}
+
+function qualityGateForRequest(entry) {
+  const gate = entryQualityGate(entry);
+  if (!gate.enabled) return null;
+  return {
+    enabled: true,
+    mode: "compare-if-visible",
+    maxAttempts: gate.maxAttempts,
+    requiredParts: baseReferenceParts(entry),
+  };
+}
+
 function selectedRows() {
   const ch = character();
   if (state.mode === "queue" || state.mode === "kit") return [];
@@ -1203,6 +1298,8 @@ function openEntryModal(entryId, shownAssetId = null) {
   const shownFile = shown ? (isSourceRef(shown) ? resolveReferenceFile(shown) : shown.file) : "";
   const comparePool = compareAssetsOf(entry);
   const requested = entry.requestStatus === "requested";
+  const qualityGate = entryQualityGate(entry);
+  const qualityParts = baseReferenceParts(entry);
   const wasOpen = $("#modal").classList.contains("open");
   const refresh = () => openEntryModal(entry.id, shown?.id ?? null);
   const thumb = (asset, role) => {
@@ -1253,6 +1350,18 @@ function openEntryModal(entryId, shownAssetId = null) {
         <label class="emodal-prompt">${t("refUrl")}${safeLinkUrl(entry.referenceUrl) ? ` <a href="${escapeHtml(safeLinkUrl(entry.referenceUrl))}" target="_blank" rel="noopener" title="${t("refUrl")}">↗</a>` : ""}
           <input id="entryModalRefUrl" type="url" placeholder="https://x.com/..." value="${escapeHtml(entry.referenceUrl ?? "")}">
         </label>
+        ${isImage ? `
+        <div class="quality-gate-panel">
+          <label class="quality-toggle">
+            <input id="entryModalQualityEnabled" type="checkbox" ${qualityGate.enabled ? "checked" : ""}>
+            <span>${t("qualityGate")}</span>
+          </label>
+          <label class="quality-attempts">
+            <span>${t("qualityGateAttempts")}</span>
+            <input id="entryModalQualityAttempts" type="number" min="1" max="${MAX_QUALITY_ATTEMPTS}" step="1" value="${qualityGate.maxAttempts}">
+          </label>
+          <p class="form-note">${qualityParts.length ? t("qualityGateHelp") : t("qualityGateNoParts")}</p>
+        </div>` : ""}
         <div class="emodal-h4row">
           <h4>${t("genImages")}</h4>
           ${comparePool.length >= 2 ? `<button class="ghost small compare-btn" id="entryModalCompare">⇆ ${t("compare")}</button>` : ""}
@@ -1327,6 +1436,13 @@ function openEntryModal(entryId, shownAssetId = null) {
     entry.overview = $("#entryModalTitle").value;
     entry.prompt = $("#entryModalPrompt").value;
     if ($("#entryModalRefUrl")) entry.referenceUrl = $("#entryModalRefUrl").value.trim();
+    if (isImage && $("#entryModalQualityEnabled")) {
+      setEntryQualityGate(
+        entry,
+        $("#entryModalQualityEnabled").checked,
+        $("#entryModalQualityAttempts")?.value,
+      );
+    }
     if (shown && !isSourceRef(shown) && $("#entryModalAssetPrompt")) {
       shown.prompt = $("#entryModalAssetPrompt").value;
     }
@@ -1822,6 +1938,8 @@ function renderQueue() {
         const key = `queue:${item.requestId}:${item.targetIndex}`;
         const opened = state.expanded.has(key);
         const refImages = item.inputs?.refImages ?? [];
+        const qualityGate = item.qualityGate?.enabled ? item.qualityGate : null;
+        const qualityParts = qualityGate?.requiredParts ?? [];
         return `
           <div class="queue-card ${item.existsInDeck ? "" : "missing-target"}">
             <div class="queue-row">
@@ -1832,6 +1950,7 @@ function renderQueue() {
               <div class="queue-meta">
                 <span class="badge requested">${t("requested")}</span>
                 <span class="chip">${t(item.action === "improve" ? "improve" : item.action === "analyze" ? "analyze" : item.action === "draft-prompt" ? "draftPrompt" : "generate")}</span>
+                ${qualityGate ? `<span class="chip">${escapeHtml(t("qualityGateMeta")(qualityParts.length, qualityGate.maxAttempts ?? DEFAULT_QUALITY_ATTEMPTS))}</span>` : ""}
                 <span class="chip">${t("requestedAt")}: ${escapeHtml(formatDateTime(item.requestedAt))}</span>
                 <span class="queue-file" title="${escapeHtml(`${item.requestFile} / ${t("target")}: ${item.targetIndex}`)}">${escapeHtml(item.requestId)}</span>
               </div>
@@ -1861,6 +1980,12 @@ function renderQueue() {
                   ${t("refImages")}
                   <textarea readonly rows="3">${escapeHtml(refImages.length ? refImages.join("\n") : "-")}</textarea>
                 </label>
+                ${qualityGate ? `
+                  <label>
+                    ${t("qualityGate")}
+                    <textarea readonly rows="3">${escapeHtml(qualityParts.length ? qualityParts.map((part) => `${part.overview || part.entryId} (${part.category || "-"}) -> ${part.file || "-"}`).join("\n") : t("qualityGateNoParts"))}</textarea>
+                  </label>
+                ` : ""}
                 <div class="queue-detail-actions">
                   <button class="primary small" data-save-queue="${escapeHtml(item.requestId)}" data-target-index="${item.targetIndex}">${t("saveQueue")}</button>
                 </div>
@@ -1948,6 +2073,15 @@ function renderFormModal() {
       <label>${t("entryFile")}<input type="file" name="entryFileUpload" accept=".png,.jpg,.jpeg,.webp,.gif,.mp4,.webm"><small>${t("entryFileHelp")}</small></label>
       <label class="inline"><input name="entryFileAdopt" type="checkbox" checked> ${t("adopt")}<small>${t("adoptOneHelp")}</small></label>
       ${refPicker}
+      ${state.mode === "image" ? `
+        <label class="inline">
+          <input name="qualityGateEnabled" type="checkbox"> ${t("qualityGate")}
+          <small>${t("qualityGateHelp")}</small>
+        </label>
+        <label>${t("qualityGateAttempts")}
+          <input name="qualityGateMaxAttempts" type="number" min="1" max="${MAX_QUALITY_ATTEMPTS}" step="1" value="${DEFAULT_QUALITY_ATTEMPTS}">
+        </label>
+      ` : ""}
       ${state.mode === "video" ? `
         ${formFramePicker("startFrame", t("start"), form)}
         ${formFramePicker("endFrame", t("end"), form)}
@@ -2352,7 +2486,7 @@ function createEntryFromForm(form) {
   }
   const id = makeUniqueId(ids, `image-${slug(overview)}`);
   const refSel = state.form?.refSel ?? [];
-  ch.images.push({
+  const imageEntry = {
     id,
     overview,
     prompt,
@@ -2375,7 +2509,13 @@ function createEntryFromForm(form) {
       tags: ["source-reference"],
       linkEntryId: row.entryId,
     })),
-  });
+  };
+  setEntryQualityGate(
+    imageEntry,
+    Boolean(data.get("qualityGateEnabled")),
+    data.get("qualityGateMaxAttempts"),
+  );
+  ch.images.push(imageEntry);
   return id;
 }
 
@@ -3012,7 +3152,10 @@ function requestTarget(entry, action) {
   }
   const ownReferences = referenceAssets(entry).map((assetItem) => resolveReferenceFile(assetItem)).filter(Boolean);
   const ownAdopted = adoptedAssets(entry).map((assetItem) => assetItem.file).filter(Boolean);
-  const refImages = [...new Set(ownReferences.length ? ownReferences : ownAdopted)];
+  const baseParts = baseReferenceParts(entry);
+  const baseRefImages = baseParts.map((part) => part.file).filter(Boolean);
+  const refImages = [...new Set(ownReferences.length ? ownReferences : (baseRefImages.length ? baseRefImages : ownAdopted))];
+  const qualityGate = qualityGateForRequest(entry);
   return {
     action: action ?? "generate",
     entryId: entry.id,
@@ -3025,6 +3168,7 @@ function requestTarget(entry, action) {
       refImages,
     },
     outputDir: null,
+    ...(qualityGate ? { qualityGate } : {}),
   };
 }
 
@@ -3333,6 +3477,15 @@ function agentPromptForEn(item) {
   const origin = window.location.origin;
   const root = state.projectRoot || "(server project root)";
   const refs = (item.inputs?.refImages ?? []).map((file) => `   - ${file}`).join("\n") || "   - (none)";
+  const qualityGate = item.qualityGate?.enabled ? item.qualityGate : null;
+  const qualityParts = qualityGate?.requiredParts ?? [];
+  const qualityNote = qualityGate ? `
+Quality gate for this important generation:
+- Max generation attempts: ${qualityGate.maxAttempts ?? DEFAULT_QUALITY_ATTEMPTS}
+- Compare only visible matching parts/features. Hidden, absent, cropped, or too-small parts are NOT failures.
+- If a visible part differs from its canonical reference, regenerate with the correct part reference and the previous attempt as composition reference.
+- Parts to compare:
+${qualityParts.length ? qualityParts.map((part) => `  - ${part.overview || part.entryId} (${part.category || "part"}): ${part.file || "(no file)"}`).join("\n") : "  - (none; skip the quality gate if no comparable part references are supplied)"}` : "";
   const attachNote = `   Browser tips (field-tested):
    - Attaching images: prefer the browser tool's native file-attach / upload API. If that is unavailable, fall back to a paste flow.
      On macOS only, you can copy a file to the clipboard and paste it, e.g.:
@@ -3415,6 +3568,7 @@ ${refs}
 ${isImprove ? "   Treat the improvement source (inputs.sourceAsset) as the primary reference and prioritize improvementPrompt as the improvement intent. The other references are for identity preservation.\n" : ""}${attachNote}
 3. 1 target = 1 deliverable. Do not produce multiple variants, grids, A/B comparisons, or contact sheets.
    Reuse a single working tab (do not open a new tab/window per target — use "New chat" in the same tab).
+${qualityNote}
 4. If refused by content policy etc.: 1) resend once with the same prompt; 2) resend once with a minimal wording change that does not alter the design;
    3) if it still fails, report an error and move on:
    curl -X POST ${origin}/api/requests/complete \\
@@ -3433,6 +3587,15 @@ function agentPromptForJa(item) {
   const origin = window.location.origin;
   const root = state.projectRoot || "(server project root)";
   const refs = (item.inputs?.refImages ?? []).map((file) => `   - ${file}`).join("\n") || "   - (なし)";
+  const qualityGate = item.qualityGate?.enabled ? item.qualityGate : null;
+  const qualityParts = qualityGate?.requiredParts ?? [];
+  const qualityNote = qualityGate ? `
+重要生成チェック:
+- 最大生成試行回数: ${qualityGate.maxAttempts ?? DEFAULT_QUALITY_ATTEMPTS}
+- 比較は「同種のパーツ/特徴が見えている場合に同一か」だけ。隠れている・未登場・トリミング外・小さすぎるパーツは不合格にしない。
+- 見えているパーツが正と違う場合だけ、正しいパーツ参照と前回生成画像（構図参照）を添付して再生成する。
+- 比較対象:
+${qualityParts.length ? qualityParts.map((part) => `  - ${part.overview || part.entryId}（${part.category || "part"}）: ${part.file || "ファイルなし"}`).join("\n") : "  - （なし。比較できるパーツ参照が無い場合はチェックをスキップ）"}` : "";
   if (item.action === "analyze") {
     return `image-arranger のベース分解・画像分析依頼を1件処理してください。
 
@@ -3514,6 +3677,7 @@ ${isImprove ? "   改善元（inputs.sourceAsset）を主参照として扱い�
    開始時、入力欄に前回の未送信添付が残っていたら×で消してから始める。添付完了→挿入→送信は一気に行う。
 3. 1 target = 1成果物。複数案・グリッド・A/B比較・コンタクトシートを作らない。
    作業タブは1つだけ使い回す（targetごとに新しいタブ/ウィンドウを開かず、同じタブで「新しいチャット」）。
+${qualityNote}
 4. コンテンツポリシー等で拒否された場合: ①同一プロンプトで1回だけ再送 ②デザインを変えない最小限の表現修正で1回再送
    ③それでも失敗したら error 報告して次へ:
    curl -X POST ${origin}/api/requests/complete \\

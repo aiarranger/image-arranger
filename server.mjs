@@ -17,7 +17,14 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BASE_KIT_PARTS, composeAnalyzePrompt, parseKitParts } from "./prompts.mjs";
+import {
+  BASE_KIT_PARTS,
+  composeAnalyzePrompt,
+  composeQualityCheckPrompt,
+  composeQualityRepairPrompt,
+  parseKitParts,
+  parseQualityCheckResult,
+} from "./prompts.mjs";
 import {
   PALETTES,
   clipLine,
@@ -46,7 +53,13 @@ import {
 } from "./http-util.mjs";
 import { extractPngMetadata } from "./png-metadata.mjs";
 
-export { composeAnalyzePrompt, parseKitParts };
+export {
+  composeAnalyzePrompt,
+  composeQualityCheckPrompt,
+  composeQualityRepairPrompt,
+  parseKitParts,
+  parseQualityCheckResult,
+};
 
 const TOOL_ROOT = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = 4217;
@@ -498,6 +511,12 @@ function normalizeState(state) {
     character.images = character.images ?? [];
     character.videos = character.videos ?? [];
     for (const entryItem of collectEntries(character)) {
+      if (entryItem.qualityGate && typeof entryItem.qualityGate === "object") {
+        entryItem.qualityGate = {
+          enabled: Boolean(entryItem.qualityGate.enabled),
+          maxAttempts: Math.max(1, Math.min(10, Number(entryItem.qualityGate.maxAttempts) || 3)),
+        };
+      }
       for (const assetItem of entryItem.assets ?? []) {
         assetItem.sourceLicense = assetItem.sourceLicense ?? "";
         assetItem.aiGenerated = typeof assetItem.aiGenerated === "boolean" ? assetItem.aiGenerated : false;
@@ -525,6 +544,27 @@ function collectEntries(character) {
 function targetMatches(target, action, entryId, assetId = "") {
   const targetAction = target.action ?? (target.assetId ? "improve" : "generate");
   return targetAction === action && target.entryId === entryId && String(target.assetId ?? "") === String(assetId ?? "");
+}
+
+function normalizeQualityGate(value) {
+  if (!value || typeof value !== "object" || value.enabled === false) return null;
+  const maxAttempts = Math.max(1, Math.min(10, Number(value.maxAttempts) || 3));
+  const requiredParts = Array.isArray(value.requiredParts)
+    ? value.requiredParts.map((part) => ({
+      entryId: String(part.entryId ?? part.id ?? "").trim(),
+      category: String(part.category ?? "").trim(),
+      overview: String(part.overview ?? part.label ?? part.entryId ?? "").trim(),
+      prompt: String(part.prompt ?? "").trim(),
+      file: String(part.file ?? "").trim(),
+      visibilityRule: "compare-if-visible",
+    })).filter((part) => part.entryId || part.file || part.overview)
+    : [];
+  return {
+    enabled: true,
+    mode: "compare-if-visible",
+    maxAttempts,
+    requiredParts,
+  };
 }
 
 function applyRequestStatus(state, targets, status, characterId = "") {
@@ -571,6 +611,7 @@ function buildRequest(state, body, context) {
       inputs: target.inputs ?? { startFrame: null, endFrame: null, refImages: [] },
       outputDir: target.outputDir ?? defaultOutputDir,
       service: target.service ?? (mode === "video" || target.inputs?.endFrame ? "vidu" : "chatgpt"),
+      qualityGate: normalizeQualityGate(target.qualityGate),
       status: "requested",
       results: [],
     };
@@ -651,6 +692,7 @@ function completeRequestFiles(context, selectors) {
       if (selector.error) {
         target.status = "error";
         target.errorMessage = String(selector.error);
+        if (selector.qualityReport) target.qualityReport = selector.qualityReport;
         target.erroredAt = nowIso();
         changed = true;
         completedTargets.push({ requestPayload, target, selector });
@@ -659,6 +701,7 @@ function completeRequestFiles(context, selectors) {
       target.status = "completed";
       target.completedAt = nowIso();
       if (Array.isArray(selector.results)) target.results = selector.results;
+      if (selector.qualityReport) target.qualityReport = selector.qualityReport;
       if ((target.action ?? "") === "draft-prompt") {
         const drafted = selector.prompt
           ?? (Array.isArray(selector.results) ? selector.results.find((item) => item?.prompt)?.prompt : null);
@@ -761,6 +804,7 @@ function listRequestedTargets(context, state = null) {
         improvementPrompt: target.improvementPrompt ?? "",
         inputs: target.inputs ?? { startFrame: null, endFrame: null, refImages: [] },
         outputDir: target.outputDir ?? "",
+        qualityGate: target.qualityGate ?? null,
         requestedAt: requestPayload.requestedAt ?? "",
         existsInDeck: Boolean(entryItem) && (!(action === "improve" || action === "analyze") || Boolean(assetItem)),
       });
@@ -1132,6 +1176,7 @@ async function handleApi(request, response, context, url) {
       parts: target.parts ?? body.parts ?? null,
       prompt: target.prompt ?? body.prompt ?? null,
       overview: target.overview ?? body.overview ?? null,
+      qualityReport: target.qualityReport ?? body.qualityReport ?? null,
       error: target.error ?? body.error ?? null,
     })).filter((target) => (target.requestId && target.targetIndex !== undefined) || target.entryId);
     if (!selectors.length) throw new HttpError(400, "No request targets to complete");
@@ -1160,6 +1205,7 @@ async function handleApi(request, response, context, url) {
           prompt: target.draftedPrompt,
           referenceUrl: target.referenceUrl ?? null,
           inputs: target.inputs ?? { startFrame: null, endFrame: null, refImages: [] },
+          qualityGate: target.qualityGate ?? null,
         }],
       }, context);
       ensureDir(context.requestDir);

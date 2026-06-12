@@ -23,9 +23,14 @@ import { mkdirSync } from "node:fs";
 import { isAbsolute, join, resolve, basename } from "node:path";
 import {
   DEFAULTS, RunLog, ensureChrome, openChat, closePage, checkLogin,
-  attachImages, setPrompt, sendMessage, waitForImageReply, downloadImage, sleep,
+  attachImages, setPrompt, sendMessage, waitForImageReply, waitForTextReply, downloadImage, sleep,
   selectorSelfTest,
 } from "./agent-browser.mjs";
+import {
+  composeQualityCheckPrompt,
+  composeQualityRepairPrompt,
+  parseQualityCheckResult,
+} from "../prompts.mjs";
 
 const args = process.argv.slice(2);
 function flag(name) { return args.includes(name); }
@@ -65,6 +70,7 @@ const SERVER = (option("--server", process.env.IMAGE_ARRANGER_SERVER ?? "http://
 const CDP_PORT = Number(option("--cdp-port", DEFAULTS.cdpPort));
 const MAX_TARGETS = Number(option("--max", "20"));
 const RETRIES_PER_TARGET = 3;
+const QUALITY_CHECK_RETRIES = 2;
 // How many targets run at once, each in its own chat tab (--parallel <n>).
 const PARALLEL = Math.max(1, Number(option("--parallel", process.env.IMAGE_ARRANGER_PARALLEL ?? "1")) || 1);
 
@@ -170,26 +176,36 @@ async function main() {
 
   const summary = [];
 
-  async function processTarget(row) {
-    const tag = row.entryId;
-    runLog.section(`${row.requestId}[${row.targetIndex}] ${row.overview ?? row.entryId}`);
-    runLog.attachJson(`target ${tag}`, row);
-    const refImages = (row.inputs?.refImages ?? []).map((file) => isAbsolute(file) ? file : resolve(projectRoot, file));
-    const outputDir = resolve(projectRoot, row.outputDir || "outputs");
-    mkdirSync(outputDir, { recursive: true });
-    const fileBase = `${slugify(row.entryId.replace(/^image-/, ""), row.entryId)}-${timestamp()}`;
+  function relPath(file) {
+    return file.startsWith(projectRoot) ? file.slice(projectRoot.length + 1) : file;
+  }
 
+  function uniqueFiles(files) {
+    return [...new Set((files ?? []).filter(Boolean))];
+  }
+
+  function qualityParts(row) {
+    return (row.qualityGate?.requiredParts ?? [])
+      .map((part) => ({
+        ...part,
+        file: part.file ? (isAbsolute(part.file) ? part.file : resolve(projectRoot, part.file)) : "",
+      }))
+      .filter((part) => part.file);
+  }
+
+  async function generateImage({ row, tag, prompt, files, outputDir, fileBase, qualityAttempt }) {
     let outcome = null;
+    const suffix = qualityAttempt > 1 ? `-repair${qualityAttempt}` : "";
     for (let attempt = 1; attempt <= RETRIES_PER_TARGET && !outcome; attempt += 1) {
       const page = await openChat({ cdpPort: CDP_PORT });
       try {
-        runLog.log(`[${tag}] attempt ${attempt}/${RETRIES_PER_TARGET}: new chat opened`);
-        const attached = await attachImages(page, refImages);
+        runLog.log(`[${tag}] generation ${qualityAttempt}, service attempt ${attempt}/${RETRIES_PER_TARGET}: new chat opened`);
+        const attached = await attachImages(page, files);
         runLog.log(`[${tag}] attached ${attached} reference image(s)`);
-        await runLog.shot(page, `attached-${row.entryId}`);
-        await setPrompt(page, row.prompt);
+        await runLog.shot(page, `attached-${row.entryId}-q${qualityAttempt}`);
+        await setPrompt(page, prompt);
         runLog.log(`[${tag}] prompt inserted and verified`);
-        await runLog.shot(page, `before-send-${row.entryId}`);
+        await runLog.shot(page, `before-send-${row.entryId}-q${qualityAttempt}`);
         await sendMessage(page);
         runLog.log(`[${tag}] message sent; waiting for the image (polling every 5s)`);
         const reply = await waitForImageReply(page, {
@@ -197,12 +213,12 @@ async function main() {
             `[${tag}] waiting ${elapsed}s — ${state.streaming ? "model is responding" : "no completed image detected yet"} (turns:${state.turns} imgs:${state.images.length}${state.overlay ? " overlay" : ""})`,
           ),
         });
-        await runLog.shot(page, `reply-${row.entryId}`);
+        await runLog.shot(page, `reply-${row.entryId}-q${qualityAttempt}`);
         if (reply.status === "image") {
-          const destination = join(outputDir, `${fileBase}.png`);
+          const destination = join(outputDir, `${fileBase}${suffix}.png`);
           const saved = await downloadImage(page, reply.src, destination);
           runLog.log(`[${tag}] image saved via ${saved.method}: ${destination} (${Math.round(saved.bytes / 1024)} KB)`);
-          outcome = { status: "completed", file: destination };
+          outcome = { status: "completed", file: destination, prompt };
         } else if (reply.status === "error") {
           runLog.log(`[${tag}] generation refused/errored: ${reply.text.slice(0, 200)}`, "warn");
           if (attempt === RETRIES_PER_TARGET) outcome = { status: "error", message: `generation failed after ${attempt} attempts: ${reply.text.slice(0, 300)}` };
@@ -212,39 +228,192 @@ async function main() {
           if (attempt === RETRIES_PER_TARGET) outcome = { status: "error", message: "generation timed out" };
         }
       } catch (error) {
-        await runLog.shot(page, `failure-${row.entryId}`);
-        runLog.log(`[${tag}] attempt ${attempt} failed: ${error.message}`, "error");
+        await runLog.shot(page, `failure-${row.entryId}-q${qualityAttempt}`);
+        runLog.log(`[${tag}] generation ${qualityAttempt}, service attempt ${attempt} failed: ${error.message}`, "error");
         if (attempt === RETRIES_PER_TARGET) outcome = { status: "error", message: error.message };
       } finally {
-        if (!flag("--keep-tabs") && (outcome?.status !== "error")) await closePage(page);
+        if (!flag("--keep-tabs")) await closePage(page);
       }
+    }
+    return outcome;
+  }
+
+  async function runQualityCheck({ row, tag, candidateFile, parts, qualityAttempt }) {
+    const attachedFiles = [candidateFile, ...parts.map((part) => part.file)];
+    for (let checkAttempt = 1; checkAttempt <= QUALITY_CHECK_RETRIES; checkAttempt += 1) {
+      const page = await openChat({ cdpPort: CDP_PORT });
+      try {
+        runLog.log(`[${tag}] quality check ${qualityAttempt}.${checkAttempt}: new chat opened`);
+        const attached = await attachImages(page, attachedFiles);
+        runLog.log(`[${tag}] quality check attached ${attached} image(s) (candidate + ${parts.length} reference part(s))`);
+        await runLog.shot(page, `quality-attached-${row.entryId}-q${qualityAttempt}`);
+        const prompt = composeQualityCheckPrompt({
+          characterName: row.characterName || row.characterId,
+          overview: row.overview || row.entryId,
+          prompt: row.prompt,
+          parts,
+        });
+        await setPrompt(page, prompt);
+        await runLog.shot(page, `quality-before-send-${row.entryId}-q${qualityAttempt}`);
+        await sendMessage(page);
+        runLog.log(`[${tag}] quality check sent; waiting for JSON`);
+        const reply = await waitForTextReply(page, {
+          onTick: (elapsed, state) => runLog.log(
+            `[${tag}] quality check waiting ${elapsed}s — ${state.streaming ? "model is responding" : "no final text yet"} (turns:${state.turns} assistant:${state.assistantTurns})`,
+          ),
+        });
+        await runLog.shot(page, `quality-reply-${row.entryId}-q${qualityAttempt}`);
+        if (reply.status === "text") {
+          const parsed = parseQualityCheckResult(reply.text);
+          runLog.attachJson(`quality check ${tag} attempt ${qualityAttempt}`, parsed);
+          runLog.log(`[${tag}] quality check result: ${parsed.ok ? "pass" : "repair needed"} — ${parsed.summary || `${parsed.issues.length} issue(s)`}`);
+          return { status: "completed", report: parsed };
+        }
+        if (reply.status === "error") {
+          runLog.log(`[${tag}] quality check refused/errored: ${reply.text.slice(0, 200)}`, "warn");
+        } else {
+          runLog.log(`[${tag}] quality check timed out`, "warn");
+        }
+      } catch (error) {
+        await runLog.shot(page, `quality-failure-${row.entryId}-q${qualityAttempt}`);
+        runLog.log(`[${tag}] quality check ${qualityAttempt}.${checkAttempt} failed: ${error.message}`, "error");
+        if (checkAttempt === QUALITY_CHECK_RETRIES) {
+          return { status: "error", message: `quality check failed: ${error.message}` };
+        }
+      } finally {
+        if (!flag("--keep-tabs")) await closePage(page);
+      }
+    }
+    return { status: "error", message: "quality check failed or timed out" };
+  }
+
+  function repairReferenceFiles({ originalRefs, parts, issues, previousFile }) {
+    const issueIds = new Set((issues ?? []).map((issue) => issue.entryId).filter(Boolean));
+    const issueLabels = new Set((issues ?? []).map((issue) => issue.label).filter(Boolean));
+    const issuePartFiles = parts
+      .filter((part) => issueIds.has(part.entryId) || issueLabels.has(part.overview))
+      .map((part) => part.file);
+    return [...uniqueFiles([...originalRefs, ...issuePartFiles]), previousFile];
+  }
+
+  async function processTarget(row) {
+    const tag = row.entryId;
+    runLog.section(`${row.requestId}[${row.targetIndex}] ${row.overview ?? row.entryId}`);
+    runLog.attachJson(`target ${tag}`, row);
+    const refImages = (row.inputs?.refImages ?? []).map((file) => isAbsolute(file) ? file : resolve(projectRoot, file));
+    const outputDir = resolve(projectRoot, row.outputDir || "outputs");
+    mkdirSync(outputDir, { recursive: true });
+    const fileBase = `${slugify(row.entryId.replace(/^image-/, ""), row.entryId)}-${timestamp()}`;
+
+    const gateEnabled = Boolean(row.qualityGate?.enabled);
+    const parts = gateEnabled ? qualityParts(row) : [];
+    const maxQualityAttempts = gateEnabled ? Math.max(1, Math.min(10, Number(row.qualityGate?.maxAttempts) || 3)) : 1;
+    const qualityReport = gateEnabled
+      ? { enabled: true, mode: "compare-if-visible", maxAttempts: maxQualityAttempts, parts: parts.map((part) => ({ ...part, file: relPath(part.file) })), attempts: [] }
+      : null;
+    if (gateEnabled && !parts.length) {
+      qualityReport.skipped = true;
+      qualityReport.summary = "No comparable base part references were present in the request.";
+      runLog.log(`[${tag}] quality gate enabled but no comparable base part references were supplied; generating normally`, "warn");
+    } else if (gateEnabled) {
+      runLog.log(`[${tag}] quality gate enabled: compare-if-visible, ${parts.length} part reference(s), max ${maxQualityAttempts} generation attempt(s)`);
+    }
+
+    let outcome = null;
+    let prompt = row.prompt;
+    let generationFiles = refImages;
+    for (let qualityAttempt = 1; qualityAttempt <= maxQualityAttempts; qualityAttempt += 1) {
+      outcome = await generateImage({
+        row,
+        tag,
+        prompt,
+        files: generationFiles,
+        outputDir,
+        fileBase,
+        qualityAttempt,
+      });
+      if (outcome.status !== "completed") break;
+      if (!gateEnabled || !parts.length) {
+        if (qualityReport) {
+          qualityReport.passed = true;
+          qualityReport.attempts.push({ attempt: qualityAttempt, file: relPath(outcome.file), ok: true, skipped: true });
+        }
+        break;
+      }
+
+      const check = await runQualityCheck({ row, tag, candidateFile: outcome.file, parts, qualityAttempt });
+      if (check.status === "error") {
+        outcome = { status: "error", message: check.message };
+        qualityReport.passed = false;
+        qualityReport.error = check.message;
+        break;
+      }
+      const attemptReport = {
+        attempt: qualityAttempt,
+        file: relPath(outcome.file),
+        ok: check.report.ok,
+        summary: check.report.summary,
+        parts: check.report.parts,
+        issues: check.report.issues,
+      };
+      qualityReport.attempts.push(attemptReport);
+      if (check.report.ok) {
+        qualityReport.passed = true;
+        qualityReport.summary = check.report.summary || `Passed on attempt ${qualityAttempt}`;
+        break;
+      }
+      qualityReport.passed = false;
+      qualityReport.summary = check.report.summary || `${check.report.issues.length} visible mismatch(es)`;
+      if (qualityAttempt === maxQualityAttempts) {
+        outcome = {
+          status: "error",
+          message: `quality gate failed after ${maxQualityAttempts} attempt(s): ${qualityReport.summary}`,
+        };
+        break;
+      }
+      generationFiles = repairReferenceFiles({
+        originalRefs: refImages,
+        parts,
+        issues: check.report.issues,
+        previousFile: outcome.file,
+      });
+      prompt = composeQualityRepairPrompt({
+        originalPrompt: row.prompt,
+        issues: check.report.issues,
+        attempt: qualityAttempt + 1,
+        maxAttempts: maxQualityAttempts,
+      });
+      runLog.log(`[${tag}] quality repair queued for attempt ${qualityAttempt + 1}/${maxQualityAttempts}; attaching ${generationFiles.length} image(s)`);
     }
 
     if (outcome.status === "completed") {
-      const relFile = outcome.file.startsWith(projectRoot) ? outcome.file.slice(projectRoot.length + 1) : outcome.file;
+      const relFile = relPath(outcome.file);
       const registered = await api("/api/assets", {
         characterId: row.characterId,
         entryId: row.entryId,
         sourceFile: relFile,
         name: basename(outcome.file, ".png"),
-        prompt: row.prompt,
+        prompt: outcome.prompt ?? row.prompt,
         aiGenerated: true,
         humanReviewed: false,
         adopted: false,
+        usageNotes: qualityReport?.passed ? `Quality gate passed (${qualityReport.attempts.length} attempt(s), compare-if-visible).` : "",
       });
       runLog.log(`[${tag}] registered as asset candidate: ${registered.asset?.id} -> ${registered.asset?.file}`);
       await api("/api/requests/complete", {
         requestId: row.requestId,
         targetIndex: row.targetIndex,
-        results: [{ file: relFile, prompt: row.prompt }],
+        results: [{ file: relFile, prompt: outcome.prompt ?? row.prompt }],
+        ...(qualityReport ? { qualityReport } : {}),
       });
       runLog.log(`[${tag}] reported completed via /api/requests/complete`);
-      return { requestId: row.requestId, targetIndex: row.targetIndex, entryId: row.entryId, status: "completed", file: relFile, asset: registered.asset?.id };
+      return { requestId: row.requestId, targetIndex: row.targetIndex, entryId: row.entryId, status: "completed", file: relFile, asset: registered.asset?.id, quality: qualityReport?.passed ? "passed" : "" };
     }
     await api("/api/requests/complete", {
       requestId: row.requestId,
       targetIndex: row.targetIndex,
       error: outcome.message,
+      ...(qualityReport ? { qualityReport } : {}),
     });
     runLog.log(`[${tag}] reported error via /api/requests/complete: ${outcome.message}`, "error");
     return { requestId: row.requestId, targetIndex: row.targetIndex, entryId: row.entryId, status: "error", message: outcome.message };

@@ -382,6 +382,10 @@ export async function selectorSelfTest(page) {
           if (document.querySelector(selector)) { matched = selector; break; }
         } catch (e) { /* invalid selector on this build — try the next */ }
       }
+      if (name === "conversationTurn" && matched === null) {
+        checks.push({ name, ok: true, matched: "(deferred: no turns in empty chat)", candidates, deferred: true });
+        continue;
+      }
       checks.push({ name, ok: matched !== null, matched, candidates });
     }
     return { checks };
@@ -585,6 +589,49 @@ export async function waitForImageReply(page, { timeoutMs = 15 * 60 * 1000, onTi
       stableHits = 0;
     }
     if (ERROR_TEXT.test(state.text)) return { status: "error", text: state.text };
+    const elapsed = Math.round((Date.now() - startedAt) / 1000);
+    if (onTick && elapsed - lastBeat >= 30) {
+      lastBeat = elapsed;
+      onTick(elapsed, state);
+    }
+    await sleep(5000);
+  }
+  return { status: "timeout" };
+}
+
+const TEXT_REPLY_STATE = `(() => {
+  const turnSel = ${JSON.stringify(SELECTORS.conversationTurn.join(", "))};
+  const streaming = Boolean(document.querySelector('${SIGNALS.stopButton}'));
+  const turns = [...document.querySelectorAll(turnSel)];
+  const hasAssistantSignal = Boolean(document.querySelector('${SIGNALS.assistantMessage}'));
+  const assistantTurns = turns.filter((turn) => {
+    if (hasAssistantSignal) return Boolean(turn.querySelector('${SIGNALS.assistantMessage}'));
+    return !turn.querySelector('${SIGNALS.userMessage}');
+  });
+  const last = assistantTurns[assistantTurns.length - 1];
+  const text = (last?.innerText ?? "").trim();
+  return { streaming, turns: turns.length, assistantTurns: assistantTurns.length, text };
+})()`;
+
+export async function waitForTextReply(page, { timeoutMs = 10 * 60 * 1000, onTick = null } = {}) {
+  const startedAt = Date.now();
+  let lastBeat = 0;
+  let stableText = "";
+  let stableHits = 0;
+  while (Date.now() - startedAt < timeoutMs) {
+    const state = await evaluate(page, TEXT_REPLY_STATE);
+    if (ERROR_TEXT.test(state.text)) return { status: "error", text: state.text };
+    if (!state.streaming && state.text.length > 20) {
+      if (state.text === stableText) stableHits += 1;
+      else {
+        stableText = state.text;
+        stableHits = 1;
+      }
+      if (stableHits >= 2) return { status: "text", text: state.text };
+    } else {
+      stableText = "";
+      stableHits = 0;
+    }
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
     if (onTick && elapsed - lastBeat >= 30) {
       lastBeat = elapsed;

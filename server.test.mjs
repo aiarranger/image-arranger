@@ -5,7 +5,16 @@ import { deflateSync } from "node:zlib";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { composeAnalyzePrompt, createImageArrangerServer, createSeedState, createEmptyState, parseKitParts, runDoctor } from "./server.mjs";
+import {
+  composeAnalyzePrompt,
+  composeQualityCheckPrompt,
+  createImageArrangerServer,
+  createSeedState,
+  createEmptyState,
+  parseKitParts,
+  parseQualityCheckResult,
+  runDoctor,
+} from "./server.mjs";
 import { extractPngMetadata } from "./png-metadata.mjs";
 import { pngChunk } from "./placeholder-art.mjs";
 
@@ -90,6 +99,72 @@ test("server creates request files and updates target status", async () => {
     assert.equal(completedPayload.status, "completed");
     assert.equal(completedPayload.targets[0].status, "completed");
     assert.deepEqual(completedPayload.targets[0].results, [{ file: "assets/sample-character/generated.png", assetId: "asset-generated" }]);
+  });
+});
+
+test("server preserves qualityGate requests and completion reports", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const target = state.characters[0].images[0];
+    const qualityGate = {
+      enabled: true,
+      maxAttempts: 4,
+      requiredParts: [{
+        entryId: "base-sample-character-accessory-cap",
+        category: "accessory",
+        overview: "Sky-blue cap",
+        prompt: "sky-blue cap reference",
+        file: "assets/base-cap-adopted.png",
+      }],
+    };
+    const created = await fetch(`${baseUrl}/api/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: state.characters[0].id,
+        mode: "image",
+        targets: [{
+          entryId: target.id,
+          overview: target.overview,
+          prompt: target.prompt,
+          inputs: { startFrame: null, endFrame: null, refImages: ["assets/base-reference.png"] },
+          qualityGate,
+        }],
+      }),
+    }).then((response) => response.json());
+
+    assert.equal(created.ok, true);
+    assert.equal(created.request.targets[0].qualityGate.enabled, true);
+    assert.equal(created.request.targets[0].qualityGate.maxAttempts, 4);
+    assert.equal(created.request.targets[0].qualityGate.mode, "compare-if-visible");
+    assert.equal(created.request.targets[0].qualityGate.requiredParts[0].visibilityRule, "compare-if-visible");
+
+    const listed = await fetch(`${baseUrl}/api/requests`).then((response) => response.json());
+    const row = listed.requests.find((item) => item.requestId === created.request.requestId);
+    assert.equal(row.qualityGate.requiredParts[0].entryId, "base-sample-character-accessory-cap");
+
+    const qualityReport = {
+      enabled: true,
+      mode: "compare-if-visible",
+      maxAttempts: 4,
+      passed: true,
+      attempts: [{ attempt: 1, file: "outputs/sample-character/generated.png", ok: true, issues: [] }],
+    };
+    const completed = await fetch(`${baseUrl}/api/requests/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestId: created.request.requestId,
+        targetIndex: 0,
+        results: [{ file: "outputs/sample-character/generated.png" }],
+        qualityReport,
+      }),
+    }).then((response) => response.json());
+    assert.equal(completed.completed, 1);
+
+    const payload = JSON.parse(readFileSync(join(context.requestDir, `${created.request.requestId}.json`), "utf8"));
+    assert.equal(payload.targets[0].qualityReport.passed, true);
+    assert.equal(payload.targets[0].qualityReport.attempts[0].ok, true);
   });
 });
 
@@ -443,6 +518,41 @@ test("parseKitParts accepts raw JSON, fenced blocks, and objects", () => {
   assert.deepEqual(parseKitParts(JSON.stringify({ parts })), parts);
   assert.deepEqual(parseKitParts("```json\n" + JSON.stringify({ parts }) + "\n```"), parts);
   assert.throws(() => parseKitParts("not json"));
+});
+
+test("quality check prompt and parser compare only visible matching parts", () => {
+  const prompt = composeQualityCheckPrompt({
+    characterName: "Sample",
+    overview: "Important portrait",
+    prompt: "portrait prompt",
+    parts: [{ entryId: "base-horns", category: "accessory", overview: "Horns", prompt: "curved black horns" }],
+  });
+  assert.match(prompt, /Do NOT fail a part merely because it is absent/);
+  assert.match(prompt, /Only compare a part when the candidate visibly contains/);
+  assert.match(prompt, /ok.*false only when there is at least one visible mismatch/s);
+
+  const parsed = parseQualityCheckResult("```json\n" + JSON.stringify({
+    ok: false,
+    summary: "horn shape drifted",
+    parts: [
+      { entryId: "base-tail", label: "Tail", visible: false, status: "not_visible", problem: "", repairPrompt: "" },
+      { entryId: "base-horns", label: "Horns", visible: true, status: "mismatch", problem: "wrong color", repairPrompt: "match black horns" },
+    ],
+    issues: [{ entryId: "base-horns", label: "Horns", problem: "wrong color", repairPrompt: "match black horns" }],
+  }) + "\n```");
+  assert.equal(parsed.ok, false);
+  assert.equal(parsed.parts[0].status, "not_visible");
+  assert.equal(parsed.issues.length, 1);
+  assert.equal(parsed.issues[0].entryId, "base-horns");
+
+  const withUiPrefix = parseQualityCheckResult("思考時間: 2m 03s\n" + JSON.stringify({
+    ok: true,
+    summary: "hidden parts ignored",
+    parts: [{ entryId: "base-tail", label: "Tail", visible: false, status: "not_visible" }],
+    issues: [],
+  }) + "\n完了");
+  assert.equal(withUiPrefix.ok, true);
+  assert.equal(withUiPrefix.parts[0].status, "not_visible");
 });
 
 test("base kit: analyze request, complete with parts, and paste import create base entries", async () => {
@@ -836,6 +946,11 @@ test("draft-prompt completion imports the prompt and auto-queues generation", as
           prompt: "",
           referenceUrl: "https://x.com/example/status/1",
           inputs: { startFrame: null, endFrame: null, refImages: [] },
+          qualityGate: {
+            enabled: true,
+            maxAttempts: 3,
+            requiredParts: [{ entryId: "base-sample-character-master", category: "master", overview: "Master", file: "assets/base-master-adopted.png" }],
+          },
         }],
       }),
     })).json();
@@ -867,6 +982,8 @@ test("draft-prompt completion imports the prompt and auto-queues generation", as
     assert.equal(queued.overview, "Drafted title");
     assert.equal(queued.prompt, "Drafted prompt from the reference URL");
     assert.equal(queued.referenceUrl, "https://x.com/example/status/1");
+    assert.equal(queued.qualityGate.enabled, true);
+    assert.equal(queued.qualityGate.requiredParts[0].entryId, "base-sample-character-master");
     assert.equal(updatedEntry.requestStatus, "requested");
   });
 });

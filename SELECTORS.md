@@ -47,7 +47,8 @@ selector per entry) are saved to the run log under `agent-logs/`.
 ## Core selectors (`SELECTORS`, self-tested)
 
 Each is an ordered list of CSS candidates. The self-test reports an entry as OK
-if **any** candidate matches a live element.
+if **any** candidate matches a live element. `conversationTurn` is deferred on an
+empty new chat, because no transcript turn exists until after the first message.
 
 ### `composer`
 - **What:** the contenteditable box where the prompt is typed.
@@ -72,6 +73,8 @@ if **any** candidate matches a live element.
 - **Candidates:** `[data-testid^="conversation-turn-"]`, `article`
 - **Used by:** `REPLY_STATE` to scope the last turn and to decide whether an
   image sits in an assistant turn (deliverable) or the user's turn (reference).
+- **Self-test note:** OK is reported as deferred when the check runs on an empty
+  chat with no turns yet; the selector is exercised after a message is sent.
 
 ---
 
