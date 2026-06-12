@@ -14,12 +14,19 @@ const I18N = {
     kitIntro: "1枚のベース画像から、キャラクター一貫性のためのパーツ別ベース（顔・表情・角・翼・尻尾など）を作ります。画像分析はChatGPT等への依頼としてキューに登録され、返ってきたJSONを取り込むとベースが自動作成されます。",
     kitSource: "ベース画像を選ぶ（複数選択可）",
     kitSourceHelp: "採用済みの画像から選択します（複数可。全身用＋顔色用のように組み合わせると精度が上がります）。",
+    kitSourcesSelected: (n) => `${n}枚選択中`,
     kitPartsAuto: "どのパーツに分解するか（顔・表情・角・翼・尻尾など）は、AIが画像を分析して判断します。",
     kitRouteChoose: "作り方を選ぶ（どちらかのルートへ）",
     routeA: "A. シートを作る",
     routeABadge: "推奨",
+    routeADesc: "参照画像から、キャラクターの正になる1枚のリファレンスシートを作ります。",
+    routeASteps: "3ステップ: 参照選択 → シート設定 → キュー処理",
     routeB: "B. パーツに分解",
     routeBBadge: "部分修正用",
+    routeBDesc: "手元のシートや絵を、顔・衣装・小物などの個別参照へ分解します。",
+    routeBSteps: "4ステップ: 解析依頼 → 結果確認 → パーツ選択 → 取り込み",
+    kitChooseRouteHelp: "目的に近い方だけ開きます。迷ったら、まずAで全体の正を作ります。",
+    kitBackToRoutes: "作り方を選び直す",
     kitSheetTitle: "シートを作る（推奨）",
     kitSheetIntro: "選んだ参照画像から、同一性の正となるリファレンスシートを1回の生成で作ります。生成結果を採用するとマスターの正＝新規画像の既定参照になります。プロンプトはテンプレとして保存・使い回しできます（コミュニティの優れたシートプロンプトを貼ってもOK）。",
     sheetName: "シート名",
@@ -40,6 +47,10 @@ const I18N = {
     kitPasteTitle: "分析結果の取り込み",
     kitPasteHelp: "ChatGPT等が返したJSON（```コードブロックのままでも可）を貼り付けて「内容を確認」を押してください。",
     kitResultsEmpty: "取り込み待ちの分析結果はありません（エージェントが完了報告すると、ここに表示されます）。",
+    kitPendingHint: "キューに入っています。お試しなら別ターミナルで npm run demo-agent、通常は依頼文コピーをエージェントへ渡してください。",
+    kitRouteQueueHint: "登録後はキュータブで確認できます。生成結果が戻ると候補素材として自動登録されます。",
+    kitAnalysisFlow: "解析依頼 → 待機 → 結果からパーツ選択 → ベースへ取り込み",
+    kitResultsReady: "取り込み待ちの分析結果があります",
     kitSelectParts: "パーツを選択して取り込む",
     kitSelectPartsTitle: "ベースにするパーツを選択",
     kitParse: "内容を確認",
@@ -188,6 +199,17 @@ const I18N = {
     referenceSheetSuffix: "リファレンスシート",
     sampleLabelFace: "顔アップ（正面）",
     refLinkNote: "元画像（リンク参照：キュー登録時にリンク先の最新の採用画像へ解決）",
+    kitGoBase: "Base タブへ",
+    kitNoAdoptedMini: "まず Base / Image タブで候補の「採用」をオンにします。採用画像だけが、シート作成の入力として選べます。",
+    paletteSection: "カラーパレット",
+    paletteInclude: "シートに同梱",
+    paletteAvailable: "採用済みパレットを色の正として使います。",
+    paletteMissing: "採用済みカラーパレットはまだありません。",
+    paletteCreateFirst: "先にパレットを作る",
+    paletteCreateHelp: "採用済み参照から、色スウォッチだけのパレット画像をキューに登録します。手元にシート画像があるならBルートでも作れます。",
+    paletteNoRefs: "パレット作成には採用済み参照が必要です。先にBaseタブで候補を採用してください。",
+    paletteCreateQueued: "パレット生成をキューに登録しました",
+    palettePromptBlock: "添付のカラーパレット画像を色の正（authority）として扱うこと。髪・瞳・肌・衣装の色はパレットのスウォッチに厳密一致させ、可能ならHEXを読み取ってシート内の色指定へ反映する。パレットの色を無視して再解釈しない。",
     saved: "保存しました",
     deleted: "削除しました",
     undo: "元に戻す",
@@ -255,12 +277,19 @@ const I18N = {
     kitIntro: "Build per-part character bases (face, expressions, horns, wings, tail...) from one key image. The analysis is queued as a request for ChatGPT or another service; paste the returned JSON to create the base entries automatically.",
     kitSource: "Pick source images (multi-select)",
     kitSourceHelp: "Choose adopted images (multiple allowed — e.g. one for structure plus one for face/color detail).",
+    kitSourcesSelected: (n) => `${n} selected`,
     kitPartsAuto: "The AI decides which parts to extract (face, expressions, horns, wings, tail...) by analyzing the image.",
     kitRouteChoose: "Choose a route (either one)",
     routeA: "A. Create the sheet",
     routeABadge: "Recommended",
+    routeADesc: "Generate one canonical reference sheet from the selected source images.",
+    routeASteps: "3 steps: pick references → configure sheet → process queue",
     routeB: "B. Decompose into parts",
     routeBBadge: "For partial repair",
+    routeBDesc: "Split an existing sheet or illustration into face, outfit, accessory, and other part references.",
+    routeBSteps: "4 steps: request analysis → review result → choose parts → import",
+    kitChooseRouteHelp: "Only the chosen route opens. If unsure, start with A to create the overall canon.",
+    kitBackToRoutes: "Choose a different route",
     kitSheetTitle: "Create the identity sheet (recommended)",
     kitSheetIntro: "One-shot generate the canonical reference sheet from the selected references. Adopt the result and it becomes the master canonical = default reference for new images. Prompts are saved as reusable templates (community sheet prompts welcome).",
     sheetName: "Sheet name",
@@ -281,6 +310,10 @@ const I18N = {
     kitPasteTitle: "Import analysis result",
     kitPasteHelp: "Paste the JSON returned by ChatGPT (a fenced ``` code block is fine) and press 'Review'.",
     kitResultsEmpty: "No analysis results waiting for import (agent completions appear here).",
+    kitPendingHint: "This is queued. For a local demo, run npm run demo-agent in another terminal; for real work, copy the agent prompt.",
+    kitRouteQueueHint: "After queueing, check the Queue tab. Completed results return as candidate assets.",
+    kitAnalysisFlow: "Request analysis → wait → choose result parts → import to Base",
+    kitResultsReady: "Analysis results are ready to import",
     kitSelectParts: "Select parts to import",
     kitSelectPartsTitle: "Choose the parts to create as bases",
     kitParse: "Review",
@@ -429,6 +462,17 @@ const I18N = {
     referenceSheetSuffix: "Reference Sheet",
     sampleLabelFace: "Face close-up (front)",
     refLinkNote: "Source image (linked: resolves to the linked entry's latest adopted image when queued)",
+    kitGoBase: "Go to Base tab",
+    kitNoAdoptedMini: "First turn on Adopt for a candidate in Base / Image. Only adopted images can be selected as sheet inputs.",
+    paletteSection: "Color palette",
+    paletteInclude: "Attach to sheet",
+    paletteAvailable: "Use the adopted palette as the color authority.",
+    paletteMissing: "No adopted color palette yet.",
+    paletteCreateFirst: "Create palette first",
+    paletteCreateHelp: "Queues a swatch-only palette image from adopted references. If you already have a sheet image, route B can create one too.",
+    paletteNoRefs: "Palette creation needs an adopted reference. Adopt a candidate in the Base tab first.",
+    paletteCreateQueued: "Palette generation queued",
+    palettePromptBlock: "Treat the attached color palette image as the color authority. Match hair, eyes, skin, and outfit colors strictly to the palette swatches, and when possible read the HEX values into the sheet's color notes. Do not reinterpret or drift away from the palette colors.",
     saved: "Saved",
     deleted: "Deleted",
     undo: "Undo",
@@ -521,7 +565,7 @@ const state = {
   form: null,
   requests: [],
   toastTimer: null,
-  kit: { sources: [], characterName: "", extra: "", json: "", preview: null },
+  kit: { sources: [], characterName: "", extra: "", json: "", preview: null, route: "", includePalette: true },
   kitPresets: [],
   kitResults: [],
   projectRoot: "",
@@ -1041,6 +1085,84 @@ function adoptedImagePool(ch = character()) {
     }
   }
   return pool;
+}
+
+function kitSourcePool(ch = character(), srcFilter = "all") {
+  return adoptedImagePool(ch)
+    .filter((item) => item.asset.kind !== "video")
+    .filter((item) => srcFilter === "all" || item.origin === srcFilter);
+}
+
+function selectedKitSources(ch = character()) {
+  const byKey = new Map(kitSourcePool(ch, "all").map((item) => [`${item.entry.id}:${item.asset.id}`, item]));
+  const selected = [];
+  const seen = new Set();
+  for (const source of state.kit.sources ?? []) {
+    const key = `${source.entryId}:${source.assetId}`;
+    const item = byKey.get(key);
+    if (!item || seen.has(key)) continue;
+    seen.add(key);
+    selected.push({ ...item, entryId: item.entry.id, assetId: item.asset.id });
+  }
+  return selected;
+}
+
+function normalizeKitSources(ch = character()) {
+  const selected = selectedKitSources(ch);
+  const normalized = selected.map(({ entryId, assetId }) => ({ entryId, assetId }));
+  if (JSON.stringify(state.kit.sources ?? []) !== JSON.stringify(normalized)) state.kit.sources = normalized;
+  return selected;
+}
+
+function isPaletteEntry(entry) {
+  return entry?.partKey === "palette" || /^base-kit-palette(?:-|$)/.test(String(entry?.id ?? ""));
+}
+
+function adoptedPalette(ch = character()) {
+  for (const entry of allBaseEntries(ch)) {
+    if (!isPaletteEntry(entry)) continue;
+    const asset = adoptedAssets(entry).find((item) => item.file && item.kind !== "video");
+    if (asset) return { entry, asset, file: asset.file };
+  }
+  return null;
+}
+
+function paletteCreationReferences(ch = character()) {
+  const categoryRank = ({ entry, origin }) => {
+    const category = origin === "base" ? baseCategoryOf(entry.id, ch) : "image";
+    if (category === "master") return 0;
+    if (entry.partKey === "face-front" || /face|顔/i.test(`${entry.id} ${entry.overview}`)) return 1;
+    if (origin === "base") return 2;
+    return 3;
+  };
+  const seen = new Set();
+  return adoptedImagePool(ch)
+    .filter(({ asset }) => asset.kind !== "video")
+    .sort((a, b) => categoryRank(a) - categoryRank(b))
+    .filter(({ asset }) => {
+      const file = resolveReferenceFile(asset) || asset.file;
+      if (!file || seen.has(file)) return false;
+      seen.add(file);
+      return true;
+    })
+    .slice(0, 4);
+}
+
+function paletteGenerationPrompt(ch = character()) {
+  const preset = (state.kitPresets ?? []).find((part) => part.key === "palette");
+  const hint = preset?.hint || "color swatch grid of the character's main colors, swatches only, no text";
+  return [
+    `Create exactly ONE isolated color palette reference image for ${JSON.stringify(ch.name)}.`,
+    "Use the attached adopted character references as the only color source.",
+    `Focus: ${hint}.`,
+    "Make a clean grid of large flat swatches for hair, eyes, skin, outfit, and signature accessories.",
+    "No character drawing, no text, no logo, no watermark, no UI. White or transparent-feeling neutral background.",
+  ].join("\n");
+}
+
+function palettePrompt(promptText, palette) {
+  if (!palette || state.kit.includePalette === false) return promptText;
+  return `${promptText}\n\n${t("palettePromptBlock")}`;
 }
 
 function adoptedAssets(entry) {
@@ -1792,7 +1914,9 @@ function sheetTemplates() {
 // ("名前リファレンスシート"). Both call sites compose through this helper.
 function defaultSheetName(ch) {
   const suffix = t("referenceSheetSuffix");
-  return state.lang === "ja" ? `${ch.name}${suffix}` : `${ch.name} ${suffix}`;
+  const baseName = state.lang === "ja" ? `${ch.name}${suffix}` : `${ch.name} ${suffix}`;
+  const existing = allBaseEntries(ch).filter((entry) => entry.overview === baseName || entry.overview?.startsWith(`${baseName} `)).length;
+  return existing ? `${baseName} ${existing + 1}` : baseName;
 }
 
 function isSheetQueueRow(row) {
@@ -1805,9 +1929,11 @@ function pendingQueueRow(row) {
       <span class="kit-result-info">
         <strong>${escapeHtml(row.overview || row.entryId)}</strong>
         <small>${t("requested")} ・ ${escapeHtml(formatDateTime(row.requestedAt))} ・ ${escapeHtml(row.requestId)}</small>
+        <small>${escapeHtml(t("kitPendingHint"))}</small>
       </span>
       <span class="kit-actions">
         <button class="ghost small" data-copy-agent="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}">${icon("robot")} ${t("copyAgentPrompt")}</button>
+        <button class="ghost small" data-mode-jump="queue">${t("queue")}</button>
         <button class="ghost small danger" data-cancel-queue="${escapeHtml(row.requestId)}" data-target-index="${row.targetIndex}">${t("cancelRequest")}</button>
       </span>
     </div>`;
@@ -1817,89 +1943,158 @@ function renderKit() {
   const ch = character();
   const kit = state.kit;
   const srcFilter = kit.srcFilter ?? "all";
-  const pool = adoptedImagePool(ch)
-    .filter((item) => item.asset.kind !== "video")
-    .filter((item) => srcFilter === "all" || item.origin === srcFilter);
+  const route = kit.route ?? "";
+  const palette = adoptedPalette(ch);
+  const paletteRefs = paletteCreationReferences(ch);
+  const includePalette = kit.includePalette !== false;
+  const pool = kitSourcePool(ch, srcFilter);
+  const selectedSources = normalizeKitSources(ch);
+  const selectedAssetIds = new Set(selectedSources.map((item) => item.assetId));
+  const sheetRows = (state.requests ?? []).filter((row) => row.characterId === ch.id && isSheetQueueRow(row));
+  const analyzeRows = (state.requests ?? []).filter((row) => row.action === "analyze" && row.characterId === ch.id);
+  const kitResults = state.kitResults ?? [];
+  const routeCards = !route ? `
+      <h3 class="kit-step">2. ${t("kitRouteChoose")}</h3>
+      <p class="form-note">${t("kitChooseRouteHelp")}</p>
+      <div class="kit-route-picker">
+        <button class="kit-route-card" data-kit-route="sheet">
+          <span class="kit-route-head"><strong>${t("routeA")}</strong><span class="kit-chip adopted-chip">${t("routeABadge")}</span></span>
+          <span>${t("routeADesc")}</span>
+          <small>${t("routeASteps")}</small>
+        </button>
+        <button class="kit-route-card" data-kit-route="parts">
+          <span class="kit-route-head"><strong>${t("routeB")}</strong><span class="kit-chip">${t("routeBBadge")}</span></span>
+          <span>${t("routeBDesc")}</span>
+          <small>${t("routeBSteps")}</small>
+        </button>
+      </div>` : "";
+  const paletteSection = `
+      <div class="kit-palette-panel">
+        <div>
+          <strong>${t("paletteSection")}</strong>
+          <p class="form-note">${palette ? t("paletteAvailable") : t("paletteMissing")}</p>
+        </div>
+        ${palette ? `
+          <label class="kit-palette-choice">
+            <span class="thumb"><img src="${assetUrl(palette.file)}" loading="lazy" alt="${escapeHtml(palette.asset.name ?? palette.entry.overview ?? t("paletteSection"))}"></span>
+            <span>
+              <span>${escapeHtml(palette.entry.overview || t("paletteSection"))}</span>
+              <small>${escapeHtml(palette.asset.name ?? palette.asset.id)}</small>
+            </span>
+            <input id="kitIncludePalette" type="checkbox" ${includePalette ? "checked" : ""}>
+            <span>${t("paletteInclude")}</span>
+          </label>` : `
+          <div class="kit-empty-inline">
+            <p class="form-note">${paletteRefs.length ? t("paletteCreateHelp") : t("paletteNoRefs")}</p>
+            ${paletteRefs.length
+              ? `<button class="ghost" id="kitPaletteQueueBtn">${t("paletteCreateFirst")}</button>`
+              : `<button class="ghost" data-mode-jump="base">${t("kitGoBase")}</button>`}
+          </div>`}
+      </div>`;
+  const sheetRoute = route === "sheet" ? `
+      <h3 class="kit-step">2. ${t("kitSheetTitle")}</h3>
+      <div class="kit-route active-route">
+        <div class="kit-route-head"><strong>${t("routeA")}</strong><span class="kit-chip adopted-chip">${t("routeABadge")}</span></div>
+        <p class="form-note">${t("kitSheetIntro")}</p>
+        ${paletteSection}
+        <label class="kit-name">${t("sheetName")}<input id="sheetName" value="${escapeHtml(kit.sheetName || defaultSheetName(ch))}"></label>
+        <label class="kit-name">${t("sheetTpl")}
+          <select id="sheetTplSelect">
+            ${sheetTemplates().map((tpl) => `<option value="${escapeHtml(tpl.id)}" ${kit.sheetTplId === tpl.id ? "selected" : ""}>${escapeHtml(tpl.name)}</option>`).join("")}
+          </select>
+        </label>
+        <label class="kit-name kit-extra">${t("prompt")}<textarea id="sheetPrompt" rows="7">${escapeHtml(kit.sheetPrompt ?? BUILTIN_SHEET_TEMPLATE.text)}</textarea></label>
+        <div class="quality-row sheet-quality">
+          <label><input id="sheetQualityGateEnabled" type="checkbox" ${kit.sheetQualityGateEnabled ? "checked" : ""}> <span>${t("qualityGate")}</span></label>
+          <label>${t("qualityGateAttempts")}<input id="sheetQualityGateAttempts" type="number" min="1" max="${MAX_QUALITY_ATTEMPTS}" step="1" value="${escapeHtml(kit.sheetQualityGateMaxAttempts ?? DEFAULT_QUALITY_ATTEMPTS)}"></label>
+        </div>
+        <p class="form-note">${t("kitRouteQueueHint")}</p>
+        <div class="kit-actions">
+          <button class="primary" id="sheetQueueBtn">${t("sheetQueue")}</button>
+          <button class="ghost" id="sheetSaveTplBtn">${t("sheetSaveTpl")}</button>
+          <button class="ghost" id="kitRouteBack">${t("kitBackToRoutes")}</button>
+        </div>
+        ${sheetRows.map(pendingQueueRow).join("")}
+      </div>` : "";
+  const partsRoute = route === "parts" ? `
+      <h3 class="kit-step">2. ${t("kitDecomposeTitle")}</h3>
+      <div class="kit-route active-route">
+        <div class="kit-route-head"><strong>${t("routeB")}</strong><span class="kit-chip">${t("routeBBadge")}</span></div>
+        <p class="form-note">${t("kitDecomposeIntro")}</p>
+        <div class="kit-flow"><span>${t("kitAnalysisFlow")}</span></div>
+        <p class="form-note">${t("kitPartsAuto")}</p>
+        <label class="kit-name">${t("kitCharName")}<input id="kitCharName" value="${escapeHtml(kit.characterName || ch.name)}"></label>
+        <label class="kit-name kit-extra">${t("kitExtra")}<textarea id="kitExtra" rows="2" placeholder="${escapeHtml(t("kitExtraHelp"))}">${escapeHtml(kit.extra ?? "")}</textarea></label>
+        <div class="kit-actions">
+          <button class="primary" id="kitAnalyzeBtn">${t("kitAnalyze")}</button>
+          <button class="ghost" id="kitRouteBack">${t("kitBackToRoutes")}</button>
+        </div>
+        ${analyzeRows.map(pendingQueueRow).join("")}
+        <div class="kit-result-stage">
+          <h4 class="kit-route-sub">${kitResults.length ? t("kitResultsReady") : t("kitPasteTitle")}</h4>
+          ${kitResults.length ? kitResults.map((result, index) => `
+            <div class="kit-result">
+              <span class="kit-result-info">
+                <strong>${escapeHtml(result.characterName || result.characterId)}</strong>
+                <small>${escapeHtml((result.sourceFile || result.sourceFiles?.[0] || "").split("/").pop() ?? "")} ・ ${escapeHtml(formatDateTime(result.completedAt))} ・ ${escapeHtml(t("partsCount")(result.parts.length))}</small>
+              </span>
+              <button class="ghost small" data-kit-result="${index}">${t("kitSelectParts")}</button>
+            </div>`).join("") : `<p class="form-note">${t("kitResultsEmpty")}</p>`}
+          <p class="form-note">${t("kitPasteHelp")}</p>
+          <textarea id="kitJson" class="kit-json" rows="5" placeholder="${escapeHtml(`{"parts":[{"key":"face-front","label":"${t("sampleLabelFace")}","category":"master","prompt":"..."}]}`)}">${escapeHtml(kit.json ?? "")}</textarea>
+          <div class="kit-actions"><button class="ghost" id="kitParseBtn">${t("kitParse")}</button></div>
+          ${kit.preview ? `
+            <div class="kit-preview">
+              <h4>${t("kitSelectPartsTitle")}（${kit.preview.parts.filter((row) => row.checked).length} / ${kit.preview.parts.length}）</h4>
+              ${kit.preview.parts.map((row, index) => `
+                <label class="kit-part-row ${row.checked ? "selected" : ""}">
+                  <input type="checkbox" data-kit-pick="${index}" ${row.checked ? "checked" : ""}>
+                  <span class="kit-part-label">${escapeHtml(row.part.label ?? row.part.key ?? "")}</span>
+                  <small>${escapeHtml(catText(row.part.category))}</small>
+                  <span class="kit-part-prompt">${escapeHtml(String(row.part.prompt ?? "").slice(0, 180))}</span>
+                </label>`).join("")}
+              <label class="kit-queue-after">
+                <input type="checkbox" id="kitQueueAfter" ${kit.preview.queueAfter !== false ? "checked" : ""}>
+                ${t("kitQueueAfter")}
+              </label>
+              <div class="kit-actions">
+                <button class="primary" id="kitCreateBtn">${t("kitCreateSelected")}</button>
+                <button class="ghost" id="kitPreviewCancel">${t("cancel")}</button>
+              </div>
+            </div>
+          ` : ""}
+        </div>
+      </div>` : "";
   return `
     <div class="kit">
       <p class="kit-intro">${t("kitIntro")}</p>
       <h3 class="kit-step">1. ${t("kitSource")}</h3>
       <p class="form-note">${t("kitSourceHelp")}</p>
+      <p class="form-note"><strong>${escapeHtml(t("kitSourcesSelected")(selectedSources.length))}</strong></p>
       <div class="kit-filter">
         ${[["all", t("allLabel")], ["base", t("base")], ["image", t("image")]].map(([key, label]) => `
           <button class="kit-filter-chip ${srcFilter === key ? "active" : ""}" data-kit-filter="${key}">${label}</button>`).join("")}
       </div>
       <div class="kit-sources">
         ${pool.length ? pool.map(({ asset, entry, origin }) => `
-          <button class="kit-source ${kit.sources.some((s) => s.assetId === asset.id) ? "selected" : ""}"
+          <button class="kit-source ${selectedAssetIds.has(asset.id) ? "selected" : ""}"
             data-kit-source-entry="${escapeHtml(entry.id)}"
             data-kit-source-asset="${escapeHtml(asset.id)}"
             title="${escapeHtml(`${asset.name ?? asset.id} / ${entry.overview}`)}">
             <span class="thumb"><img src="${assetUrl(asset.file)}" loading="lazy" alt="${escapeHtml(asset.name ?? asset.id)}"></span>
             <span class="kit-source-name">${escapeHtml(entry.overview || asset.name || asset.id)}</span>
             <span class="kit-source-origin">${origin === "base" ? t("base") : t("image")}</span>
-          </button>`).join("") : `<p class="form-note">${t("kitNoAdopted")}</p>`}
-      </div>
-      <h3 class="kit-step">2. ${t("kitRouteChoose")}</h3>
-      <div class="kit-routes">
-        <div class="kit-route">
-          <div class="kit-route-head"><strong>${t("routeA")}</strong><span class="kit-chip adopted-chip">${t("routeABadge")}</span></div>
-          <p class="form-note">${t("kitSheetIntro")}</p>
-          <label class="kit-name">${t("sheetName")}<input id="sheetName" value="${escapeHtml(kit.sheetName || defaultSheetName(ch))}"></label>
-          <label class="kit-name">${t("sheetTpl")}
-            <select id="sheetTplSelect">
-              ${sheetTemplates().map((tpl) => `<option value="${escapeHtml(tpl.id)}" ${kit.sheetTplId === tpl.id ? "selected" : ""}>${escapeHtml(tpl.name)}</option>`).join("")}
-            </select>
-          </label>
-          <label class="kit-name kit-extra">${t("prompt")}<textarea id="sheetPrompt" rows="8">${escapeHtml(kit.sheetPrompt ?? BUILTIN_SHEET_TEMPLATE.text)}</textarea></label>
-          <div class="kit-actions">
-            <button class="primary" id="sheetQueueBtn">${t("sheetQueue")}</button>
-            <button class="ghost" id="sheetSaveTplBtn">${t("sheetSaveTpl")}</button>
+          </button>`).join("") : `
+          <div class="kit-empty-source">
+            <p class="form-note">${t("kitNoAdopted")}</p>
+            <p class="form-note">${t("kitNoAdoptedMini")}</p>
+            <button class="primary" data-mode-jump="base">${t("kitGoBase")}</button>
           </div>
-          ${(state.requests ?? []).filter((row) => row.characterId === ch.id && isSheetQueueRow(row)).map(pendingQueueRow).join("")}
-        </div>
-        <div class="kit-route">
-          <div class="kit-route-head"><strong>${t("routeB")}</strong><span class="kit-chip">${t("routeBBadge")}</span></div>
-          <p class="form-note">${t("kitDecomposeIntro")}</p>
-          <p class="form-note">${t("kitPartsAuto")}</p>
-          <label class="kit-name">${t("kitCharName")}<input id="kitCharName" value="${escapeHtml(kit.characterName || ch.name)}"></label>
-          <label class="kit-name kit-extra">${t("kitExtra")}<textarea id="kitExtra" rows="2" placeholder="${escapeHtml(t("kitExtraHelp"))}">${escapeHtml(kit.extra ?? "")}</textarea></label>
-          <div class="kit-actions"><button class="primary" id="kitAnalyzeBtn">${t("kitAnalyze")}</button></div>
-          ${(state.requests ?? []).filter((row) => row.action === "analyze" && row.characterId === ch.id).map(pendingQueueRow).join("")}
-          <h4 class="kit-route-sub">${t("kitPasteTitle")}</h4>
-      ${(state.kitResults ?? []).length ? state.kitResults.map((result, index) => `
-        <div class="kit-result">
-          <span class="kit-result-info">
-            <strong>${escapeHtml(result.characterName || result.characterId)}</strong>
-            <small>${escapeHtml(result.sourceFile.split("/").pop() ?? "")} ・ ${escapeHtml(formatDateTime(result.completedAt))} ・ ${escapeHtml(t("partsCount")(result.parts.length))}</small>
-          </span>
-          <button class="ghost small" data-kit-result="${index}">${t("kitSelectParts")}</button>
-        </div>`).join("") : `<p class="form-note">${t("kitResultsEmpty")}</p>`}
-      <p class="form-note">${t("kitPasteHelp")}</p>
-      <textarea id="kitJson" class="kit-json" rows="5" placeholder="${escapeHtml(`{"parts":[{"key":"face-front","label":"${t("sampleLabelFace")}","category":"master","prompt":"..."}]}`)}">${escapeHtml(kit.json ?? "")}</textarea>
-      <div class="kit-actions"><button class="ghost" id="kitParseBtn">${t("kitParse")}</button></div>
-      ${kit.preview ? `
-        <div class="kit-preview">
-          <h4>${t("kitSelectPartsTitle")}（${kit.preview.parts.filter((row) => row.checked).length} / ${kit.preview.parts.length}）</h4>
-          ${kit.preview.parts.map((row, index) => `
-            <label class="kit-part-row ${row.checked ? "selected" : ""}">
-              <input type="checkbox" data-kit-pick="${index}" ${row.checked ? "checked" : ""}>
-              <span class="kit-part-label">${escapeHtml(row.part.label ?? row.part.key ?? "")}</span>
-              <small>${escapeHtml(catText(row.part.category))}</small>
-              <span class="kit-part-prompt">${escapeHtml(String(row.part.prompt ?? "").slice(0, 180))}</span>
-            </label>`).join("")}
-          <label class="kit-queue-after">
-            <input type="checkbox" id="kitQueueAfter" ${kit.preview.queueAfter !== false ? "checked" : ""}>
-            ${t("kitQueueAfter")}
-          </label>
-          <div class="kit-actions">
-            <button class="primary" id="kitCreateBtn">${t("kitCreateSelected")}</button>
-            <button class="ghost" id="kitPreviewCancel">${t("cancel")}</button>
-          </div>
-        </div>
-      ` : ""}
-        </div>
+        `}
       </div>
+      ${routeCards}
+      ${sheetRoute}
+      ${partsRoute}
     </div>
   `;
 }
@@ -2750,6 +2945,9 @@ function bind() {
   // Optimistic switches (audit P1-3): paint first, persist in the background.
   $("#characterSelect").onchange = (event) => {
     state.characterId = event.target.value;
+    state.kit.sources = [];
+    state.kit.route = "";
+    state.kit.preview = null;
     renderT();
     saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
   };
@@ -2882,6 +3080,24 @@ function bind() {
       render();
     };
   });
+  document.querySelectorAll("[data-kit-route]").forEach((button) => {
+    button.onclick = () => {
+      state.kit.route = button.dataset.kitRoute;
+      renderT();
+    };
+  });
+  document.querySelectorAll("#kitRouteBack").forEach((button) => {
+    button.onclick = () => {
+      state.kit.route = "";
+      renderT();
+    };
+  });
+  document.querySelectorAll("[data-mode-jump]").forEach((button) => {
+    button.onclick = () => {
+      state.mode = button.dataset.modeJump;
+      renderT();
+    };
+  });
   document.querySelectorAll("[data-kit-source-asset]").forEach((button) => {
     button.onclick = () => {
       const sel = { entryId: button.dataset.kitSourceEntry, assetId: button.dataset.kitSourceAsset };
@@ -2896,8 +3112,13 @@ function bind() {
   if ($("#kitJson")) $("#kitJson").oninput = () => { state.kit.json = $("#kitJson").value; };
   if ($("#kitAnalyzeBtn")) $("#kitAnalyzeBtn").onclick = (event) =>
     withBusy(event.currentTarget, requestKitAnalysis).catch((error) => toast(error.message, { kind: "error" }));
+  if ($("#kitIncludePalette")) $("#kitIncludePalette").onchange = () => { state.kit.includePalette = $("#kitIncludePalette").checked; };
+  if ($("#kitPaletteQueueBtn")) $("#kitPaletteQueueBtn").onclick = (event) =>
+    withBusy(event.currentTarget, requestPaletteGeneration).catch((error) => toast(error.message, { kind: "error" }));
   if ($("#sheetName")) $("#sheetName").onchange = () => { state.kit.sheetName = $("#sheetName").value; };
   if ($("#sheetPrompt")) $("#sheetPrompt").oninput = () => { state.kit.sheetPrompt = $("#sheetPrompt").value; };
+  if ($("#sheetQualityGateEnabled")) $("#sheetQualityGateEnabled").onchange = () => { state.kit.sheetQualityGateEnabled = $("#sheetQualityGateEnabled").checked; };
+  if ($("#sheetQualityGateAttempts")) $("#sheetQualityGateAttempts").oninput = () => { state.kit.sheetQualityGateMaxAttempts = clampQualityAttempts($("#sheetQualityGateAttempts").value); };
   if ($("#sheetTplSelect")) {
     $("#sheetTplSelect").onchange = () => {
       const tpl = sheetTemplates().find((item) => item.id === $("#sheetTplSelect").value);
@@ -3273,9 +3494,77 @@ async function enqueueTargets(targets, saveBeforeRequest = true) {
   toast(`${t("requestDone")}\n${result.requestFile}`, { kind: "ok" });
 }
 
+async function requestPaletteGeneration() {
+  const ch = character();
+  const refs = paletteCreationReferences(ch);
+  if (!refs.length) {
+    toast(t("paletteNoRefs"), { kind: "warn" });
+    return;
+  }
+  const ids = entryIds(ch);
+  const id = makeUniqueId(ids, "base-kit-palette");
+  const overview = t("paletteSection");
+  const promptText = paletteGenerationPrompt(ch);
+  const refFiles = [];
+  const assets = refs.map(({ asset, entry }, index) => {
+    const resolved = resolveReferenceFile(asset) || asset.file;
+    if (resolved) refFiles.push(resolved);
+    return {
+      id: `asset-${id}-src-${index}`,
+      kind: "image",
+      file: asset.file ?? "",
+      name: asset.name ?? "source-reference",
+      adopted: false,
+      prompt: "",
+      sourceLicense: "",
+      aiGenerated: true,
+      humanReviewed: true,
+      usageNotes: t("refLinkNote"),
+      tags: ["source-reference"],
+      linkEntryId: entry.id,
+    };
+  });
+  ch.base.accessory = ch.base.accessory ?? [];
+  ch.base.accessory.unshift({
+    id,
+    partKey: "palette",
+    overview,
+    prompt: promptText,
+    version: 1,
+    checked: false,
+    requestStatus: "idle",
+    tags: ["base-kit"],
+    assets,
+  });
+  await saveDeck(false);
+  const queueResult = await api("/api/requests", {
+    method: "POST",
+    body: JSON.stringify({
+      characterId: state.characterId,
+      mode: "base",
+      targets: [{
+        action: "generate",
+        entryId: id,
+        overview,
+        prompt: promptText,
+        inputs: { startFrame: null, endFrame: null, refImages: [...new Set(refFiles)] },
+        outputDir: null,
+      }],
+    }),
+  });
+  state.deck = queueResult.state;
+  normalizeDeck();
+  await loadQueue(false);
+  render();
+  flyToQueue(document.querySelector(`[data-open-entry="${CSS.escape(id)}"] .bcard-thumb img`));
+  toast(`${t("paletteCreateQueued")}\n${t("kitRouteQueueHint")}`, { kind: "ok" });
+}
+
 async function requestSheetGeneration() {
   const kit = state.kit;
-  if (!kit.sources.length) {
+  const ch = character();
+  const selected = normalizeKitSources(ch);
+  if (!selected.length) {
     toast(t("kitNoSource"));
     return;
   }
@@ -3284,14 +3573,16 @@ async function requestSheetGeneration() {
     toast(t("sheetNeedPrompt"));
     return;
   }
-  const ch = character();
   const name = ($("#sheetName")?.value ?? "").trim() || defaultSheetName(ch);
   const ids = entryIds(ch);
   const id = makeUniqueId(ids, `base-sheet-${slug(name)}`);
+  const palette = adoptedPalette(ch);
+  const includePalette = Boolean(palette && kit.includePalette !== false);
+  const finalPrompt = palettePrompt(promptText, includePalette ? palette : null);
   const refFiles = [];
-  const assets = kit.sources.map((sel, index) => {
-    const srcAsset = findEntry(sel.entryId)?.assets?.find((item) => item.id === sel.assetId);
-    const resolved = srcAsset ? (resolveReferenceFile(srcAsset) || srcAsset.file) : "";
+  const assets = selected.map((sel, index) => {
+    const srcAsset = sel.asset;
+    const resolved = resolveReferenceFile(srcAsset) || srcAsset.file || "";
     if (resolved) refFiles.push(resolved);
     return {
       id: `asset-${id}-src-${index}`,
@@ -3308,18 +3599,39 @@ async function requestSheetGeneration() {
       linkEntryId: sel.entryId,
     };
   });
+  if (includePalette) {
+    const paletteFile = resolveReferenceFile(palette.asset) || palette.file;
+    if (paletteFile) refFiles.push(paletteFile);
+    assets.push({
+      id: `asset-${id}-palette-src`,
+      kind: "image",
+      file: palette.asset.file ?? "",
+      name: palette.asset.name ?? "palette",
+      adopted: false,
+      prompt: "",
+      sourceLicense: "",
+      aiGenerated: true,
+      humanReviewed: true,
+      usageNotes: t("paletteAvailable"),
+      tags: ["source-reference"],
+      linkEntryId: palette.entry.id,
+    });
+  }
   ch.base.master = ch.base.master ?? [];
-  ch.base.master.unshift({
+  const sheetEntry = {
     id,
     overview: name,
-    prompt: promptText,
+    prompt: finalPrompt,
     version: 1,
     checked: false,
     requestStatus: "idle",
     tags: ["identity-sheet"],
     assets,
-  });
+  };
+  if (kit.sheetQualityGateEnabled) setEntryQualityGate(sheetEntry, true, kit.sheetQualityGateMaxAttempts);
+  ch.base.master.unshift(sheetEntry);
   await saveDeck(false);
+  const qualityGate = kit.sheetQualityGateEnabled ? qualityGateForRequest(sheetEntry) : null;
   const queueResult = await api("/api/requests", {
     method: "POST",
     body: JSON.stringify({
@@ -3329,9 +3641,10 @@ async function requestSheetGeneration() {
         action: "generate",
         entryId: id,
         overview: name,
-        prompt: promptText,
+        prompt: finalPrompt,
         inputs: { startFrame: null, endFrame: null, refImages: [...new Set(refFiles)] },
         outputDir: null,
+        ...(qualityGate ? { qualityGate } : {}),
       }],
     }),
   });
@@ -3339,12 +3652,23 @@ async function requestSheetGeneration() {
   normalizeDeck();
   await loadQueue(false);
   render();
-  toast(t("sheetQueued"));
+  flyToQueue(document.querySelector(`[data-open-entry="${CSS.escape(id)}"] .bcard-thumb img`));
+  toast(`${t("sheetQueued")}\n${t("kitRouteQueueHint")}`, {
+    kind: "ok",
+    action: {
+      label: t("queue"),
+      fn: () => {
+        state.mode = "queue";
+        renderT();
+      },
+    },
+  });
 }
 
 async function requestKitAnalysis() {
   const kit = state.kit;
-  if (!kit.sources.length) {
+  const selected = normalizeKitSources(character());
+  if (!selected.length) {
     toast(t("kitNoSource"));
     return;
   }
@@ -3352,7 +3676,7 @@ async function requestKitAnalysis() {
     method: "POST",
     body: JSON.stringify({
       characterId: state.characterId,
-      sources: kit.sources,
+      sources: selected.map(({ entryId, assetId }) => ({ entryId, assetId })),
       characterName: ($("#kitCharName")?.value ?? "").trim() || character().name,
       extraRequest: ($("#kitExtra")?.value ?? state.kit.extra ?? "").trim(),
     }),

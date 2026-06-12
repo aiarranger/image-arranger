@@ -1,0 +1,84 @@
+---
+role: review
+depends_on:
+  - docs/04_impl/codex_plan_kit_ux_env_marketing.md
+---
+# Codex 自走分のレビュー結果と修正リスト（2026-06-13）
+
+Claude Code による独立検証の結果。検証体制: 対抗コードレビュー3本（アプリdiff / 環境・docs・CI /
+マーケ事実確認）＋新規コンテキストのサブエージェント走行2本（初心者再走 = Phase 3.4、開発者ペルソナ
+= Phase 3.2）＋実ブラウザでのデグレ確認（E2E-P1-04）。詳細ログ: `agent-logs/2026-06-13-claude-review/`。
+
+**総評**: 実装は計画の受け入れ条件を概ね満たし、`npm run check` / `npm test` 38件 / doctor /
+i18n パリティ（ja=en=261）/ CSP / 契約互換 すべて合格。初心者・開発者ペルソナとも完走。
+ただし下記 P0 3件は**実害のある回帰**のため、マーケ投稿（Phase 4.4）前に修正すること。
+
+## ✅ Claude Code 側で修正済み（コミット済み）
+
+- **比較スライダーが真っ黒（幅0px）**: `.modal-media` の `align-items:center` 継承で、絶対配置の
+  子しか持たない `.compare-box` の幅が 0 に潰れていた。`width:100%; align-self:stretch` を追加して
+  実ブラウザで A/B 分割表示・ハンドル・ラベルまで動作確認済み（styles.css:1633）。
+  ※デモ動画のヒーローショットだったため即時修正した。
+
+## P0 — 投稿前に必須（実害のある回帰）
+
+1. **ギャラリーのお気に入りが全消失** (`public/gallery.js:413`)
+   アイテムIDが `asset.id` → `entry.id:asset.id` 形式に変更され、localStorage 保存済みの
+   お気に入りが全て無効化される。旧形式IDからの移行処理（読み込み時に旧キーを新キーへ昇格）を追加。
+2. **ルートB解析結果の発見性の後退** (`public/app.js` renderKit)
+   `kit.route` はリロード/キャラ切替で `""` に戻るため、解析結果が届いていてもルートカード2枚しか
+   見えない。ルート未選択画面に「解析結果 N件 待ち」バッジ/通知をカードB上に表示する（結果が
+   ある場合はBカードに件数チップ）。
+3. **パレットCTAの連打で重複リクエスト・重複エントリ** (`public/app.js:3497-3559`)
+   投入直後も「採用済みパレットなし」＋同じCTAが再表示され、押すたびに `base-kit-palette-N` が増殖。
+   pending 中はCTAを「依頼中…（キューで確認）」表示に切替え、未採用候補が届いている場合は
+   「候補が届いています — 確認して採用」導線を出す。
+
+## P1 — 品質（コード）
+
+4. `isPaletteEntry` のフォールバック順序違反: `partKey` が存在し非palette でも id 接頭辞判定が走る
+   （`palette-skin` → `base-kit-palette-skin` が誤検出）。partKey 存在時はフォールバック禁止に（app.js:1117）。
+5. キャラ切替時の kit フォーム状態リセット漏れ: `sheetName`/`characterName`/`extra`/`json`（app.js:2946）。
+6. `data-mode-jump` が本来のタブハンドラの副作用（queue 進入時の `loadQueue`、モード永続化）を
+   スキップ。`[data-mode]` クリックへ委譲する形に（app.js:3095）。
+7. CI boot smoke がリクエストを1件も処理しない（初期キューは video のみで demo-agent はスキップ）。
+   画像リクエストを API で1件投入 → demo-agent --once → completed 確認、までをジョブに追加（ci.yml）。
+8. CLAUDE.md がコマンド表を複製しており一方向参照の原則違反（video-skip 注記が3ファイルに重複）。
+   CLAUDE.md は「正準コマンドは AGENTS.md Quick bootstrap を参照」+ Claude Code 固有の注意のみに削減。
+9. ギャラリーのベース参照追加が「リファレンスシート」より広い（パレットやパーツ寄りも含む）。
+   意図的なら CHANGELOG にその旨を書き、`source-reference` 除外の変更も CHANGELOG に追記（gallery.js:420）。
+10. 軽微: `defaultSheetName` の連番重複（app.js:1915）/ kit モードで `flyToQueue` セレクタが
+    絶対にマッチしない死にコード（app.js:3559）/ EADDRINUSE ヘルプの workspace パス引用符なし（server.mjs:1866）。
+
+## P1 — マーケティング（投稿前に反映）
+
+11. **note-ja.md が約1,593字**で目標 2,000-3,000字 未達（Publishing Note の「約2,300字」も誤り）。増補する。
+12. README/note/checklist が参照する `docs/assets/readme/demo.gif` が**未録画**。チェックリストの
+    投稿前ゲートに「demo.gif 配置済み」を追加（録画は👤）。
+13. note-ja のクイックスタートが1ブロックで `npm start` と `npm run demo-agent` を連続記載
+    （そのまま貼ると詰まる）。2ターミナルに分割（x-ja/x-en の post 5 も同様の注記）。
+14. Reddit 草稿から LP リンクと UTM を除去（r/StableDiffusion はトラッキングに敏感）。
+    Show HN 用 URL の `utm_source=hn` も除去（HN は clean URL 慣習）。
+15. checklist の文字数チェックを「フック」でなく投稿全文に変更 / OGP プレビュー手段を実在ツールに
+    （metatags.io 等）/ 「Codex は投稿禁止」を「AIエージェントは投稿禁止」に一般化。
+16. x-ja Notes のフック字数表記（58字→実測46字）修正。x-en にある Windows/Linux 過大表現ガードを
+    x-ja にも追記。逆に Cmd+K・品質ゲート・PNGメタデータ取り込みはどの草稿でも未訴求 — 1投稿分追加を検討。
+
+## P2 — ドキュメント（開発者ペルソナ走行より）
+
+17. `POST /api/assets` のペイロードを request-spec.md に正式記載（現状 demo-agent のソースを読まないと
+    分からず、spec の「特定スクリプトに依存しない」方針と矛盾）。
+18. ヘッドレス投入手順の文書化: 「spec 準拠の JSON を `requests/` に置けばサーバーが拾う」を
+    request-spec.md に明記（初心者・開発者の両走行がこの経路で完走している）。
+19. AGENTS.md Quick bootstrap にポート変更方法（`npm start -- --port` は二重渡しになる罠の回避）と
+    demo-agent 直接実行例（`--workspace`/`--server` 込み）を追記。
+20. `qualityReport` の推奨スキーマ/実例と `maxAttempts` の clamp 範囲を spec に追記。
+21. `/api/state` の1行説明を README か request-spec のどこかに（確認用の最重要エンドポイント）。
+
+## 担当分担
+
+| 誰が | 何を |
+|------|------|
+| **Codex** | 上記 1-21 の修正（P0 → P1 → P2 の順）。各修正で毎タスク必須コマンド＋該当領域の🤖S再検証 |
+| **Claude Code** | 修正後の最終リグレッション確認（実ブラウザ）と再レビュー。完了済み: 独立検証・E2E-P1-04・Phase 3.2/3.4 の走行・比較スライダー修正 |
+| **👤** | Phase 3.5 実機確認 / demo.gif 録画（絵コンテ: docs/marketing/video-shotlist.md）/ Phase 4.4 投稿 |

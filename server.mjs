@@ -104,9 +104,11 @@ function materializeKitParts(character, sourceFiles, parts) {
     if (!label || !prompt) continue;
     const category = character.base?.[part.category] ? part.category : "accessory";
     character.base[category] = character.base[category] ?? [];
-    const id = makeUniqueId(existingIds, `base-kit-${safeSlug(part.key ?? label, "part")}`);
+    const partKey = safeSlug(part.key ?? label, "part");
+    const id = makeUniqueId(existingIds, `base-kit-${partKey}`);
     existingIds.add(id);
     const item = entry(id, label, prompt);
+    item.partKey = partKey;
     item.tags = ["base-kit"];
     for (const [index, file] of files.entries()) {
       item.assets.push({
@@ -1860,6 +1862,20 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(result.ok ? 0 : 1);
   }
   const { server, context } = createImageArrangerServer(args);
+  server.on("error", (error) => {
+    if (error?.code === "EADDRINUSE") {
+      const nextPort = Number(context.port) + 1;
+      console.error(`image-arranger: port ${context.port} is already in use.`);
+      console.error("Start another instance on a different port with:");
+      console.error(`  node server.mjs --workspace ${args.workspace} --init ${context.init} --port ${nextPort}`);
+      console.error("");
+      console.error("If you used npm start, stop the running server or run the command above directly.");
+      process.exit(1);
+      return;
+    }
+    console.error(`image-arranger: failed to start: ${error?.message ?? error}`);
+    process.exit(1);
+  });
   server.listen(context.port, "127.0.0.1", () => {
     console.log(`image-arranger: http://127.0.0.1:${context.port}/`);
     console.log(`workspace: ${args.workspace}`);

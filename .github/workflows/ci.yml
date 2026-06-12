@@ -22,3 +22,26 @@ jobs:
         run: npm test
       - name: Doctor (publish checks)
         run: node server.mjs --workspace ./workspace/ci --init sample --doctor
+      - name: Boot smoke
+        run: |
+          set -euo pipefail
+          rm -rf ./workspace/demo
+          node server.mjs --workspace ./workspace/demo --init sample --port 4217 > /tmp/image-arranger-smoke.log 2>&1 &
+          server_pid=$!
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          for attempt in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:4217/ >/dev/null; then
+              break
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat /tmp/image-arranger-smoke.log
+              exit 1
+            fi
+            sleep 0.25
+          done
+          curl -sf http://127.0.0.1:4217/ >/dev/null
+          npm run demo-agent -- --once --delay 0

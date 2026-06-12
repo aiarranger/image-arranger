@@ -45,7 +45,7 @@ if (typeof fetch === "undefined") {
 const args = process.argv.slice(2);
 function flag(name) { return args.includes(name); }
 function option(name, fallback = null) {
-  const index = args.indexOf(name);
+  const index = args.lastIndexOf(name);
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 }
 

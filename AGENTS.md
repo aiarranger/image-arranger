@@ -6,6 +6,18 @@ image-arranger never operates ChatGPT, Vidu, or any generation service directly.
 
 The stable, supported interface is the request-file contract — see [docs/request-spec.md](docs/request-spec.md) for every field, the completion-API payload shapes, the compatibility promise, and how to write a driver for another service. A non-agent operator can also process a request entirely by hand: see [Process a request by hand](README.md#process-a-request-by-hand-no-agent-needed) in the README. Scripted processing is **macOS-tested** (cross-platform by design); the keystroke fallback is **macOS-only**.
 
+## Quick bootstrap
+
+```bash
+node --version          # Node 20+ for the app; scripted ChatGPT driver needs Node 22+
+npm start              # terminal 1: http://127.0.0.1:4217 with ./workspace/demo
+open http://127.0.0.1:4217/
+npm run demo-agent     # terminal 2, optional: processes image/analyze/draft demo requests
+npm test
+```
+
+`npm run demo-agent` is a local placeholder processor for trying the queue loop. It handles image, analyze, draft-prompt, and improve targets; the sample workspace's pre-seeded pending video request is intentionally skipped because video requires a real driver.
+
 ## Scripted Processing (preferred)
 
 > **Disclaimer**: the bundled automation driver operates **your** browser with **your** account at **your** responsibility, and may conflict with a generation service's terms of service — review them before use. The stable, supported interface is the request-file contract described in this document; the driver is an optional, replaceable convenience.

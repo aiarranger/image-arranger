@@ -37,7 +37,7 @@ npm start              # terminal 1 — server + sample deck (Aoi)
 npm run demo-agent     # terminal 2 — a tiny agent that completes queued requests
 ```
 
-Queue something in the app (or let the agent pick up the pre-seeded pending request) and watch the result land as a candidate asset a few seconds later. Everything is generated locally — the placeholder art needs no accounts, no services, no network. See `node scripts/demo-agent.mjs --help` for flags.
+Queue an image request in the app and watch the result land as a candidate asset a few seconds later. Everything is generated locally — the placeholder art needs no accounts, no services, no network. The sample workspace's pre-seeded pending request is a video request, so the demo agent intentionally skips it. See `node scripts/demo-agent.mjs --help` for flags, including `--server` when you start the app on a non-default port.
 
 <details>
 <summary>Health checks (syntax, tests, workspace doctor)</summary>

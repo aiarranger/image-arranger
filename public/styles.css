@@ -1269,19 +1269,106 @@ textarea.prompt {
 .form-ref-pool .kit-source { width: 108px; }
 .form-ref-pool .kit-source .thumb { width: 90px; height: 90px; }
 
-/* ---- kit routes (A/B 2-column) ---- */
-.kit-routes { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 14px; align-items: start; }
+/* ---- kit routes ---- */
+.kit-route-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+.kit-route-card {
+  min-height: 138px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--panel-strong);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  text-align: left;
+  box-shadow: 0 10px 24px rgba(155, 125, 255, 0.08);
+}
+.kit-route-card:hover { border-color: var(--purple); transform: translateY(-2px); }
+.kit-route-card > span:not(.kit-route-head) { font-size: 13px; line-height: 1.55; color: var(--ink); }
+.kit-route-card small { color: var(--muted); font-size: 11px; }
 .kit-route {
   border: 1.5px solid var(--line);
-  border-radius: 14px;
+  border-radius: 12px;
   padding: 14px 16px;
   background: var(--panel-strong);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
+.kit-route.active-route { max-width: 900px; }
 .kit-route-head { display: flex; align-items: center; gap: 8px; font-size: 14.5px; }
 .kit-route-sub { margin: 10px 0 0; font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 12px; }
+.kit-empty-source,
+.kit-empty-inline {
+  border: 1.5px dashed var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--accent-08);
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.kit-palette-panel {
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.58);
+  display: grid;
+  gap: 10px;
+}
+.kit-palette-choice {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 12.5px;
+}
+.kit-palette-choice .thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+  display: grid;
+  place-items: center;
+}
+.kit-palette-choice .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.kit-palette-choice small { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-palette-choice input[type="checkbox"] { width: auto; margin: 0; }
+.kit-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--purple);
+  font-size: 12px;
+  font-weight: 750;
+}
+.kit-flow span {
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 4px 10px;
+  background: var(--accent-08);
+}
+.kit-result-stage { display: grid; gap: 8px; }
+.sheet-quality {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sheet-quality label { display: inline-flex; align-items: center; gap: 7px; }
+.sheet-quality input[type="checkbox"] { width: auto; margin: 0; }
+.sheet-quality input[type="number"] { width: 72px; padding: 6px 8px; }
 .improve-mode { display: flex; flex-direction: column; gap: 5px; }
 .improve-mode label { display: flex; align-items: center; gap: 7px; font-weight: normal; font-size: 12.5px; cursor: pointer; }
 .improve-mode input[type="radio"] { width: auto; margin: 0; }
@@ -1546,6 +1633,10 @@ button.copied {
 .compare-box {
   position: relative;
   flex: 1;
+  /* All children are absolutely positioned, so the box has no intrinsic width;
+     .modal-media's align-items:center would collapse it to 0 without these. */
+  width: 100%;
+  align-self: stretch;
   min-height: 420px;
   border-radius: 12px;
   overflow: hidden;
@@ -1755,11 +1846,11 @@ button.copied {
   .tour-tip { transition: none; transform: none; }
   .tabs button.bump { animation: bump .25s ease-out; }
   @keyframes bump { 40% { transform: scale(1.12); } }
-  button, .bcard, .kit-source, .queue-card, .emodal-thumb, .bcard-thumb img, .kit-source .thumb img, .toast, .compare-handle {
+  button, .bcard, .kit-source, .kit-route-card, .queue-card, .emodal-thumb, .bcard-thumb img, .kit-source .thumb img, .toast, .compare-handle {
     transition-duration: .01s;
   }
   .compare-box:hover .compare-handle, .compare-box.dragging .compare-handle { transform: translate(-50%, -50%); }
-  button:hover:not(:disabled), .bcard:hover, .kit-source:hover, .queue-card:hover, .emodal-thumb:hover { transform: none; }
+  button:hover:not(:disabled), .bcard:hover, .kit-source:hover, .kit-route-card:hover, .queue-card:hover, .emodal-thumb:hover { transform: none; }
   .bcard:hover .bcard-thumb img, .kit-source:hover .thumb img { transform: none; }
   #exitFlash { display: none; }
 }

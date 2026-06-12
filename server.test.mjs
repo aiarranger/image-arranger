@@ -168,6 +168,51 @@ test("server preserves qualityGate requests and completion reports", async () =>
   });
 });
 
+test("server preserves palette sheet request payload additions", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const target = state.characters[0].base.master[0];
+    const prompt = [
+      "Create a reference sheet.",
+      "Treat the attached color palette image as the color authority.",
+    ].join("\n");
+    const qualityGate = {
+      enabled: true,
+      maxAttempts: 3,
+      requiredParts: [{
+        entryId: "base-kit-palette",
+        category: "accessory",
+        overview: "Color palette",
+        prompt: "canonical color swatch grid",
+        file: "assets/palette.png",
+      }],
+    };
+    const created = await fetch(`${baseUrl}/api/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: state.characters[0].id,
+        mode: "base",
+        targets: [{
+          action: "generate",
+          entryId: target.id,
+          overview: target.overview,
+          prompt,
+          inputs: { startFrame: null, endFrame: null, refImages: ["assets/base-master-adopted.png", "assets/palette.png"] },
+          qualityGate,
+        }],
+      }),
+    }).then((response) => response.json());
+
+    assert.equal(created.ok, true);
+    const payload = JSON.parse(readFileSync(join(context.requestDir, `${created.request.requestId}.json`), "utf8"));
+    assert.match(payload.targets[0].prompt, /color palette image as the color authority/);
+    assert.deepEqual(payload.targets[0].inputs.refImages, ["assets/base-master-adopted.png", "assets/palette.png"]);
+    assert.equal(payload.targets[0].qualityGate.requiredParts[0].entryId, "base-kit-palette");
+    assert.equal(payload.targets[0].qualityGate.requiredParts[0].visibilityRule, "compare-if-visible");
+  });
+});
+
 test("server queues mixed generation and improvement targets and cancels them", async () => {
   await withServer(async ({ baseUrl, context, temp }) => {
     const initial = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
@@ -646,6 +691,7 @@ test("base kit: analyze request, complete with parts, and paste import create ba
     const character = selected.state.characters[0];
     const faceEntry = character.base.master.find((item) => item.id.startsWith("base-kit-face-front"));
     assert.equal(faceEntry.prompt, "face close-up prompt");
+    assert.equal(faceEntry.partKey, "face-front");
     assert.deepEqual(faceEntry.tags, ["base-kit"]);
     assert.equal(faceEntry.assets[0].name, "source-reference");
     assert.equal(faceEntry.assets[0].file, sourceAsset.file);
@@ -1104,6 +1150,7 @@ test("legacy prompt-deck.v1 deck migrates losslessly to current schema", async (
   legacy.characters[0].workflow = "material";
   legacy.characters[0].images.push({
     id: "legacy-image",
+    partKey: "palette",
     overview: "Legacy entry",
     prompt: "legacy prompt",
     version: 1,
@@ -1137,6 +1184,7 @@ test("legacy prompt-deck.v1 deck migrates losslessly to current schema", async (
   const entry = migrated.characters[0].images.find((item) => item.id === "legacy-image");
   assert.ok(entry, "legacy image entry survives migration");
   assert.equal(entry.prompt, "legacy prompt");
+  assert.equal(entry.partKey, "palette");
   assert.deepEqual(entry.tags, ["keepme"]);
   // migration backfills provenance fields on existing assets
   const asset = entry.assets[0];

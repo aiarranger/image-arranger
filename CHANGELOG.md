@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PNG metadata auto-import: prompts embedded by A1111, NovelAI, or ComfyUI auto-fill the prompt fields when you upload the PNG.
 - App motion & UX system: animated view transitions, color-coded status badges, delete with Undo toast, adopt pop and fly-to-queue animations, busy/empty states, drag-drop and paste upload, and keyboard shortcuts (`/`, `1`–`5`, `n`, `g`) — all gated on `prefers-reduced-motion`.
 - README workflow diagrams (EN/JA SVG), a conversion-focused README restructure, and a "Try the full loop in 60 seconds" guide.
+- Agent bootstrap docs for Codex/Claude Code, including `CLAUDE.md`, a Quick bootstrap in `AGENTS.md`, and a CI boot-smoke check that starts the app and runs the demo agent.
+- Create kit route cards, inline queue guidance, integrated analysis-result import flow, empty-source CTA, and selected-source count in JA/EN.
+- Color-palette kit support: palette part keys are persisted, palette generation can be queued from adopted references, and adopted palettes can be attached to sheet requests as color authority references.
+- Launch marketing drafts for X, note, dev.to, Reddit, plus posting checklist and FAQ under `docs/marketing/`.
 
 ### Changed
 
@@ -38,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Internal: extracted `http-util.mjs` (path safety, Range serving, Host/Origin policy) and `prompts.mjs` (base-kit vocabulary) from `server.mjs` as a first step toward a modular layout.
 - Landing page redesigned: problem-first hero with a copyable run command, self-playing demo loop, workflow scrollytelling, before/after, and FAQ — fully offline-safe and reduced-motion friendly.
 - Sample deck v2 (courier-girl Aoi): every tab is populated on first run with locally generated art, and the queue is pre-seeded with one pending and one completed request.
+- Startup now reports a self-solving command when the requested port is already in use.
+- `npm run demo-agent -- --workspace ...` now honors the last repeated option, allowing npm-script defaults to be overridden cleanly.
+- Gallery now includes adopted Base references as well as Image-tab adopted assets, matching the documented "adopted images across the deck" behavior.
 
 ### Fixed
 

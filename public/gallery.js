@@ -405,13 +405,25 @@ function selectCharacter(state) {
 function collectAdopted(ch) {
   const found = [];
   if (!ch) return found;
-  // 画像タブのentryだけが対象（ベース・動画は含めない）
-  for (const entry of ch.images ?? []) {
+  const isSourceRef = (asset) => (asset.tags ?? []).includes('source-reference');
+  const addEntry = (entry) => {
     for (const asset of entry.assets ?? []) {
-      if (asset.adopted && asset.file && IMG_EXT.test(asset.file)) {
-        found.push({ id: asset.id ?? `${entry.id}:${asset.file}`, img: assetUrl(asset.file), comment: entry.overview || asset.name || '' });
+      if (asset.adopted && asset.file && !isSourceRef(asset) && IMG_EXT.test(asset.file)) {
+        found.push({
+          id: `${entry.id}:${asset.id ?? asset.file}`,
+          img: assetUrl(asset.file),
+          comment: entry.overview || asset.name || '',
+        });
       }
     }
+  };
+  // The gallery is for adopted still images across the character, including
+  // canonical base references created through Create kit.
+  for (const rows of Object.values(ch.base ?? {})) {
+    for (const entry of rows ?? []) addEntry(entry);
+  }
+  for (const entry of ch.images ?? []) {
+    addEntry(entry);
   }
   return found;
 }
