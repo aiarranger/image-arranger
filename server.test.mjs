@@ -61,7 +61,7 @@ test("server creates request files and updates target status", async () => {
     assert.equal(result.ok, true);
     assert.equal(result.request.status, "requested");
     assert.equal(result.request.character, "sample-character");
-    assert.equal(result.request.characterName, "Sample Character");
+    assert.equal(result.request.characterName, "Aoi (Sample Character)");
     assert.equal(result.request.service, "chatgpt");
     assert.deepEqual(result.request.targets[0].inputs.refImages, ["assets/base-reference.png"]);
     assert.equal(result.request.targets[0].outputDir, "outputs/sample-character");
@@ -80,7 +80,7 @@ test("server creates request files and updates target status", async () => {
 
     assert.equal(completeResult.ok, true);
     assert.equal(completeResult.completed, 1);
-    assert.equal(completeResult.requests.length, 0);
+    assert.equal(completeResult.requests.length, 1); // the seeded sample video request is still pending
     assert.equal(completeResult.state.characters[0].images[0].requestStatus, "idle");
 
     const completedPayload = JSON.parse(readFileSync(join(context.requestDir, `${result.request.requestId}.json`), "utf8"));
@@ -149,7 +149,7 @@ test("server queues mixed generation and improvement targets and cancels them", 
     assert.equal(queueResult.state.characters[0].images[0].assets.find((item) => item.id === asset.id).requestStatus, "requested");
 
     const listed = await fetch(`${baseUrl}/api/requests`).then((response) => response.json());
-    assert.equal(listed.requests.length, 2);
+    assert.equal(listed.requests.length, 3); // 2 queued here + the seeded sample video request
     assert.equal(listed.requests[0].requestId, queueResult.request.requestId);
     const generateRow = listed.requests.find((item) => item.action === "generate");
     const improveRow = listed.requests.find((item) => item.action === "improve");
@@ -407,7 +407,7 @@ test("server updates characters and cascades queued targets on delete", async ()
       method: "DELETE",
     }).then((response) => response.json());
     assert.equal(deleteResult.ok, true);
-    assert.equal(deleteResult.cancelled, 1);
+    assert.equal(deleteResult.cancelled, 2); // the queued target plus the seeded sample video request
     assert.equal(deleteResult.state.characters.some((item) => item.id === character.id), false);
     assert.equal(deleteResult.requests.length, 0);
 
@@ -595,7 +595,7 @@ test("error reporting marks targets and deck entries, allowing retry", async () 
     assert.equal(errored.errored, 1);
     assert.equal(errored.completed, 0);
     assert.equal(errored.state.characters[0].images[0].requestStatus, "error");
-    assert.equal(errored.requests.length, 0);
+    assert.equal(errored.requests.length, 1); // the seeded sample video request is still pending
     const payload = JSON.parse(readFileSync(join(context.requestDir, `${queued.request.requestId}.json`), "utf8"));
     assert.equal(payload.status, "error");
     assert.equal(payload.targets[0].status, "error");
@@ -831,8 +831,9 @@ test("sample init seeds placeholder assets with provenance", async () => {
     const character = state.characters[0];
     const masterAssets = character.base.master[0].assets;
     const imageAssets = character.images[0].assets;
-    assert.equal(masterAssets.length, 1);
+    assert.equal(masterAssets.length, 2);
     assert.equal(masterAssets[0].adopted, true);
+    assert.equal(masterAssets.filter((asset) => asset.adopted).length, 1);
     assert.equal(imageAssets.length, 2);
     assert.equal(imageAssets.filter((asset) => asset.adopted).length, 1);
     for (const asset of [...masterAssets, ...imageAssets]) {
@@ -842,7 +843,7 @@ test("sample init seeds placeholder assets with provenance", async () => {
       assert.equal(served.status, 200);
       assert.equal(served.headers.get("content-type"), "image/png");
     }
-    assert.ok(masterAssets[0].file.endsWith("base-reference.png"));
+    assert.ok(masterAssets[0].file.endsWith("base-master-adopted.png"));
   });
 });
 
