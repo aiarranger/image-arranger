@@ -39,14 +39,30 @@ Queue は、依頼のアウトボックスです。ボタンを押すと、image
 
 [media: Queue + result candidate]
 
+この「候補」と「採用」を分けているところが、個人的にはいちばん効きました。生成サービスの履歴は、作った順番を覚えてくれます。でも制作では、順番よりも「どれを正にしたか」のほうが大事です。顔の正、衣装の正、小物の正、背景の正が別々に存在していて、それらを次の依頼へまとめて添付したい。image-arranger では、採用済みだけが次の参照候補として扱われるので、迷い中の案を残しながら、正として使うものだけを切り分けられます。
+
+また、依頼は必ず「1ターゲット = 1成果物」として扱います。複数案のグリッドや比較画像を1件の成果物にしない、という単純な制約です。地味ですが、あとから採用・改善・動画化するときに、どのファイルが何の結果なのかを崩さないために必要でした。
+
 この設計にした理由は、生成サービスを置き換えたいわけではないからです。むしろ逆で、今使っている生成環境をそのまま活かしたい。サービスごとに得意な表現やUIがあり、アカウントやワークフローも人によって違います。image-arranger はそこへ無理に入り込まず、安定した依頼ファイル契約だけを持ちます。
 
-ローカルで動くことも重視しました。Node.js 20+ だけで起動し、ランタイム依存はありません。ユーザーのデータは選んだ workspace に保存されます。サンプルデッキとデモエージェントも同梱しているので、外部アカウントなしで一周試せます。
+依頼ファイルは、人間にもエージェントにも読める JSON です。プロンプト、参照画像、保存先、対象サービス、アクションが入っていて、完了時は結果ファイルを返すだけ。特定の生成サービスや自動化スクリプトに閉じないので、手作業でも、ChatGPT UI を使う自動化でも、将来の別サービス用ドライバでも同じ流れを使えます。
+
+ローカルで動くことも重視しました。Node.js 20+ だけで起動し、ランタイム依存はありません。ユーザーのデータは選んだ workspace に保存されます。デッキ JSON、依頼ファイル、出力、候補素材が手元のフォルダに残るので、生成サービスの履歴やクラウド側の状態に依存しすぎません。サンプルデッキとデモエージェントも同梱しているので、外部アカウントなしで一周試せます。
 
 ```bash
 git clone https://github.com/aiarranger/image-arranger.git
 cd image-arranger
+```
+
+ターミナル1:
+
+```bash
 npm start
+```
+
+ターミナル2:
+
+```bash
 npm run demo-agent
 ```
 
@@ -62,7 +78,7 @@ https://aiarranger.github.io/image-arranger/?utm_source=note&utm_medium=article&
 
 ## Publishing Notes
 
-- Target length: about 2,300 Japanese characters excluding code/link blocks.
+- Target length: about 2,000-3,000 Japanese characters excluding code/link blocks.
 - Replace media slots before posting.
 - Do not imply image-arranger performs API generation.
 - If adding a screenshot of the scripted processor, include the ToS disclaimer from README/AGENTS nearby.

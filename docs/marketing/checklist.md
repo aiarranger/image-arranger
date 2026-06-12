@@ -1,13 +1,14 @@
 # Marketing Posting Checklist
 
-Human-only actions: recording, posting, account login, scheduling, replies from official accounts, and metric collection. Codex must not publish or schedule posts.
+Human-only actions: recording, posting, account login, scheduling, replies from official accounts, and metric collection. AI agents must not publish or schedule posts.
 
 ## Assets
 
 - [ ] Record 45s demo video following `docs/marketing/video-shotlist.md`.
-- [ ] Export GIF to `docs/assets/readme/demo.gif` if README animation is ready for launch.
+- [ ] Place the final GIF at `docs/assets/readme/demo.gif` before publishing any draft or README that references it.
 - [ ] Capture screenshots: Create kit route selection, Queue with requested row, result candidate/adoption, Gallery.
 - [ ] Verify OGP image: https://aiarranger.github.io/image-arranger/ogp.png
+- [ ] Preview OGP/card rendering with https://metatags.io/ or the target platform's preview tool.
 - [ ] Verify LP: https://aiarranger.github.io/image-arranger/
 - [ ] Verify GitHub repo public visibility, description, homepage, topics, CI badge.
 - [ ] Confirm OS/Node wording: app/server = Node.js 20+ anywhere Node runs; scripted processor = Node.js 22+ + Chrome/Chromium, macOS-tested; manual keystroke fallback = macOS-only.
@@ -25,7 +26,7 @@ Human-only actions: recording, posting, account login, scheduling, replies from 
 Draft: `docs/marketing/x-ja.md`
 
 - [ ] Attach 45s demo video to post 1.
-- [ ] Confirm post 1 hook remains under 140 Japanese characters if edited.
+- [ ] Confirm every post remains within the platform character limit after edits, including the full post text and URLs.
 - [ ] Check GitHub URL with UTM opens.
 - [ ] Post thread.
 - [ ] Record URL:
@@ -36,6 +37,7 @@ Draft: `docs/marketing/x-ja.md`
 Draft: `docs/marketing/x-en.md`
 
 - [ ] Attach 45s demo video to post 1.
+- [ ] Confirm every post remains within the platform character limit after edits, including the full post text and URLs.
 - [ ] Confirm no claim says image-arranger directly generates.
 - [ ] Check GitHub URL with UTM opens.
 - [ ] Post thread.
@@ -49,7 +51,7 @@ Draft: `docs/marketing/note-ja.md`
 - [ ] Insert hero video/GIF.
 - [ ] Insert 2-3 screenshots.
 - [ ] Check code block formatting.
-- [ ] Preview OGP/card.
+- [ ] Preview OGP/card with https://metatags.io/ or note's preview UI.
 - [ ] Publish.
 - [ ] Record URL:
 - [ ] 24h metrics: views / likes / comments / GitHub referrals:
@@ -80,6 +82,6 @@ Draft: `docs/marketing/reddit-stablediffusion-en.md`
 ## Post-Launch Follow-Up
 
 - [ ] Add common questions to `docs/marketing/faq.md`.
+- [ ] Launch +2-3 days: publish the follow-up X post from `docs/marketing/x-followup.md` from a human account.
 - [ ] File GitHub issues for repeated bug reports.
 - [ ] Record top referral source after 24h and 7d.
-- [ ] Decide whether to cut a follow-up post focused on Create kit / request-file contract.

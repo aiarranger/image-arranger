@@ -20,9 +20,9 @@ Media slot: attach the 45s demo video from `docs/marketing/video-shotlist.md` to
 4. For character work, Create kit can queue a request for a canonical reference sheet from adopted images, then decompose a sheet into face / outfit / accessory references for part-level fixes. It is a workflow manager, not another model wrapper.
 
 5. The app itself is local-first, zero runtime dependencies, Node.js 20+.  
-   The sample deck and demo agent let you run the full loop without external accounts:
-   `npm start`
-   `npm run demo-agent`
+   The sample deck and demo agent let you run the full loop without external accounts. Use two terminals:
+   Terminal 1: `npm start`
+   Terminal 2: `npm run demo-agent`
 
 6. OSS, MIT licensed. If your generation workflow has outgrown folders of PNGs and a spreadsheet, I would love feedback.  
    GitHub: https://github.com/aiarranger/image-arranger?utm_source=x&utm_medium=social&utm_campaign=launch-en

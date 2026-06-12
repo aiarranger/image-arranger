@@ -1865,9 +1865,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   server.on("error", (error) => {
     if (error?.code === "EADDRINUSE") {
       const nextPort = Number(context.port) + 1;
+      const workspaceArg = JSON.stringify(args.workspace ?? ".");
       console.error(`image-arranger: port ${context.port} is already in use.`);
       console.error("Start another instance on a different port with:");
-      console.error(`  node server.mjs --workspace ${args.workspace} --init ${context.init} --port ${nextPort}`);
+      console.error(`  node server.mjs --workspace ${workspaceArg} --init ${context.init} --port ${nextPort}`);
       console.error("");
       console.error("If you used npm start, stop the running server or run the command above directly.");
       process.exit(1);

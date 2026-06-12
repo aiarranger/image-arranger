@@ -1,8 +1,7 @@
 # Reddit Draft (r/StableDiffusion, EN)
 
 Target: r/StableDiffusion
-Primary link: https://github.com/aiarranger/image-arranger?utm_source=reddit&utm_medium=community&utm_campaign=launch-en
-LP link: https://aiarranger.github.io/image-arranger/?utm_source=reddit&utm_medium=community&utm_campaign=launch-en
+Primary link: https://github.com/aiarranger/image-arranger
 Media slot: attach demo GIF/video if subreddit rules and flair allow it.
 
 ## Suggested Title
@@ -29,10 +28,7 @@ For character workflows, the Create kit tab can queue a canonical reference shee
 It is local-first, zero runtime dependencies, and runs with Node.js 20+. The repo includes a sample deck and a demo agent that creates local placeholder images, so you can try the loop without any external accounts.
 
 GitHub:
-https://github.com/aiarranger/image-arranger?utm_source=reddit&utm_medium=community&utm_campaign=launch-en
-
-LP:
-https://aiarranger.github.io/image-arranger/?utm_source=reddit&utm_medium=community&utm_campaign=launch-en
+https://github.com/aiarranger/image-arranger
 
 I am especially interested in feedback from people who already have serious reference-image workflows. If you use ComfyUI or local models, this is meant to sit beside that, not replace it.
 

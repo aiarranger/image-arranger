@@ -21,7 +21,8 @@ Media slot: attach the 45s demo video from `docs/marketing/video-shotlist.md` to
    採用画像が次の生成の参照になります。フォルダ名やスプレッドシートではなく、状態として管理する感じです。
 
 5. アプリ本体は依存ゼロ、Node.js 20+ だけ。サンプルデッキとデモエージェントで、外部アカウントなしに一周試せます。  
-   `npm start` → `npm run demo-agent`
+   ターミナル1: `npm start`
+   ターミナル2: `npm run demo-agent`
 
 6. OSSです。  
    ローカルファーストなAI制作ワークフロー、参照管理、エージェント処理の土台に興味がある方は触ってみてください。  
@@ -29,6 +30,7 @@ Media slot: attach the 45s demo video from `docs/marketing/video-shotlist.md` to
 
 ## Notes
 
-- Post 1 hook length: 58 Japanese characters before the product sentence, safely under 140 chars without URL/media expansion.
+- Post 1 hook length: 46 Japanese characters before the product sentence, safely under 140 chars without URL/media expansion.
 - If using only one link in the thread, keep GitHub in post 6 and put the LP in the profile/comment.
 - After posting, reply once with the Quick Start command if people ask for setup details.
+- Do not overstate Windows/Linux scripted-driver support. The app/server runs wherever Node.js runs; the optional scripted processor is macOS-tested, and the manual keystroke fallback is macOS-only.

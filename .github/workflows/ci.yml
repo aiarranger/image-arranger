@@ -44,4 +44,43 @@ jobs:
             sleep 0.25
           done
           curl -sf http://127.0.0.1:4217/ >/dev/null
+          node - <<'NODE'
+          const baseUrl = "http://127.0.0.1:4217";
+          const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+          const character = state.characters[0];
+          const entry = character.images[0];
+          const beforeGenerated = (entry.assets ?? []).filter((asset) => !(asset.tags ?? []).includes("source-reference")).length;
+          const result = await fetch(`${baseUrl}/api/requests`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              characterId: character.id,
+              mode: "image",
+              targets: [{
+                action: "generate",
+                entryId: entry.id,
+                overview: `${entry.overview} / CI smoke`,
+                prompt: entry.prompt || "one CI smoke image, no text, no watermark",
+                inputs: { startFrame: null, endFrame: null, refImages: [] },
+                outputDir: null,
+              }],
+            }),
+          }).then((response) => response.json());
+          if (!result.ok) throw new Error(`queue failed: ${JSON.stringify(result)}`);
+          await import("node:fs/promises").then(({ writeFile }) =>
+            writeFile("/tmp/image-arranger-smoke-target.json", JSON.stringify({ entryId: entry.id, beforeGenerated })));
+          NODE
           npm run demo-agent -- --once --delay 0
+          node - <<'NODE'
+          const { readFile } = await import("node:fs/promises");
+          const { entryId, beforeGenerated } = JSON.parse(await readFile("/tmp/image-arranger-smoke-target.json", "utf8"));
+          const state = await fetch("http://127.0.0.1:4217/api/state").then((response) => response.json());
+          const entry = state.characters[0].images.find((item) => item.id === entryId);
+          if (!entry) throw new Error(`missing smoke entry ${entryId}`);
+          const generated = (entry.assets ?? []).filter((asset) => !(asset.tags ?? []).includes("source-reference"));
+          if (generated.length <= beforeGenerated) throw new Error(`demo-agent did not register a candidate asset for ${entryId}`);
+          const queue = await fetch("http://127.0.0.1:4217/api/requests").then((response) => response.json());
+          if (queue.requests.some((row) => row.entryId === entryId && row.mode === "image")) {
+            throw new Error(`smoke image request still pending for ${entryId}`);
+          }
+          NODE

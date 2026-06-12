@@ -3,6 +3,9 @@
 const GALLERY_I18N = {
   en: {
     favorite: "Favorite",
+    filterAll: "All",
+    filterBase: "Base",
+    filterImage: "Image",
     speechLines: [
       "Hehe ♥", "Surprised?", "Thanks for looking!", "Hey, which me do you like?",
       "You can keep watching ♥", "Great to see you today!", "Tapping tickles~", "Added me to your favorites yet?",
@@ -14,6 +17,9 @@ const GALLERY_I18N = {
   },
   ja: {
     favorite: "お気に入り",
+    filterAll: "すべて",
+    filterBase: "ベース",
+    filterImage: "画像",
     speechLines: [
       "えへへ♪", "びっくりした？", "見てくれてありがと！", "ねぇ、どの私が好き？",
       "ずっと見てていいよ♪", "今日も会えたね！", "タップ、くすぐったいよ〜", "お気に入り、増やしてくれた？",
@@ -35,7 +41,9 @@ let T = GALLERY_I18N[LANG];
 
 const assetUrl = (file) => `/asset?path=${encodeURIComponent(file)}`;
 const IMG_EXT = /\.(png|jpe?g|webp|gif|avif)$/i;
+let allExpressions = [];
 let expressions = [];
+let activeFilter = 'all';
 let surfacePan = { x:0, y:0 };
 let tileLayout = null;
 let tileCards = [];
@@ -114,6 +122,7 @@ function setCardExpression(card, expr) {
   if (card._expr && card._expr.id === expr.id) return;
   card._expr = expr;
   card.dataset.id = expr.id;
+  card.dataset.origin = expr.origin;
   card._img.src = expr.img;
   card._img.alt = expr.comment;
   card._comment.textContent = expr.comment;
@@ -199,6 +208,42 @@ function buildColumns() {
       }
     }
   }
+}
+
+function expressionCounts() {
+  return {
+    all: allExpressions.length,
+    base: allExpressions.filter(e => e.origin === 'base').length,
+    image: allExpressions.filter(e => e.origin === 'image').length,
+  };
+}
+
+function applyGalleryFilter(origin = activeFilter) {
+  activeFilter = origin;
+  expressions = origin === 'all' ? [...allExpressions] : allExpressions.filter(e => e.origin === origin);
+  surfacePan = { x:0, y:0 };
+  tileLayout = null;
+  tileCards = [];
+  rebuildWeighted();
+  buildColumns();
+  document.querySelectorAll('[data-gallery-filter]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.galleryFilter === activeFilter);
+  });
+}
+
+function renderGalleryFilters() {
+  const host = $('#galleryFilters');
+  if (!host) return;
+  const counts = expressionCounts();
+  const labels = { all: T.filterAll, base: T.filterBase, image: T.filterImage };
+  host.innerHTML = ['all', 'base', 'image'].map((origin) => `
+    <button type="button" class="${origin === activeFilter ? 'active' : ''}" data-gallery-filter="${origin}" ${counts[origin] ? '' : 'disabled'}>
+      ${labels[origin]} <span>${counts[origin]}</span>
+    </button>
+  `).join('');
+  host.querySelectorAll('[data-gallery-filter]').forEach((button) => {
+    button.onclick = () => applyGalleryFilter(button.dataset.galleryFilter);
+  });
 }
 // タイル境界を越えた時だけ呼ばれる。各カードのワールド座標を引き直して
 // 表情と千鳥オフセットを更新する（毎フレームは走らない）。
@@ -406,11 +451,14 @@ function collectAdopted(ch) {
   const found = [];
   if (!ch) return found;
   const isSourceRef = (asset) => (asset.tags ?? []).includes('source-reference');
-  const addEntry = (entry) => {
+  const addEntry = (entry, origin) => {
     for (const asset of entry.assets ?? []) {
       if (asset.adopted && asset.file && !isSourceRef(asset) && IMG_EXT.test(asset.file)) {
+        const legacyId = asset.id ?? asset.file;
         found.push({
-          id: `${entry.id}:${asset.id ?? asset.file}`,
+          id: `${entry.id}:${legacyId}`,
+          legacyId,
+          origin,
           img: assetUrl(asset.file),
           comment: entry.overview || asset.name || '',
         });
@@ -420,12 +468,27 @@ function collectAdopted(ch) {
   // The gallery is for adopted still images across the character, including
   // canonical base references created through Create kit.
   for (const rows of Object.values(ch.base ?? {})) {
-    for (const entry of rows ?? []) addEntry(entry);
+    for (const entry of rows ?? []) addEntry(entry, 'base');
   }
   for (const entry of ch.images ?? []) {
-    addEntry(entry);
+    addEntry(entry, 'image');
   }
   return found;
+}
+
+function migrateFavoriteIds(items) {
+  let changed = false;
+  const next = new Set(favs);
+  for (const expr of items) {
+    if (expr.legacyId && next.has(expr.legacyId) && expr.legacyId !== expr.id) {
+      next.add(expr.id);
+      next.delete(expr.legacyId);
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  favs = next;
+  localStorage.setItem(FAV_KEY, JSON.stringify([...favs]));
 }
 
 fetch('/api/state').then(r => r.json()).then(state => {
@@ -433,15 +496,17 @@ fetch('/api/state').then(r => r.json()).then(state => {
   T = GALLERY_I18N[LANG];
   document.documentElement.lang = LANG;
   const ch = selectCharacter(state);
-  expressions = collectAdopted(ch);
-  if (!expressions.length) {
+  allExpressions = collectAdopted(ch);
+  migrateFavoriteIds(allExpressions);
+  if (!allExpressions.length) {
     showEmptyMsg(`<p>${T.noAdopted(ch?.name ?? T.defaultName)}</p><a href="/">${T.back}</a>`);
     return;
   }
   // 全画像を先読みしておく。タイル使い回しでsrcを差し替えた瞬間の
   // 「ちらつき」（読み込み中の空白が見える）を防ぐ。
-  for (const e of expressions) { const im = new Image(); im.src = e.img; }
-  rebuildWeighted();
+  for (const e of allExpressions) { const im = new Image(); im.src = e.img; }
+  renderGalleryFilters();
+  applyGalleryFilter('all');
   // リサイズは150msのtrailingデバウンス：録画中のウィンドウ操作で
   // 1イベントごとに全カードを作り直すスタッターを防ぐ。
   let resizeTimer = 0;
@@ -449,7 +514,6 @@ fetch('/api/state').then(r => r.json()).then(state => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(buildColumns, 150);
   });
-  buildColumns();
   requestAnimationFrame(tick);
 }).catch(error => {
   showEmptyMsg(`<p>${T.loadFailed(String(error.message || error))}</p><a href="/">${T.back}</a>`);

@@ -31,6 +31,19 @@ relative to the server's project root**, not the workspace.
 A processor should resolve every relative path against `projectRoot` before reading or
 writing files.
 
+## Headless request-file drop
+
+The server and processors discover work from the request directory. A human, script, or
+headless integration may create a spec-compliant JSON file directly at
+`<workspace>/requests/<requestId>.json`; the Queue view and `GET /api/requests` will pick
+it up as long as the request and target statuses are `"requested"` and the referenced
+character/entry still exists in the deck.
+
+When writing files directly, follow the single-writer rule: do not edit the same
+workspace concurrently from multiple processes. Prefer `POST /api/requests` while the
+server is running; use direct file drop for simple integrations, tests, or offline
+handoff.
+
 ## Request object
 
 ```jsonc
@@ -151,13 +164,62 @@ it; supported processors should apply it before reporting completion.
 |-------|------|---------|
 | `enabled` | boolean | `true` means this target should be checked before completion. |
 | `mode` | string | Currently `"compare-if-visible"`. |
-| `maxAttempts` | number | Maximum total generation attempts for this quality loop. Default UI value is `3`; processors should clamp to a safe range. |
+| `maxAttempts` | number | Maximum total generation attempts for this quality loop. Default UI value is `3`; the server and bundled processors clamp to `1`-`10`. |
 | `requiredParts` | array | Canonical base/part references to compare against. Each item carries `entryId`, `category`, `overview`, `prompt`, `file`, and `visibilityRule`. |
 
 Important: this check is **not** a required-presence test. A part is allowed to be
 absent, hidden, cropped out, or too small to identify. It fails only when the candidate
 visibly contains the same kind of part/feature and that visible part is materially
 different from the canonical reference.
+
+### `qualityReport` completion object
+
+When a processor evaluates `qualityGate`, include a `qualityReport` beside `results` or
+`error` in `POST /api/requests/complete`. The server stores it on the target without
+interpreting the shape, but processors should prefer this schema for interoperability:
+
+```jsonc
+{
+  "enabled": true,
+  "mode": "compare-if-visible",
+  "maxAttempts": 3,
+  "passed": true,
+  "skipped": false,
+  "summary": "Passed on attempt 2",
+  "parts": [
+    {
+      "entryId": "base-accessory-horns",
+      "category": "accessory",
+      "overview": "Horns",
+      "prompt": "canonical horn description",
+      "file": "workspace/demo/assets/horns.png",
+      "visibilityRule": "compare-if-visible"
+    }
+  ],
+  "attempts": [
+    {
+      "attempt": 1,
+      "file": "workspace/demo/outputs/sample-character/attempt-1.png",
+      "ok": false,
+      "summary": "Visible horn silhouette drifted",
+      "parts": [],
+      "issues": [
+        { "entryId": "base-accessory-horns", "summary": "Horns are rounded instead of sharp" }
+      ]
+    },
+    {
+      "attempt": 2,
+      "file": "workspace/demo/outputs/sample-character/attempt-2.png",
+      "ok": true,
+      "summary": "Visible parts match"
+    }
+  ]
+}
+```
+
+If no comparable parts were present, set `skipped: true` and explain that in `summary`.
+If generation fails or the quality gate exhausts attempts, send the completion payload
+with `error` plus `qualityReport.passed: false` and, if useful, `qualityReport.error`.
 
 ## Actions
 
@@ -178,6 +240,63 @@ Process a target only when both the request `status` and the target `status` are
   writing. Write one prompt (and a short title), report it via the `prompt`/`overview`
   payload below. The server imports the prompt into the entry and **auto-queues a normal
   `generate` request** for it (the new id is returned in `draftQueued`).
+
+## Read APIs
+
+- `GET /api/state` returns the bare deck state object, not an `{ ok, ... }` envelope.
+  This is the fastest inspection endpoint for tests, agents, and UI bootstrapping.
+- `GET /api/requests` returns `{ ok, projectRoot, requests }`, where `requests` is the
+  flattened list of currently requested targets that processors should handle.
+
+## Asset registration API — `POST /api/assets`
+
+Registers a generated file as a candidate asset on an existing entry. The file must
+already exist under the server's `projectRoot`; the server copies it into the workspace
+asset directory and returns the new deck asset.
+
+```bash
+curl -X POST http://127.0.0.1:4217/api/assets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "characterId": "<character id>",
+    "entryId": "<entry id>",
+    "sourceFile": "workspace/demo/outputs/sample-character/result.png",
+    "name": "result",
+    "prompt": "<prompt that produced the file>",
+    "adopted": false,
+    "aiGenerated": true,
+    "humanReviewed": false,
+    "sourceLicense": "",
+    "usageNotes": ""
+  }'
+```
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `characterId` | string | Owning character id. |
+| `entryId` | string | Existing base/image/video entry to receive the candidate. |
+| `sourceFile` | string | Project-root-relative path to an existing `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.mp4`, or `.webm` file. Absolute paths are rejected. Current max size is 80 MiB. |
+| `name` | string | Display name and destination filename stem. The server de-duplicates on copy. |
+| `prompt` | string | Prompt/provenance text to store on the asset. |
+| `adopted` | boolean | Whether to mark the candidate adopted immediately. Processors should use `false` unless the user explicitly asked for auto-adoption. |
+| `aiGenerated` | boolean | Provenance flag for publish/doctor checks. |
+| `humanReviewed` | boolean | `true` only after a human has reviewed the asset. |
+| `sourceLicense` | string | Optional license/source note. |
+| `usageNotes` | string | Optional review or processing note. |
+| `reference` | boolean | Optional; when `true`, the asset is tagged `source-reference`. Normal generated candidates should omit this. |
+
+Response shape:
+
+```jsonc
+{ "ok": true, "asset": { "id": "asset-...", "file": "workspace/demo/assets/..." }, "state": { /* deck */ } }
+```
+
+The usual generate/improve flow is: save one file into `outputDir`, call
+`POST /api/assets` to register it as a candidate, then call
+`POST /api/requests/complete` with `results: [{ "file": "<same relative path>" }]`.
+If a processor cannot register the asset because the file sits outside `projectRoot`,
+it may still report completion with `results`, but no candidate will be added to the
+deck.
 
 ## Completion API — `POST /api/requests/complete`
 

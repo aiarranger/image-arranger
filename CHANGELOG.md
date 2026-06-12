@@ -45,12 +45,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Startup now reports a self-solving command when the requested port is already in use.
 - `npm run demo-agent -- --workspace ...` now honors the last repeated option, allowing npm-script defaults to be overridden cleanly.
 - Gallery now includes adopted Base references as well as Image-tab adopted assets, matching the documented "adopted images across the deck" behavior.
+- Gallery scope is intentionally every adopted still image from Base + Image entries, excluding `source-reference` assets, with origin filter chips for All/Base/Image.
 
 ### Fixed
 
 - Accessibility: modals close on Escape, trap and restore focus, and expose `role="dialog"`/`aria-modal`.
 - Remaining hardcoded Japanese UI strings now render in English when the UI language is English.
 - Gallery works again under the strict CSP: its inline rendering engine (blocked by `default-src 'self'`) is extracted to `public/gallery.js`.
+- Gallery favorite ids saved before entry-qualified gallery ids are migrated on load, so existing favorites remain selected.
 
 ### Security
 

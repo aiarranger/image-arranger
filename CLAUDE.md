@@ -1,23 +1,16 @@
 # Claude Code Bootstrap
 
 `AGENTS.md` is the canonical operator guide for this repository. Start with its
-**Quick bootstrap** section, then use the sections below only as a short index.
+**Quick bootstrap** section. Keep this file as an index, not a second command table.
 
-## Normal Loop
+## Claude Code Notes
 
-- Start the sample app with `npm start`, then open `http://127.0.0.1:4217/`.
-- Try the local placeholder processor with `npm run demo-agent`.
-- Run `npm test` before handing work back.
-
-The demo agent processes image/analyze/draft/improve requests. It skips the sample
-workspace's pre-seeded video request by design; queue an image request from the UI if
-you want to see a result registered as a candidate.
-
-## Validation
-
-- Syntax and script checks: `npm run check`
-- Unit tests: `npm test`
-- Publish/doctor checks: `npm run doctor`
+- Use `AGENTS.md` for the current start/test/demo commands, including non-default
+  port or workspace examples.
+- If a local server is already on the default port, follow the direct
+  `node server.mjs --workspace ... --port ...` pattern from `AGENTS.md`; do not
+  duplicate or improvise npm-script argument recipes here.
+- Run the validation commands named in `AGENTS.md` before handing work back.
 
 ## Real Queue Processing
 

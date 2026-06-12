@@ -51,6 +51,7 @@ const I18N = {
     kitRouteQueueHint: "登録後はキュータブで確認できます。生成結果が戻ると候補素材として自動登録されます。",
     kitAnalysisFlow: "解析依頼 → 待機 → 結果からパーツ選択 → ベースへ取り込み",
     kitResultsReady: "取り込み待ちの分析結果があります",
+    kitResultsWaiting: (n) => `解析結果 ${n}件 待ち`,
     kitSelectParts: "パーツを選択して取り込む",
     kitSelectPartsTitle: "ベースにするパーツを選択",
     kitParse: "内容を確認",
@@ -209,6 +210,10 @@ const I18N = {
     paletteCreateHelp: "採用済み参照から、色スウォッチだけのパレット画像をキューに登録します。手元にシート画像があるならBルートでも作れます。",
     paletteNoRefs: "パレット作成には採用済み参照が必要です。先にBaseタブで候補を採用してください。",
     paletteCreateQueued: "パレット生成をキューに登録しました",
+    palettePending: "パレット生成を依頼中です。",
+    palettePendingCta: "依頼中…（キューで確認）",
+    paletteCandidateReady: "パレット候補が届いています。確認して採用してください。",
+    paletteReviewCandidate: "候補を確認して採用",
     palettePromptBlock: "添付のカラーパレット画像を色の正（authority）として扱うこと。髪・瞳・肌・衣装の色はパレットのスウォッチに厳密一致させ、可能ならHEXを読み取ってシート内の色指定へ反映する。パレットの色を無視して再解釈しない。",
     saved: "保存しました",
     deleted: "削除しました",
@@ -314,6 +319,7 @@ const I18N = {
     kitRouteQueueHint: "After queueing, check the Queue tab. Completed results return as candidate assets.",
     kitAnalysisFlow: "Request analysis → wait → choose result parts → import to Base",
     kitResultsReady: "Analysis results are ready to import",
+    kitResultsWaiting: (n) => `${n} analysis result${n === 1 ? "" : "s"} waiting`,
     kitSelectParts: "Select parts to import",
     kitSelectPartsTitle: "Choose the parts to create as bases",
     kitParse: "Review",
@@ -472,6 +478,10 @@ const I18N = {
     paletteCreateHelp: "Queues a swatch-only palette image from adopted references. If you already have a sheet image, route B can create one too.",
     paletteNoRefs: "Palette creation needs an adopted reference. Adopt a candidate in the Base tab first.",
     paletteCreateQueued: "Palette generation queued",
+    palettePending: "Palette generation is already queued.",
+    palettePendingCta: "Queued... check Queue",
+    paletteCandidateReady: "A palette candidate has arrived. Review and adopt it first.",
+    paletteReviewCandidate: "Review and adopt candidate",
     palettePromptBlock: "Treat the attached color palette image as the color authority. Match hair, eyes, skin, and outfit colors strictly to the palette swatches, and when possible read the HEX values into the sheet's color notes. Do not reinterpret or drift away from the palette colors.",
     saved: "Saved",
     deleted: "Deleted",
@@ -1115,16 +1125,34 @@ function normalizeKitSources(ch = character()) {
 }
 
 function isPaletteEntry(entry) {
-  return entry?.partKey === "palette" || /^base-kit-palette(?:-|$)/.test(String(entry?.id ?? ""));
+  if (entry?.partKey) return entry.partKey === "palette";
+  return /^base-kit-palette(?:-|$)/.test(String(entry?.id ?? ""));
+}
+
+function kitPaletteEntries(ch = character()) {
+  return allBaseEntries(ch).filter(isPaletteEntry);
 }
 
 function adoptedPalette(ch = character()) {
-  for (const entry of allBaseEntries(ch)) {
-    if (!isPaletteEntry(entry)) continue;
+  for (const entry of kitPaletteEntries(ch)) {
     const asset = adoptedAssets(entry).find((item) => item.file && item.kind !== "video");
     if (asset) return { entry, asset, file: asset.file };
   }
   return null;
+}
+
+function paletteCandidates(ch = character()) {
+  return kitPaletteEntries(ch).flatMap((entry) => (entry.assets ?? [])
+    .filter((asset) => asset.file && asset.kind !== "video" && !isSourceRef(asset) && !asset.adopted)
+    .map((asset) => ({ entry, asset, file: asset.file })));
+}
+
+function palettePendingRows(ch = character()) {
+  const paletteIds = new Set(kitPaletteEntries(ch).map((entry) => entry.id));
+  return (state.requests ?? []).filter((row) =>
+    row.characterId === ch.id
+    && row.action === "generate"
+    && (paletteIds.has(row.entryId) || /^base-kit-palette(?:-|$)/.test(String(row.entryId ?? ""))));
 }
 
 function paletteCreationReferences(ch = character()) {
@@ -1915,8 +1943,15 @@ function sheetTemplates() {
 function defaultSheetName(ch) {
   const suffix = t("referenceSheetSuffix");
   const baseName = state.lang === "ja" ? `${ch.name}${suffix}` : `${ch.name} ${suffix}`;
-  const existing = allBaseEntries(ch).filter((entry) => entry.overview === baseName || entry.overview?.startsWith(`${baseName} `)).length;
-  return existing ? `${baseName} ${existing + 1}` : baseName;
+  const escaped = baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^${escaped}(?: (\\d+))?$`);
+  let max = 0;
+  for (const entry of allBaseEntries(ch)) {
+    const match = String(entry.overview ?? "").match(pattern);
+    if (!match) continue;
+    max = Math.max(max, match[1] ? Number(match[1]) : 1);
+  }
+  return max ? `${baseName} ${max + 1}` : baseName;
 }
 
 function isSheetQueueRow(row) {
@@ -1946,13 +1981,15 @@ function renderKit() {
   const route = kit.route ?? "";
   const palette = adoptedPalette(ch);
   const paletteRefs = paletteCreationReferences(ch);
+  const pendingPaletteRows = palettePendingRows(ch);
+  const paletteCandidate = paletteCandidates(ch)[0] ?? null;
   const includePalette = kit.includePalette !== false;
   const pool = kitSourcePool(ch, srcFilter);
   const selectedSources = normalizeKitSources(ch);
   const selectedAssetIds = new Set(selectedSources.map((item) => item.assetId));
   const sheetRows = (state.requests ?? []).filter((row) => row.characterId === ch.id && isSheetQueueRow(row));
   const analyzeRows = (state.requests ?? []).filter((row) => row.action === "analyze" && row.characterId === ch.id);
-  const kitResults = state.kitResults ?? [];
+  const kitResults = (state.kitResults ?? []).filter((row) => row.characterId === ch.id);
   const routeCards = !route ? `
       <h3 class="kit-step">2. ${t("kitRouteChoose")}</h3>
       <p class="form-note">${t("kitChooseRouteHelp")}</p>
@@ -1962,8 +1999,12 @@ function renderKit() {
           <span>${t("routeADesc")}</span>
           <small>${t("routeASteps")}</small>
         </button>
-        <button class="kit-route-card" data-kit-route="parts">
-          <span class="kit-route-head"><strong>${t("routeB")}</strong><span class="kit-chip">${t("routeBBadge")}</span></span>
+        <button class="kit-route-card ${kitResults.length ? "has-result" : ""}" data-kit-route="parts">
+          <span class="kit-route-head">
+            <strong>${t("routeB")}</strong>
+            <span class="kit-chip">${t("routeBBadge")}</span>
+            ${kitResults.length ? `<span class="kit-chip adopted-chip">${escapeHtml(t("kitResultsWaiting")(kitResults.length))}</span>` : ""}
+          </span>
           <span>${t("routeBDesc")}</span>
           <small>${t("routeBSteps")}</small>
         </button>
@@ -1983,7 +2024,15 @@ function renderKit() {
             </span>
             <input id="kitIncludePalette" type="checkbox" ${includePalette ? "checked" : ""}>
             <span>${t("paletteInclude")}</span>
-          </label>` : `
+          </label>` : paletteCandidate ? `
+          <div class="kit-empty-inline">
+            <p class="form-note">${t("paletteCandidateReady")}</p>
+            <button class="ghost" data-open-entry="${escapeHtml(paletteCandidate.entry.id)}">${t("paletteReviewCandidate")}</button>
+          </div>` : pendingPaletteRows.length ? `
+          <div class="kit-empty-inline">
+            <p class="form-note">${t("palettePending")}</p>
+            <button class="ghost" data-mode-jump="queue">${t("palettePendingCta")}</button>
+          </div>` : `
           <div class="kit-empty-inline">
             <p class="form-note">${paletteRefs.length ? t("paletteCreateHelp") : t("paletteNoRefs")}</p>
             ${paletteRefs.length
@@ -2942,12 +2991,27 @@ async function handleFormSubmit(event) {
 }
 
 function bind() {
-  // Optimistic switches (audit P1-3): paint first, persist in the background.
-  $("#characterSelect").onchange = (event) => {
-    state.characterId = event.target.value;
+  const switchMode = (mode) => {
+    state.mode = mode;
+    renderT();
+    if (state.mode === "queue") {
+      loadQueue(false).then(() => render()).catch((error) => toast(error.message, { kind: "error" }));
+    }
+    saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
+  };
+  const resetKitForCharacter = () => {
     state.kit.sources = [];
     state.kit.route = "";
     state.kit.preview = null;
+    state.kit.sheetName = "";
+    state.kit.characterName = "";
+    state.kit.extra = "";
+    state.kit.json = "";
+  };
+  // Optimistic switches (audit P1-3): paint first, persist in the background.
+  $("#characterSelect").onchange = (event) => {
+    state.characterId = event.target.value;
+    resetKitForCharacter();
     renderT();
     saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
   };
@@ -2976,18 +3040,11 @@ function bind() {
     withBusy(event.currentTarget, cancelAllQueued).catch((error) => toast(error.message, { kind: "error" }));
   if ($("#emptyNewEntry")) $("#emptyNewEntry").onclick = openEntryForm;
   if ($("#emptyGoImage")) $("#emptyGoImage").onclick = () => {
-    state.mode = "image";
-    renderT();
-    saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
+    switchMode("image");
   };
   document.querySelectorAll("[data-mode]").forEach((button) => {
     button.onclick = () => {
-      state.mode = button.dataset.mode;
-      renderT();
-      if (state.mode === "queue") {
-        loadQueue(false).then(() => render()).catch((error) => toast(error.message, { kind: "error" }));
-      }
-      saveDeck(false).catch((error) => toast(error.message, { kind: "error" }));
+      switchMode(button.dataset.mode);
     };
   });
   const galleryBtn = document.querySelector("#galleryBtn");
@@ -3094,8 +3151,9 @@ function bind() {
   });
   document.querySelectorAll("[data-mode-jump]").forEach((button) => {
     button.onclick = () => {
-      state.mode = button.dataset.modeJump;
-      renderT();
+      const target = document.querySelector(`[data-mode="${CSS.escape(button.dataset.modeJump)}"]`);
+      if (target) target.click();
+      else switchMode(button.dataset.modeJump);
     };
   });
   document.querySelectorAll("[data-kit-source-asset]").forEach((button) => {
@@ -3496,6 +3554,17 @@ async function enqueueTargets(targets, saveBeforeRequest = true) {
 
 async function requestPaletteGeneration() {
   const ch = character();
+  if (adoptedPalette(ch)) return;
+  if (palettePendingRows(ch).length) {
+    toast(t("palettePending"), { kind: "warn" });
+    return;
+  }
+  const candidate = paletteCandidates(ch)[0];
+  if (candidate) {
+    openEntryModal(candidate.entry.id);
+    toast(t("paletteCandidateReady"), { kind: "ok" });
+    return;
+  }
   const refs = paletteCreationReferences(ch);
   if (!refs.length) {
     toast(t("paletteNoRefs"), { kind: "warn" });
@@ -3556,7 +3625,7 @@ async function requestPaletteGeneration() {
   normalizeDeck();
   await loadQueue(false);
   render();
-  flyToQueue(document.querySelector(`[data-open-entry="${CSS.escape(id)}"] .bcard-thumb img`));
+  flyToQueue(null);
   toast(`${t("paletteCreateQueued")}\n${t("kitRouteQueueHint")}`, { kind: "ok" });
 }
 

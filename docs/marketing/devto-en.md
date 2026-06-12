@@ -90,6 +90,8 @@ https://aiarranger.github.io/image-arranger/?utm_source=devto&utm_medium=article
 
 ## Show HN Variant
 
+> HN convention: clean URLs, no UTM parameters.
+
 Title: Show HN: image-arranger, a local-first request manager for AI image generation
 
 Body:
@@ -100,4 +102,4 @@ It deliberately does not generate. You keep using ChatGPT, Midjourney, Vidu, Com
 
 It is local-first, zero runtime dependencies, Node.js 20+, MIT licensed, with a sample deck and demo agent so the full loop can be tested without external accounts.
 
-GitHub: https://github.com/aiarranger/image-arranger?utm_source=hn&utm_medium=social&utm_campaign=launch-en
+GitHub: https://github.com/aiarranger/image-arranger

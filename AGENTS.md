@@ -18,6 +18,13 @@ npm test
 
 `npm run demo-agent` is a local placeholder processor for trying the queue loop. It handles image, analyze, draft-prompt, and improve targets; the sample workspace's pre-seeded pending video request is intentionally skipped because video requires a real driver.
 
+For a different port or workspace, run the underlying commands directly instead of appending extra arguments to `npm start`:
+
+```bash
+node server.mjs --workspace ./workspace/demo --init sample --port 4321
+node scripts/demo-agent.mjs --workspace ./workspace/demo --server http://127.0.0.1:4321
+```
+
 ## Scripted Processing (preferred)
 
 > **Disclaimer**: the bundled automation driver operates **your** browser with **your** account at **your** responsibility, and may conflict with a generation service's terms of service — review them before use. The stable, supported interface is the request-file contract described in this document; the driver is an optional, replaceable convenience.
