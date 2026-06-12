@@ -55,6 +55,13 @@ Phase 4 のマーケティング投稿先（X / note / dev.to 等 — すべて 
    reduced-motion / キーボード操作 / Escape を必ず再確認。
 7. **作業ログ**: 各フェーズの実装ログ・スクリーンショットを `agent-logs/<日付>-codex-<phase>/`
    に保存（リポジトリ規約。`agent-logs/` は gitignore 済み）。
+8. **テストデータの安全（2026-06-13 追加・違反厳禁）**: ユーザーの正データは
+   `workspace/demo-aichan/` のみで、これとworkspace/archive/ には一切触れない（読取・変更・
+   テスト利用・サーバー起動すべて禁止）。検証は必ず `/tmp/ia-test-*` ワークスペース＋
+   **ポート4901-4999** で行い、終了時にサーバー停止・/tmp削除・**開いたブラウザタブを全て閉じる**。
+   Aoiサンプルは架空のデモデータであり、ユーザーのデータとして提示しない。
+   詳細は `workspace/_LOCAL_RULES.md`（gitignored）と AGENTS.md の
+   「Workspace & test-data safety」を必読。
 
 ### フェーズ一覧
 

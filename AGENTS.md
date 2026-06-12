@@ -18,6 +18,19 @@ npm test
 
 `npm run demo-agent` is a local placeholder processor for trying the queue loop. It handles image, analyze, draft-prompt, and improve targets; the sample workspace's pre-seeded pending video request is intentionally skipped because video requires a real driver.
 
+## Workspace & test-data safety (agents MUST follow)
+
+- Treat any workspace under `workspace/` that you did not create yourself as **production
+  data**: never read it for tests, never modify it, never serve it. The only exception is
+  `workspace/demo`, which `npm start` and CI regenerate from the bundled Aoi sample deck.
+- Verification servers belong in **throwaway workspaces under `/tmp`** on **ports 4901-4999**,
+  never the default 4217. When you finish: kill the server, delete the `/tmp` workspace, and
+  **close every browser tab you opened** — a leftover tab against a dead server looks like data
+  corruption to the operator.
+- The Aoi sample deck is fictional demo content. Never present it as the operator's own data.
+- If `workspace/_LOCAL_RULES.md` exists, it defines operator-specific data-safety rules for
+  this machine. **Read it first; it overrides the defaults above.**
+
 For a different port or workspace, run the underlying commands directly instead of appending extra arguments to `npm start`:
 
 ```bash
