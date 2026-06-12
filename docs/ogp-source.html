@@ -1,5 +1,7 @@
 <!DOCTYPE html>
-<!-- Source for ogp.png (1200x630). Render in a browser and capture the #card region. -->
+<!-- Source for ogp.png (1200x630). Render in a browser and capture the #card region.
+     Regenerate: "Google Chrome" --headless=new --screenshot=ogp.png --window-size=1200,630 --hide-scrollbars file://$(pwd)/ogp-source.html
+     Palette mirrors docs/lp.css tokens (paper/ink/accent-grad). -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -8,35 +10,42 @@
   body { background: #555; }
   #card {
     position: fixed; top: 0; left: 0; width: 1200px; height: 630px; overflow: hidden;
-    background: linear-gradient(135deg, #e8f4f8 0%, #f2effb 40%, #fdeef7 100%);
+    background:
+      radial-gradient(720px 420px at 88% -10%, rgba(255, 142, 196, 0.32), transparent 70%),
+      radial-gradient(820px 520px at -8% 110%, rgba(155, 125, 255, 0.30), transparent 70%),
+      #f3f0ff;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    color: #2b2640; padding: 64px 72px;
+    color: #3d3550; padding: 64px 72px;
   }
   .chip {
-    display: inline-block; background: #2b2640; color: #a99df5;
+    display: inline-block; background: #3d3550; color: #cdbcff;
     font-family: "SF Mono", Menlo, monospace; font-size: 22px; letter-spacing: .22em;
     padding: 12px 24px; border-radius: 14px; font-weight: 700; margin-bottom: 38px;
   }
   h1 { font-size: 72px; line-height: 1.18; letter-spacing: -0.01em; margin-bottom: 30px; }
-  h1 .em { color: #6c5ce7; }
-  p { font-size: 28px; color: #6f6a86; margin-bottom: 44px; }
+  h1 .em {
+    background: linear-gradient(90deg, #ff8ec4, #9b7dff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  p { font-size: 28px; color: #6b5f8a; margin-bottom: 44px; }
   .tabs { display: flex; gap: 12px; align-items: center; }
   .t {
     font-size: 22px; font-weight: 600; padding: 12px 26px; border-radius: 14px;
-    background: #efedfd; color: #5546c8;
+    background: rgba(255, 255, 255, 0.86); color: #5b4a9e;
+    border: 1px solid rgba(155, 125, 255, 0.28);
   }
-  .t.on { background: #6c5ce7; color: #fff; }
-  .arrow { color: #6f6a86; font-size: 20px; }
+  .t.on { background: linear-gradient(90deg, #ff8ec4, #9b7dff); color: #fff; border-color: transparent; }
+  .arrow { color: #6b5f8a; font-size: 20px; }
   .corner {
     position: absolute; right: 72px; bottom: 56px; font-family: "SF Mono", Menlo, monospace;
-    font-size: 22px; color: #6f6a86;
+    font-size: 22px; color: #6b5f8a;
   }
 </style>
 </head>
 <body>
 <div id="card">
   <div class="chip">IMAGE ARRANGER</div>
-  <h1>The <span class="em">missing management layer</span><br>for AI image generation.</h1>
+  <h1>Generators create.<br><span class="em">Nothing keeps track.</span></h1>
   <p>Local-first prompt &amp; asset request manager — it doesn't generate, it keeps you organized.</p>
   <div class="tabs">
     <span class="t">Create kit</span><span class="arrow">→</span>
