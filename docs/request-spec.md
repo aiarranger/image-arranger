@@ -233,6 +233,12 @@ exported from [`scripts/agent-browser.mjs`](../scripts/agent-browser.mjs); the o
 that ties them to the request contract lives in
 [`scripts/process-queue.mjs`](../scripts/process-queue.mjs).
 
+For the smallest end-to-end example, read [`scripts/demo-agent.mjs`](../scripts/demo-agent.mjs)
+(`npm run demo-agent`): a zero-dependency driver that exercises the whole contract without any
+browser automation — poll `GET /api/requests`, produce a deliverable (here: a locally rendered
+placeholder PNG), register it via `POST /api/assets`, report `POST /api/requests/complete`.
+Replace the placeholder step with real generation and you have a new service driver.
+
 To drive a new service, fetch `GET /api/requests`, filter targets you can handle, and for
 each one reproduce: attach `inputs.refImages`, set `prompt`, send, wait for the result,
 save into `outputDir`, then POST the completion. The exported primitives you can reuse or

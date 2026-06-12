@@ -28,7 +28,16 @@ cd image-arranger
 node server.mjs --workspace ./workspace/demo --init sample --port 4217
 ```
 
-Open <http://127.0.0.1:4217/>. You get a public-safe sample deck to click around in.
+Open <http://127.0.0.1:4217/>. You get a public-safe sample deck to click around in — courier-girl **Aoi**, with every tab populated and one request already waiting in the Queue.
+
+### Try the full loop in 60 seconds
+
+```bash
+npm start              # terminal 1 — server + sample deck (Aoi)
+npm run demo-agent     # terminal 2 — a tiny agent that completes queued requests
+```
+
+Queue something in the app (or let the agent pick up the pre-seeded pending request) and watch the result land as a candidate asset a few seconds later. Everything is generated locally — the placeholder art needs no accounts, no services, no network. See `node scripts/demo-agent.mjs --help` for flags.
 
 <details>
 <summary>Health checks (syntax, tests, workspace doctor)</summary>
@@ -57,6 +66,8 @@ The tab order *is* the workflow: **Create kit → Base → Image → Video**, wi
 - **Queue** — the outbox: every request you submit becomes a JSON file a human or agent can process. Review, edit, cancel, or complete pending requests here.
 
 A separate **Gallery** view (the *Gallery* button in the header) shows every adopted image across the deck in one place.
+
+Uploading a PNG that still carries its generation metadata (A1111 / NovelAI / ComfyUI) auto-fills the prompt fields on import — provenance travels with the file.
 
 ## Why
 

@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Japanese README parity (`README.ja.md`), a glossary, an alternatives/positioning section, and an OS-support matrix.
 - GitHub issue templates (bug, feature, ChatGPT-UI-breakage, new-service) and a pull-request template.
 - Scripted driver resilience: a `--check` selector self-test that reports when ChatGPT's UI has drifted, documented in `SELECTORS.md`.
+- Demo agent (`scripts/demo-agent.mjs`, `npm run demo-agent`): completes queued requests with locally generated placeholder art, so the full queue → agent → result → adopt loop runs with zero accounts, services, or network.
+- PNG metadata auto-import: prompts embedded by A1111, NovelAI, or ComfyUI auto-fill the prompt fields when you upload the PNG.
+- App motion & UX system: animated view transitions, color-coded status badges, delete with Undo toast, adopt pop and fly-to-queue animations, busy/empty states, drag-drop and paste upload, and keyboard shortcuts (`/`, `1`–`5`, `n`, `g`) — all gated on `prefers-reduced-motion`.
+- README workflow diagrams (EN/JA SVG), a conversion-focused README restructure, and a "Try the full loop in 60 seconds" guide.
 
 ### Changed
 
@@ -29,11 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scripted ChatGPT detection is locale-neutral and structural (assistant-turn first), reducing wrong-deliverable and false-refusal cases.
 - Mutating API endpoints are serialized through a single-writer mutex to prevent lost updates.
 - Internal: extracted `http-util.mjs` (path safety, Range serving, Host/Origin policy) and `prompts.mjs` (base-kit vocabulary) from `server.mjs` as a first step toward a modular layout.
+- Landing page redesigned: problem-first hero with a copyable run command, self-playing demo loop, workflow scrollytelling, before/after, and FAQ — fully offline-safe and reduced-motion friendly.
+- Sample deck v2 (courier-girl Aoi): every tab is populated on first run with locally generated art, and the queue is pre-seeded with one pending and one completed request.
 
 ### Fixed
 
 - Accessibility: modals close on Escape, trap and restore focus, and expose `role="dialog"`/`aria-modal`.
 - Remaining hardcoded Japanese UI strings now render in English when the UI language is English.
+- Gallery works again under the strict CSP: its inline rendering engine (blocked by `default-src 'self'`) is extracted to `public/gallery.js`.
 
 ### Security
 

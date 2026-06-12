@@ -201,6 +201,38 @@ const I18N = {
     uploading: "アップロード中…",
     loadFailed: "読み込みに失敗しました",
     reloadPage: "再読み込み",
+    resultArrived: (name) => `生成結果が届きました: ${name}`,
+    compare: "比較",
+    compareTitle: "ビフォー / アフター比較",
+    compareLeft: "左（A）",
+    compareRight: "右（B）",
+    comparePosition: "比較スライダー（左右の見せ幅）",
+    compareBack: "編集に戻る",
+    paletteTitle: "コマンドパレット",
+    paletteSearch: "コマンドや素材を検索…",
+    paletteNoResults: "該当する項目がありません",
+    paletteHint: "↑↓ 選択 ・ Enter 実行 ・ Esc 閉じる",
+    cmdSwitchTab: (name) => `タブ切替: ${name}`,
+    cmdNewEntry: "新規エントリを作成",
+    cmdOpenGallery: "ギャラリーを開く",
+    cmdToggleLang: "言語を切り替え（日本語 ⇄ English）",
+    cmdQueueChecked: "選択中の行をキューに登録",
+    cmdExportDeck: "選択した素材をエクスポート（DL）",
+    helpTooltip: "操作ガイドを再生",
+    tourSkip: "スキップ",
+    tourNext: "次へ",
+    tourDone: "完了",
+    tourStepOf: (i, n) => `ステップ ${i} / ${n}`,
+    tourTabsTitle: "タブでワークフローを進める",
+    tourTabsBody: "素材作成 → ベース → 画像 → 動画 → キューの順に進みます。キー 1〜5 でも切り替えられます。",
+    tourAdoptTitle: "「採用」がこの行の正",
+    tourAdoptBody: "カードの採用チップで、その行の正（キャラクター一貫性の基準画像）を選びます。他の候補は履歴として残ります。",
+    tourQueueTitle: "生成はキューに登録",
+    tourQueueBody: "生成・改善の依頼はキューに溜まります。「依頼文コピー」でAIエージェントに渡すと、完了結果が自動で反映されます。",
+    tourGalleryTitle: "採用画像はギャラリーへ",
+    tourGalleryBody: "採用済みの画像をスライドショーで眺められます。キー G でも開けます。",
+    tourHelpTitle: "いつでも再生できます",
+    tourHelpBody: "この「?」ボタンでツアーを再生できます。⌘K でコマンドパレットも開けます。",
   },
   en: {
     title: "Image / Video Prompt Manager",
@@ -404,6 +436,38 @@ const I18N = {
     uploading: "Uploading…",
     loadFailed: "Failed to load the app",
     reloadPage: "Reload",
+    resultArrived: (name) => `Result arrived: ${name}`,
+    compare: "Compare",
+    compareTitle: "Before / after compare",
+    compareLeft: "Left (A)",
+    compareRight: "Right (B)",
+    comparePosition: "Compare slider (reveal position)",
+    compareBack: "Back to entry",
+    paletteTitle: "Command palette",
+    paletteSearch: "Search commands and entries…",
+    paletteNoResults: "No matching items",
+    paletteHint: "↑↓ select · Enter run · Esc close",
+    cmdSwitchTab: (name) => `Switch tab: ${name}`,
+    cmdNewEntry: "Create new entry",
+    cmdOpenGallery: "Open the gallery",
+    cmdToggleLang: "Toggle language (日本語 ⇄ English)",
+    cmdQueueChecked: "Queue checked rows",
+    cmdExportDeck: "Export selected entries (download)",
+    helpTooltip: "Replay the guided tour",
+    tourSkip: "Skip",
+    tourNext: "Next",
+    tourDone: "Done",
+    tourStepOf: (i, n) => `Step ${i} of ${n}`,
+    tourTabsTitle: "Tabs drive the workflow",
+    tourTabsBody: "Move through Create kit → Base → Image → Video → Queue. Keys 1–5 switch tabs too.",
+    tourAdoptTitle: "Adopted = the canonical image",
+    tourAdoptBody: "The Adopt chip on a card picks the row's canonical image (the consistency anchor). Other candidates stay as history.",
+    tourQueueTitle: "Generations go through the Queue",
+    tourQueueBody: "Generate / improve requests collect here. Copy the agent prompt, hand it to an AI agent, and results flow back automatically.",
+    tourGalleryTitle: "Adopted images live in the Gallery",
+    tourGalleryBody: "Browse every adopted image as a slideshow. Key G opens it too.",
+    tourHelpTitle: "Replay anytime",
+    tourHelpBody: "This ? button replays the tour. ⌘K opens the command palette.",
   },
 };
 
@@ -742,6 +806,134 @@ async function loadQueue(showMessage = true) {
   if (showMessage) render();
 }
 
+// ---- Live queue auto-refresh (Round 3, backlog #1) ------------------------
+// Poll GET /api/requests every ~5s while the page is visible. When a pending
+// target disappears (an agent completed it elsewhere — e.g.
+// scripts/demo-agent.mjs), pull fresh state, re-render via renderT(), toast a
+// celebration, bump the Queue tab, and ring-highlight the freshly registered
+// candidate cards. Network failures retry silently with backoff; nothing
+// re-renders unless the pending set actually changed.
+const livePoll = {
+  timer: null,
+  intervalMs: 5000,
+  retryMs: 1500, // quick recheck while a modal / focused input blocks rendering
+  maxBackoffMs: 60000,
+  backoffMs: 5000,
+  inFlight: false,
+  started: false,
+};
+
+const pendingKey = (item) => `${item.requestId}:${item.targetIndex}`;
+
+// Auto-renders must never fight in-flight user edits: skip while any modal is
+// open or while the user is typing in a field, and recheck shortly after.
+function autoRenderBlocked() {
+  if (modalA11y.activeModal()) return true;
+  if (tour.active) return true; // coach-mark anchors must not be re-rendered away
+  const active = document.activeElement;
+  const tag = active?.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || Boolean(active?.isContentEditable);
+}
+
+function deckAssetPairs(deck) {
+  const pairs = [];
+  for (const ch of deck?.characters ?? []) {
+    const entries = [
+      ...Object.values(ch.base ?? {}).flatMap((items) => items ?? []),
+      ...(ch.images ?? []),
+      ...(ch.videos ?? []),
+    ];
+    for (const entry of entries) {
+      for (const asset of entry.assets ?? []) pairs.push({ entryId: entry.id, assetId: asset.id });
+    }
+  }
+  return pairs;
+}
+
+// Temporary "new result" ring on freshly registered candidate cards.
+// Auto-expires after ~10s or on first click; any later re-render also clears
+// it naturally (full innerHTML rebuild), which only happens on user action.
+function applyLiveNewHighlight(newAssets) {
+  if (!newAssets.length) return;
+  const esc = (value) => (typeof CSS !== "undefined" && CSS.escape ? CSS.escape(String(value)) : String(value).replace(/"/g, '\\"'));
+  const nodes = new Set();
+  for (const { entryId, assetId } of newAssets) {
+    document
+      .querySelectorAll(`.bcard[data-open-entry="${esc(entryId)}"], .asset[data-asset-id="${esc(assetId)}"]`)
+      .forEach((node) => nodes.add(node));
+  }
+  nodes.forEach((node) => {
+    node.classList.add("live-new");
+    const clear = () => node.classList.remove("live-new");
+    node.addEventListener("click", clear, { once: true });
+    setTimeout(clear, 10000);
+  });
+}
+
+function scheduleLivePoll(delay = livePoll.backoffMs) {
+  clearTimeout(livePoll.timer);
+  livePoll.timer = setTimeout(() => { livePollTick(); }, delay);
+}
+
+async function livePollTick() {
+  if (document.hidden) return; // visibilitychange resumes us
+  if (livePoll.inFlight) { scheduleLivePoll(); return; }
+  livePoll.inFlight = true;
+  let nextDelay = null;
+  try {
+    const payload = await api("/api/requests");
+    livePoll.backoffMs = livePoll.intervalMs; // healthy again
+    const fresh = payload.requests ?? [];
+    const oldKeys = new Set((state.requests ?? []).map(pendingKey));
+    const newKeys = new Set(fresh.map(pendingKey));
+    const removed = [...oldKeys].filter((key) => !newKeys.has(key));
+    const added = [...newKeys].filter((key) => !oldKeys.has(key));
+    if (!removed.length && !added.length) return; // no flicker: nothing changed
+    if (autoRenderBlocked()) { nextDelay = livePoll.retryMs; return; } // queue it for after
+    const removedItems = removed
+      .map((key) => (state.requests ?? []).find((item) => pendingKey(item) === key))
+      .filter(Boolean);
+    const beforeAssetIds = new Set(deckAssetPairs(state.deck).map((pair) => pair.assetId));
+    const beforeKitResults = (state.kitResults ?? []).length;
+    const [deck, resultsPayload] = await Promise.all([
+      api("/api/state"),
+      api("/api/base-kit/results").catch(() => null),
+    ]);
+    state.deck = deck;
+    normalizeDeck();
+    state.requests = fresh;
+    state.projectRoot = payload.projectRoot ?? state.projectRoot ?? "";
+    if (resultsPayload) state.kitResults = resultsPayload.kitResults ?? [];
+    const newAssets = deckAssetPairs(deck).filter((pair) => !beforeAssetIds.has(pair.assetId));
+    await renderT();
+    // Celebrate only genuine completions (new candidate assets / analysis
+    // results) — cancellations elsewhere just refresh quietly.
+    const completionish = newAssets.length > 0 || (state.kitResults ?? []).length > beforeKitResults;
+    if (removedItems.length && completionish) {
+      bumpQueueTab();
+      const names = removedItems.map((item) => item.overview || item.entryId).filter(Boolean);
+      toast(t("resultArrived")(names.join(" / ")), { kind: "ok" });
+      applyLiveNewHighlight(newAssets);
+    }
+  } catch {
+    // Silent retry with exponential backoff — no toast spam on network blips.
+    livePoll.backoffMs = Math.min(livePoll.backoffMs * 2, livePoll.maxBackoffMs);
+  } finally {
+    livePoll.inFlight = false;
+    scheduleLivePoll(nextDelay ?? livePoll.backoffMs);
+  }
+}
+
+function startLivePoll() {
+  if (livePoll.started) return;
+  livePoll.started = true;
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) scheduleLivePoll(0); // resume with an immediate poll
+    else clearTimeout(livePoll.timer); // pause while hidden
+  });
+  scheduleLivePoll();
+}
+
 function normalizeDeck() {
   for (const ch of state.deck?.characters ?? []) {
     const legacyWorkflow = ch.workflow;
@@ -1009,6 +1201,7 @@ function openEntryModal(entryId, shownAssetId = null) {
     ?? sources.find((asset) => resolveReferenceFile(asset))
     ?? null;
   const shownFile = shown ? (isSourceRef(shown) ? resolveReferenceFile(shown) : shown.file) : "";
+  const comparePool = compareAssetsOf(entry);
   const requested = entry.requestStatus === "requested";
   const wasOpen = $("#modal").classList.contains("open");
   const refresh = () => openEntryModal(entry.id, shown?.id ?? null);
@@ -1060,7 +1253,10 @@ function openEntryModal(entryId, shownAssetId = null) {
         <label class="emodal-prompt">${t("refUrl")}${safeLinkUrl(entry.referenceUrl) ? ` <a href="${escapeHtml(safeLinkUrl(entry.referenceUrl))}" target="_blank" rel="noopener" title="${t("refUrl")}">↗</a>` : ""}
           <input id="entryModalRefUrl" type="url" placeholder="https://x.com/..." value="${escapeHtml(entry.referenceUrl ?? "")}">
         </label>
-        <h4>${t("genImages")}</h4>
+        <div class="emodal-h4row">
+          <h4>${t("genImages")}</h4>
+          ${comparePool.length >= 2 ? `<button class="ghost small compare-btn" id="entryModalCompare">⇆ ${t("compare")}</button>` : ""}
+        </div>
         <div class="emodal-thumbs dropzone" id="entryModalThumbs">
           ${generated.length ? generated.map((asset) => thumb(asset, "gen")).join("") : `<p class="form-note">${t("noImage")}</p>`}
           <button class="ghost small" id="entryModalRegisterImage">${icon("plus")} ${t("registerImage")}</button>
@@ -1086,6 +1282,7 @@ function openEntryModal(entryId, shownAssetId = null) {
     </div>`;
   $("#modal").classList.add("open");
   $("#modal").dataset.entryId = entry.id;
+  delete $("#modal").dataset.compareEntryId; // back from compare → normal modal
   // Re-opens while already open (thumb switches, adopt refresh) skip the
   // entrance animation so the modal doesn't pop on every interaction.
   if (wasOpen) $("#modal").querySelector(".modal-card")?.classList.add("no-anim");
@@ -1181,6 +1378,12 @@ function openEntryModal(entryId, shownAssetId = null) {
   if ($("#entryModalAssetDetail")) {
     $("#entryModalAssetDetail").onclick = () => openAsset(shown.id, entry.id);
   }
+  if ($("#entryModalCompare")) {
+    $("#entryModalCompare").onclick = () => {
+      commitFields(); // keep typed-but-unsaved fields when we come back
+      openCompare(entry.id, null, shown && !isSourceRef(shown) ? shown.id : null);
+    };
+  }
   $("#modal").querySelectorAll("[data-show-asset]").forEach((button) => {
     button.onclick = () => openEntryModal(entry.id, button.dataset.showAsset);
   });
@@ -1192,6 +1395,102 @@ function openEntryModal(entryId, shownAssetId = null) {
       await deleteAsset(entry, target, { keepModal: true });
       if (findEntry(entry.id)) openEntryModal(entry.id);
       else $("#modal").classList.remove("open");
+    };
+  });
+}
+
+// ---- A/B before/after compare (Round 3, backlog #4) -----------------------
+// Image assets of an entry that can take part in a compare (sources resolve
+// through their link; videos are excluded — clip-path reveal is stills-only).
+function compareAssetsOf(entry) {
+  return (entry?.assets ?? [])
+    .map((asset) => ({ asset, file: isSourceRef(asset) ? resolveReferenceFile(asset) : asset.file }))
+    .filter(({ file }) => file && !/\.(mp4|webm)$/i.test(file));
+}
+
+// Overlay two assets on a shared letterboxed box (object-fit: contain) and
+// reveal the left (A) layer with clip-path, driven by a native range input
+// (keyboard accessible) plus pointer drag on the stage. Escape / × / backdrop
+// return to the normal entry modal (see modalA11y.closeActive).
+function openCompare(entryId, leftId = null, rightId = null, position = 50) {
+  const entry = findEntry(entryId);
+  if (!entry) return;
+  const pool = compareAssetsOf(entry);
+  if (pool.length < 2) return;
+  const byId = (id) => pool.find((item) => item.asset.id === id) ?? null;
+  const adopted = pool.find(({ asset }) => asset.adopted && !isSourceRef(asset)) ?? pool[0];
+  const left = byId(leftId) ?? adopted;
+  let right = byId(rightId);
+  if (!right || right === left) right = pool.find((item) => item !== left);
+  const pct = Math.min(100, Math.max(0, Number.isFinite(Number(position)) ? Number(position) : 50));
+  const wasOpen = $("#modal").classList.contains("open");
+  const label = ({ asset }) => (asset.name ?? asset.id) + (asset.adopted ? ` — ${t("adopted")}` : "");
+  const sideSelect = (side, current) => `
+    <label class="compare-pick">${t(side === "left" ? "compareLeft" : "compareRight")}
+      <select data-compare-side="${side}">
+        ${pool.map((item) => `<option value="${escapeHtml(item.asset.id)}" ${item === current ? "selected" : ""}>${escapeHtml(label(item))}</option>`).join("")}
+      </select>
+    </label>`;
+  $("#modal").innerHTML = `
+    <button class="close" id="closeModal" title="${t("close")}" aria-label="${t("close")}">×</button>
+    <div class="modal-card emodal compare-modal">
+      <div class="modal-media compare-stage">
+        <div class="compare-box" id="compareBox" style="--cut:${pct}%">
+          <img class="compare-under" src="${assetUrl(right.file)}" alt="${escapeHtml(label(right))}">
+          <div class="compare-top"><img src="${assetUrl(left.file)}" alt="${escapeHtml(label(left))}"></div>
+          <span class="compare-tag a">A · ${escapeHtml(left.asset.name ?? left.asset.id)}</span>
+          <span class="compare-tag b">B · ${escapeHtml(right.asset.name ?? right.asset.id)}</span>
+          <div class="compare-divider"><span class="compare-handle">⇆</span></div>
+        </div>
+        <input type="range" class="compare-range" id="compareRange" min="0" max="100" step="1" value="${Math.round(pct)}" aria-label="${escapeHtml(t("comparePosition"))}">
+      </div>
+      <div class="emodal-side">
+        <h3 class="compare-title">${t("compareTitle")}</h3>
+        <p class="form-note">${escapeHtml(entry.overview ?? "")}</p>
+        ${sideSelect("left", left)}
+        ${sideSelect("right", right)}
+        <div class="entry-modal-actions">
+          <button class="ghost" id="compareBack">${t("compareBack")}</button>
+        </div>
+      </div>
+    </div>`;
+  const modal = $("#modal");
+  modal.classList.add("open");
+  delete modal.dataset.entryId; // paste-to-register stays scoped to the entry modal
+  modal.dataset.compareEntryId = entry.id;
+  if (wasOpen) modal.querySelector(".modal-card")?.classList.add("no-anim");
+  const box = $("#compareBox");
+  const range = $("#compareRange");
+  const setCut = (value) => {
+    const next = Math.min(100, Math.max(0, value));
+    box.style.setProperty("--cut", `${next}%`);
+    range.value = String(Math.round(next));
+  };
+  range.oninput = () => setCut(Number(range.value));
+  // Pointer drag anywhere on the stage drives the divider too.
+  box.onpointerdown = (event) => {
+    if (event.button !== 0) return;
+    try { box.setPointerCapture(event.pointerId); } catch { /* capture is best-effort */ }
+    box.classList.add("dragging");
+    const move = (ev) => {
+      const rect = box.getBoundingClientRect();
+      if (rect.width) setCut(((ev.clientX - rect.left) / rect.width) * 100);
+    };
+    move(event);
+    box.onpointermove = move;
+    const release = () => { box.onpointermove = null; box.classList.remove("dragging"); };
+    box.onpointerup = release;
+    box.onpointercancel = release;
+  };
+  const backToEntry = () => openEntryModal(entry.id);
+  $("#compareBack").onclick = backToEntry;
+  $("#closeModal").onclick = backToEntry;
+  modal.onclick = (event) => { if (event.target.id === "modal") backToEntry(); };
+  modal.querySelectorAll("[data-compare-side]").forEach((select) => {
+    select.onchange = () => {
+      const pick = { left: left.asset.id, right: right.asset.id };
+      pick[select.dataset.compareSide] = select.value;
+      openCompare(entry.id, pick.left, pick.right, Number(range.value));
     };
   });
 }
@@ -1733,6 +2032,7 @@ function render() {
           <button class="icon-button" id="editCharacterBtn" title="${t("editCharacter")}" aria-label="${t("editCharacter")}">${icon("pen-to-square")}</button>
           <button class="icon-button danger" id="deleteCharacterBtn" title="${t("deleteCharacter")}" aria-label="${t("deleteCharacter")}">${icon("trash")}</button>
           <button class="ghost" id="langBtn">${state.lang === "ja" ? "English" : "日本語"}</button>
+          <button class="icon-button" id="helpBtn" title="${t("helpTooltip")}" aria-label="${t("helpTooltip")}">?</button>
         </div>
       </header>
       <div class="toolbar action-bar">
@@ -2320,6 +2620,7 @@ function bind() {
     state.filter = event.target.value;
     render();
   };
+  if ($("#helpBtn")) $("#helpBtn").onclick = () => startTour(true);
   $("#addCharacterBtn").onclick = openCharacterForm;
   $("#editCharacterBtn").onclick = openEditCharacterForm;
   $("#deleteCharacterBtn").onclick = deleteCurrentCharacter;
@@ -3364,6 +3665,10 @@ const modalA11y = {
     return Boolean(el && el.classList && el.classList.contains("open"));
   },
   activeModal() {
+    // Cmd+K palette stacks above everything; it only opens while no other
+    // modal is open, so checking it first keeps Escape / focus-trap correct.
+    const palette = $("#palette");
+    if (this.isOpen(palette)) return palette;
     const sheet = $("#modal");
     if (this.isOpen(sheet)) return sheet;
     const form = document.querySelector(".form-modal.open");
@@ -3372,6 +3677,11 @@ const modalA11y = {
   },
   // Close whichever modal is currently open. Returns true if one was closed.
   closeActive() {
+    const palette = $("#palette");
+    if (this.isOpen(palette)) {
+      closePalette();
+      return true;
+    }
     const form = document.querySelector(".form-modal.open");
     if (form) {
       closeForm();
@@ -3379,6 +3689,16 @@ const modalA11y = {
     }
     const sheet = $("#modal");
     if (this.isOpen(sheet)) {
+      // A/B compare view: Escape steps back to the normal entry modal
+      // instead of closing everything (backlog #4).
+      const compareEntryId = sheet.dataset.compareEntryId;
+      if (compareEntryId) {
+        delete sheet.dataset.compareEntryId;
+        if (findEntry(compareEntryId)) {
+          openEntryModal(compareEntryId);
+          return true;
+        }
+      }
       sheet.classList.remove("open");
       return true;
     }
@@ -3399,7 +3719,7 @@ const modalA11y = {
       this.lastFocus = trigger && trigger !== document.body ? trigger : null;
     }
     // Announce the open container as a modal dialog to assistive tech.
-    const dialog = root.querySelector(".modal-card") ?? root.querySelector(".form-card") ?? root;
+    const dialog = root.querySelector(".modal-card") ?? root.querySelector(".form-card") ?? root.querySelector(".palette-card") ?? root;
     if (dialog && !dialog.getAttribute("role")) dialog.setAttribute("role", "dialog");
     if (dialog) dialog.setAttribute("aria-modal", "true");
     const focusables = this.focusables(root);
@@ -3461,6 +3781,7 @@ const modalObserver = new MutationObserver(() => {
     if (sheet && !sheet.classList.contains("open")) {
       sheet.innerHTML = "";
       delete sheet.dataset.entryId;
+      delete sheet.dataset.compareEntryId;
     }
   }
   modalWasOpen = open;
@@ -3476,6 +3797,7 @@ modalObserver.observe(document.body, {
 document.addEventListener("keydown", (event) => {
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (modalA11y.activeModal()) return;
+  if (tour.active) return; // tour owns the keyboard (Escape / Tab / →)
   const active = document.activeElement;
   const tag = active?.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || active?.isContentEditable) return;
@@ -3500,7 +3822,444 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-loadDeck().catch((error) => {
+// ---- Cmd+K command palette (Round 4, backlog #5) ---------------------------
+// Opens via Cmd/Ctrl+K, reuses the modalA11y controller (#palette is checked
+// first in activeModal(), so Escape / Tab-trap / focus-restore come free).
+// Searches commands (recent-first) plus every entry across ALL characters.
+const PALETTE_RECENT_KEY = "imageArrangerPaletteRecent";
+const paletteState = { items: [], selected: 0, query: "" };
+
+function paletteRecent() {
+  try { return JSON.parse(localStorage.getItem(PALETTE_RECENT_KEY) || "[]"); } catch { return []; }
+}
+
+function notePaletteRecent(id) {
+  try {
+    const list = [id, ...paletteRecent().filter((item) => item !== id)].slice(0, 8);
+    localStorage.setItem(PALETTE_RECENT_KEY, JSON.stringify(list));
+  } catch { /* private mode: recents just don't persist */ }
+}
+
+function paletteCommands() {
+  const commands = [];
+  for (const mode of ["kit", "base", "image", "video", "queue"]) {
+    commands.push({
+      id: `tab-${mode}`,
+      label: t("cmdSwitchTab")(t(mode)),
+      hint: String(["kit", "base", "image", "video", "queue"].indexOf(mode) + 1),
+      run: () => document.querySelector(`[data-mode="${mode}"]`)?.click(),
+    });
+  }
+  commands.push({
+    id: "new-entry",
+    label: t("cmdNewEntry"),
+    hint: "n",
+    run: () => {
+      // New entries live in base/image/video; hop to Image first if needed.
+      if (!["base", "image", "video"].includes(state.mode)) {
+        state.mode = "image";
+        render();
+      }
+      openEntryForm();
+    },
+  });
+  commands.push({ id: "gallery", label: t("cmdOpenGallery"), hint: "g", run: () => $("#galleryBtn")?.click() });
+  commands.push({ id: "lang", label: t("cmdToggleLang"), run: () => $("#langBtn")?.click() });
+  commands.push({
+    id: "queue-checked",
+    label: t("cmdQueueChecked"),
+    run: () => {
+      if (!selectedRows().length && !selectedImproveAssets().length) {
+        toast(`${t("request")}: 0`);
+        return;
+      }
+      requestSelected().catch((error) => toast(error.message, { kind: "error" }));
+    },
+  });
+  commands.push({
+    id: "export-deck",
+    label: t("cmdExportDeck"),
+    run: () => {
+      // Same behavior as #downloadSelectedBtn (which only exists on list tabs).
+      const ids = selectedRows().map((entry) => entry.id);
+      if (!ids.length) { toast(`${t("downloadSelected")}: 0`); return; }
+      window.location.href = `/api/export?characterId=${encodeURIComponent(character().id)}&entries=${encodeURIComponent(ids.join(","))}`;
+    },
+  });
+  // Recently used commands float to the top (stable sort keeps base order).
+  const recent = paletteRecent();
+  const rank = (id) => { const at = recent.indexOf(id); return at < 0 ? 99 : at; };
+  commands.sort((a, b) => rank(a.id) - rank(b.id));
+  return commands;
+}
+
+function paletteEntries() {
+  const items = [];
+  for (const ch of state.deck?.characters ?? []) {
+    const push = (entry, mode) => items.push({
+      id: `entry-${entry.id}`,
+      type: "entry",
+      label: entry.overview || entry.id,
+      hint: `${ch.name} · ${t(mode)}`,
+      search: `${entry.overview ?? ""} ${entry.prompt ?? ""}`,
+      run: async () => {
+        state.characterId = ch.id;
+        state.mode = mode;
+        await renderT();
+        saveDeck(false).catch(() => {});
+        openEntryModal(entry.id);
+      },
+    });
+    for (const entry of allBaseEntries(ch)) push(entry, "base");
+    for (const entry of ch.images ?? []) push(entry, "image");
+    for (const entry of ch.videos ?? []) push(entry, "video");
+  }
+  return items;
+}
+
+// Simple fuzzy-ish ranking: prefix > substring (earlier is better) > in-order
+// subsequence. Negative = no match. Zero deps by design.
+function paletteScore(query, text) {
+  const q = String(query ?? "").trim().toLowerCase();
+  if (!q) return 1;
+  const s = String(text ?? "").toLowerCase();
+  if (!s) return -1;
+  if (s.startsWith(q)) return 100;
+  const at = s.indexOf(q);
+  if (at >= 0) return 70 - Math.min(at, 40) * 0.5;
+  let matched = 0;
+  for (const char of s) {
+    if (matched < q.length && char === q[matched]) matched += 1;
+  }
+  return matched >= q.length ? 25 : -1;
+}
+
+function paletteFilter(query) {
+  const commands = paletteCommands()
+    .map((command) => ({ ...command, score: paletteScore(query, command.label) }))
+    .filter((command) => command.score >= 0);
+  if (!String(query ?? "").trim()) return commands; // empty query: commands, recent-first
+  const entries = paletteEntries()
+    .map((item) => ({ ...item, score: paletteScore(query, item.search) }))
+    .filter((item) => item.score >= 0);
+  // Stable sort: commands listed before entries on equal score.
+  return [...commands, ...entries].sort((a, b) => b.score - a.score).slice(0, 12);
+}
+
+function paletteUpdateSelection() {
+  document.querySelectorAll("#paletteList .palette-item").forEach((node, index) => {
+    node.classList.toggle("selected", index === paletteState.selected);
+    node.setAttribute("aria-selected", String(index === paletteState.selected));
+  });
+  const input = $("#paletteInput");
+  if (input) {
+    input.setAttribute(
+      "aria-activedescendant",
+      paletteState.items.length ? `palette-item-${paletteState.selected}` : "",
+    );
+  }
+  document.querySelector("#paletteList .palette-item.selected")?.scrollIntoView({ block: "nearest" });
+}
+
+function paletteRenderList() {
+  const list = $("#paletteList");
+  if (!list) return;
+  paletteState.items = paletteFilter(paletteState.query);
+  if (paletteState.selected >= paletteState.items.length) paletteState.selected = 0;
+  list.innerHTML = paletteState.items.length
+    ? paletteState.items.map((item, index) => `
+      <button type="button" class="palette-item${item.type === "entry" ? " entry" : ""}" id="palette-item-${index}" role="option" aria-selected="false" data-palette-index="${index}">
+        <span class="palette-item-label">${escapeHtml(item.label)}</span>
+        ${item.hint ? `<span class="palette-item-hint">${escapeHtml(item.hint)}</span>` : ""}
+      </button>`).join("")
+    : `<p class="palette-empty">${t("paletteNoResults")}</p>`;
+  list.querySelectorAll("[data-palette-index]").forEach((button) => {
+    button.onclick = () => paletteRun(Number(button.dataset.paletteIndex));
+    button.onmousemove = () => {
+      const index = Number(button.dataset.paletteIndex);
+      if (index !== paletteState.selected) {
+        paletteState.selected = index;
+        paletteUpdateSelection();
+      }
+    };
+  });
+  paletteUpdateSelection();
+}
+
+function paletteRun(index) {
+  const item = paletteState.items[index];
+  if (!item) return;
+  if (!item.type) notePaletteRecent(item.id); // commands only
+  closePalette();
+  Promise.resolve(item.run()).catch((error) => toast(error.message, { kind: "error" }));
+}
+
+function openPalette() {
+  const node = $("#palette");
+  if (!node || node.classList.contains("open")) return;
+  // Never stack over the entry/form modal or the tour — keeps the single
+  // modalA11y open/close transition model intact.
+  if (modalA11y.activeModal() || tour.active || !state.deck) return;
+  paletteState.query = "";
+  paletteState.selected = 0;
+  node.innerHTML = `
+    <div class="palette-card" role="dialog" aria-modal="true" aria-label="${t("paletteTitle")}">
+      <input id="paletteInput" type="text" placeholder="${t("paletteSearch")}" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-haspopup="listbox" aria-controls="paletteList" aria-label="${t("paletteTitle")}">
+      <div class="palette-list" id="paletteList" role="listbox" aria-label="${t("paletteTitle")}"></div>
+      <div class="palette-hint">${t("paletteHint")}</div>
+    </div>`;
+  node.classList.add("open");
+  const input = $("#paletteInput");
+  input.oninput = () => {
+    paletteState.query = input.value;
+    paletteState.selected = 0;
+    paletteRenderList();
+  };
+  input.onkeydown = (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const count = paletteState.items.length;
+      if (!count) return;
+      paletteState.selected = (paletteState.selected + (event.key === "ArrowDown" ? 1 : -1) + count) % count;
+      paletteUpdateSelection();
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      paletteRun(paletteState.selected);
+    }
+  };
+  node.onclick = (event) => { if (event.target === node) closePalette(); };
+  paletteRenderList();
+}
+
+function closePalette() {
+  const node = $("#palette");
+  if (!node || !node.classList.contains("open")) return;
+  node.classList.remove("open");
+  node.innerHTML = ""; // observer's onClosed() restores focus to the trigger
+}
+
+document.addEventListener("keydown", (event) => {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+  if (event.key !== "k" && event.key !== "K") return;
+  event.preventDefault(); // also suppresses Firefox's Ctrl+K search-bar focus
+  const node = $("#palette");
+  if (node?.classList.contains("open")) {
+    closePalette();
+    return;
+  }
+  openPalette();
+});
+
+// ---- First-run guided tour (Round 4, backlog #6) ---------------------------
+// ~5 coach marks anchored to live selectors. Dimmed backdrop with a cutout
+// (single box-shadow spread trick), tooltip with Next/Skip, Escape skips,
+// missing anchors are skipped gracefully. Shows once (localStorage flag),
+// replayable via the header "?" button.
+const TOUR_DONE_KEY = "imageArrangerTourDone";
+const tour = { active: false, step: 0, lastFocus: null, overlay: null };
+
+function tourSteps() {
+  return [
+    {
+      anchors: [".tabs"],
+      title: t("tourTabsTitle"),
+      body: t("tourTabsBody"),
+    },
+    {
+      // The adopt chip only renders on cards with a generated image; fall back
+      // to any base card, and skip entirely on an empty deck.
+      anchors: [".bcard [data-adopt-chip]", ".bcard"],
+      title: t("tourAdoptTitle"),
+      body: t("tourAdoptBody"),
+      prepare: () => {
+        if (state.mode !== "base") {
+          state.mode = "base";
+          render();
+        }
+      },
+    },
+    {
+      anchors: ['[data-mode="queue"]'],
+      title: t("tourQueueTitle"),
+      body: t("tourQueueBody"),
+    },
+    {
+      anchors: ["#galleryBtn"],
+      title: t("tourGalleryTitle"),
+      body: t("tourGalleryBody"),
+    },
+    {
+      anchors: ["#helpBtn"],
+      title: t("tourHelpTitle"),
+      body: t("tourHelpBody"),
+    },
+  ];
+}
+
+function tourAnchor(step) {
+  for (const selector of step.anchors) {
+    const node = document.querySelector(selector);
+    if (node) return node;
+  }
+  return null;
+}
+
+function startTour(force = false) {
+  if (tour.active || !state.deck) return;
+  if (!force) {
+    try { if (localStorage.getItem(TOUR_DONE_KEY)) return; } catch { /* still show */ }
+  }
+  if (modalA11y.activeModal()) {
+    if (force) modalA11y.closeActive();
+    else return;
+  }
+  tour.active = true;
+  tour.step = -1;
+  tour.lastFocus = document.activeElement && document.activeElement !== document.body
+    ? document.activeElement
+    : null;
+  document.body.classList.add("tour-active");
+  const overlay = document.createElement("div");
+  overlay.className = "tour-overlay";
+  overlay.innerHTML = `
+    <div class="tour-cutout" aria-hidden="true"></div>
+    <div class="tour-tip" role="dialog" aria-modal="true" aria-labelledby="tourTitle" aria-describedby="tourBody">
+      <div class="tour-tip-step" id="tourStepCount"></div>
+      <h3 id="tourTitle"></h3>
+      <p id="tourBody"></p>
+      <div class="tour-tip-actions">
+        <button type="button" class="ghost small" id="tourSkipBtn">${t("tourSkip")}</button>
+        <button type="button" class="primary" id="tourNextBtn">${t("tourNext")}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  tour.overlay = overlay;
+  overlay.querySelector("#tourSkipBtn").onclick = () => endTour();
+  overlay.querySelector("#tourNextBtn").onclick = () => tourAdvance();
+  document.addEventListener("keydown", tourKeydown, true);
+  window.addEventListener("resize", tourReposition);
+  tourAdvance();
+}
+
+function tourKeydown(event) {
+  if (!tour.active) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    endTour();
+    return;
+  }
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    tourAdvance();
+    return;
+  }
+  if (event.key === "Tab") {
+    // Mini focus trap: keyboard users cycle between Skip and Next.
+    const focusables = [
+      tour.overlay?.querySelector("#tourSkipBtn"),
+      tour.overlay?.querySelector("#tourNextBtn"),
+    ].filter(Boolean);
+    if (!focusables.length) return;
+    event.preventDefault();
+    const at = focusables.indexOf(document.activeElement);
+    const next = event.shiftKey
+      ? (at <= 0 ? focusables.length - 1 : at - 1)
+      : (at < 0 || at === focusables.length - 1 ? 0 : at + 1);
+    focusables[next].focus();
+  }
+}
+
+function tourAdvance() {
+  const steps = tourSteps();
+  let next = tour.step + 1;
+  while (next < steps.length) {
+    const step = steps[next];
+    try { step.prepare?.(); } catch { /* never block the tour */ }
+    const anchor = tourAnchor(step);
+    if (anchor) {
+      tour.step = next;
+      tourShowStep(steps, step, anchor);
+      return;
+    }
+    next += 1; // anchor missing → skip this step gracefully
+  }
+  endTour();
+}
+
+function tourShowStep(steps, step, anchor) {
+  const overlay = tour.overlay;
+  if (!overlay) return;
+  overlay.querySelector("#tourStepCount").textContent = t("tourStepOf")(tour.step + 1, steps.length);
+  overlay.querySelector("#tourTitle").textContent = step.title;
+  overlay.querySelector("#tourBody").textContent = step.body;
+  const nextBtn = overlay.querySelector("#tourNextBtn");
+  nextBtn.textContent = tour.step >= steps.length - 1 ? t("tourDone") : t("tourNext");
+  // Instant scroll (no smooth) so positioning is synchronous and the only
+  // animated property stays opacity/transform on the tooltip.
+  try { anchor.scrollIntoView({ block: "center", behavior: "auto" }); } catch { /* ok */ }
+  const tip = overlay.querySelector(".tour-tip");
+  tip.classList.remove("show");
+  tourReposition();
+  if (reducedMotion()) {
+    tip.classList.add("show");
+  } else {
+    void tip.offsetWidth; // restart the fade for each step
+    tip.classList.add("show");
+  }
+  nextBtn.focus();
+}
+
+function tourReposition() {
+  if (!tour.active || !tour.overlay) return;
+  const steps = tourSteps();
+  const step = steps[tour.step];
+  if (!step) return;
+  const anchor = tourAnchor(step);
+  if (!anchor) { tourAdvance(); return; }
+  const rect = anchor.getBoundingClientRect();
+  const pad = 6;
+  const cutout = tour.overlay.querySelector(".tour-cutout");
+  Object.assign(cutout.style, {
+    left: `${rect.left - pad}px`,
+    top: `${rect.top - pad}px`,
+    width: `${rect.width + pad * 2}px`,
+    height: `${rect.height + pad * 2}px`,
+  });
+  const tip = tour.overlay.querySelector(".tour-tip");
+  const tipRect = tip.getBoundingClientRect();
+  const gap = 14;
+  let top = rect.bottom + pad + gap;
+  if (top + tipRect.height > window.innerHeight - 12) {
+    top = Math.max(12, rect.top - pad - gap - tipRect.height);
+  }
+  const left = Math.min(
+    Math.max(12, rect.left + rect.width / 2 - tipRect.width / 2),
+    Math.max(12, window.innerWidth - tipRect.width - 12),
+  );
+  Object.assign(tip.style, { top: `${top}px`, left: `${left}px` });
+}
+
+function endTour() {
+  if (!tour.active) return;
+  tour.active = false;
+  document.body.classList.remove("tour-active");
+  document.removeEventListener("keydown", tourKeydown, true);
+  window.removeEventListener("resize", tourReposition);
+  tour.overlay?.remove();
+  tour.overlay = null;
+  try { localStorage.setItem(TOUR_DONE_KEY, "1"); } catch { /* private mode */ }
+  const node = tour.lastFocus;
+  tour.lastFocus = null;
+  if (node && document.contains(node) && typeof node.focus === "function") node.focus();
+}
+
+loadDeck().then(() => {
+  startLivePoll();
+  // First-run guided tour: deferred so the first paint settles, and run from a
+  // timer so a tour error can never trip the fatal-load catch below.
+  setTimeout(() => { try { startTour(false); } catch { /* tour is best-effort */ } }, 800);
+}).catch((error) => {
   // Styled fatal panel instead of a raw stack dump (audit P1-2). Built with
   // DOM APIs because CSP 'self' blocks inline handlers.
   const panel = document.createElement("div");

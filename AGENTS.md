@@ -33,6 +33,7 @@ Division of labour:
 - **The script handles** `generate` targets for images (service `chatgpt`). It retries a refused/failed generation in a fresh chat up to 3 attempts total, then reports `error` via the complete API and moves on.
 - **You handle** `draft-prompt` (read the reference URL, write the prompt — see below) and `analyze` (image analysis JSON). Both are reported via the complete API with `curl`; no browser automation needed. After completing a `draft-prompt`, rerun the script to process the auto-queued generation.
 - Video targets (Vidu) are processed per the Video section below.
+- **Reference driver**: [`scripts/demo-agent.mjs`](scripts/demo-agent.mjs) (`npm run demo-agent`) is the smallest complete processor of this contract — it polls `GET /api/requests`, "generates" locally rendered placeholder PNGs, registers them via `POST /api/assets`, and reports `POST /api/requests/complete` with the same payload shapes as the real driver. Read it before writing your own.
 - If the script exits with an error, read `agent-logs/run-*/log.md` first; fix the cause (for example reword a refused prompt via `POST /api/requests/update`) and rerun. Fall back to the manual browser procedure at the bottom of this file only when the script itself cannot be repaired, and when you do, write your own steps and screenshots into an `agent-logs/run-*/` folder so the operator gets the same record.
 
 ## Request Files
