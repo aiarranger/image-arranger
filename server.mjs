@@ -44,6 +44,7 @@ import {
   sendJson,
   serveFile,
 } from "./http-util.mjs";
+import { extractPngMetadata } from "./png-metadata.mjs";
 
 export { composeAnalyzePrompt, parseKitParts };
 
@@ -916,6 +917,26 @@ function makeCharacterFromBody(state, body) {
   };
 }
 
+// PNGs from A1111 / NovelAI / ComfyUI carry the generation prompt in text
+// chunks — surface it automatically instead of requiring an Eagle-style
+// plugin. Only fills empty prompts (never overwrites user input) and never
+// throws: corrupt or metadata-free files leave the asset untouched.
+function applyPngMetadata(asset, filePath) {
+  if (asset.prompt || !filePath.toLowerCase().endsWith(".png")) return;
+  try {
+    const metadata = extractPngMetadata(readFileSync(filePath));
+    if (!metadata) return;
+    asset.prompt = metadata.prompt;
+    asset.promptSource = `png-metadata:${metadata.source}`;
+    asset.aiGenerated = true;
+    if (metadata.parameters && metadata.parameters !== metadata.prompt) {
+      asset.promptMetadata = metadata.parameters;
+    }
+  } catch {
+    // Unreadable file — keep the asset exactly as a plain upload.
+  }
+}
+
 function copyAssetIntoWorkspace(context, characterId, entryId, body) {
   const sourceFileRaw = String(body.sourceFile ?? "").trim();
   if (!sourceFileRaw) throw new HttpError(400, "Asset source file is required");
@@ -944,7 +965,7 @@ function copyAssetIntoWorkspace(context, characterId, entryId, body) {
     destination = join(destinationDir, `${assetName}-${suffix}${ext}`);
   }
   copyFileSync(sourceFile, destination);
-  return {
+  const asset = {
     id: `asset-${safeSlug(entryId)}-${randomUUID().slice(0, 8)}`,
     kind: ext === ".mp4" || ext === ".webm" ? "video" : "image",
     file: toPosixPath(relative(context.projectRoot, destination)),
@@ -957,6 +978,8 @@ function copyAssetIntoWorkspace(context, characterId, entryId, body) {
     usageNotes: String(body.usageNotes ?? ""),
     tags: body.reference ? ["source-reference"] : [],
   };
+  applyPngMetadata(asset, destination);
+  return asset;
 }
 
 
@@ -1376,6 +1399,7 @@ async function handleApi(request, response, context, url) {
       usageNotes: "",
       tags: [],
     };
+    applyPngMetadata(newAsset, destination);
     targetEntry.assets = [...(targetEntry.assets ?? []), newAsset];
     state.updatedAt = nowIso();
     writeState(context.stateFile, state);
