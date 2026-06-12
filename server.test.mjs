@@ -1,10 +1,13 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { deflateSync } from "node:zlib";
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { composeAnalyzePrompt, createImageArrangerServer, createSeedState, createEmptyState, parseKitParts, runDoctor } from "./server.mjs";
+import { extractPngMetadata } from "./png-metadata.mjs";
+import { pngChunk } from "./placeholder-art.mjs";
 
 
 async function withServer(callback, options = {}) {
@@ -61,7 +64,7 @@ test("server creates request files and updates target status", async () => {
     assert.equal(result.ok, true);
     assert.equal(result.request.status, "requested");
     assert.equal(result.request.character, "sample-character");
-    assert.equal(result.request.characterName, "Sample Character");
+    assert.equal(result.request.characterName, "Aoi (Sample Character)");
     assert.equal(result.request.service, "chatgpt");
     assert.deepEqual(result.request.targets[0].inputs.refImages, ["assets/base-reference.png"]);
     assert.equal(result.request.targets[0].outputDir, "outputs/sample-character");
@@ -80,7 +83,7 @@ test("server creates request files and updates target status", async () => {
 
     assert.equal(completeResult.ok, true);
     assert.equal(completeResult.completed, 1);
-    assert.equal(completeResult.requests.length, 0);
+    assert.equal(completeResult.requests.length, 1); // the seeded sample video request is still pending
     assert.equal(completeResult.state.characters[0].images[0].requestStatus, "idle");
 
     const completedPayload = JSON.parse(readFileSync(join(context.requestDir, `${result.request.requestId}.json`), "utf8"));
@@ -149,7 +152,7 @@ test("server queues mixed generation and improvement targets and cancels them", 
     assert.equal(queueResult.state.characters[0].images[0].assets.find((item) => item.id === asset.id).requestStatus, "requested");
 
     const listed = await fetch(`${baseUrl}/api/requests`).then((response) => response.json());
-    assert.equal(listed.requests.length, 2);
+    assert.equal(listed.requests.length, 3); // 2 queued here + the seeded sample video request
     assert.equal(listed.requests[0].requestId, queueResult.request.requestId);
     const generateRow = listed.requests.find((item) => item.action === "generate");
     const improveRow = listed.requests.find((item) => item.action === "improve");
@@ -407,7 +410,7 @@ test("server updates characters and cascades queued targets on delete", async ()
       method: "DELETE",
     }).then((response) => response.json());
     assert.equal(deleteResult.ok, true);
-    assert.equal(deleteResult.cancelled, 1);
+    assert.equal(deleteResult.cancelled, 2); // the queued target plus the seeded sample video request
     assert.equal(deleteResult.state.characters.some((item) => item.id === character.id), false);
     assert.equal(deleteResult.requests.length, 0);
 
@@ -595,7 +598,7 @@ test("error reporting marks targets and deck entries, allowing retry", async () 
     assert.equal(errored.errored, 1);
     assert.equal(errored.completed, 0);
     assert.equal(errored.state.characters[0].images[0].requestStatus, "error");
-    assert.equal(errored.requests.length, 0);
+    assert.equal(errored.requests.length, 1); // the seeded sample video request is still pending
     const payload = JSON.parse(readFileSync(join(context.requestDir, `${queued.request.requestId}.json`), "utf8"));
     assert.equal(payload.status, "error");
     assert.equal(payload.targets[0].status, "error");
@@ -634,6 +637,130 @@ test("binary upload registers the file into workspace assets", async () => {
     const bad = await fetch(`${baseUrl}/api/assets/upload?characterId=sample-character&entryId=${encodeURIComponent(entryId)}&filename=evil.exe`, { method: "POST", body });
     assert.equal(bad.status, 400);
   });
+});
+
+// Build a tiny valid PNG (1x1 truecolor) with the given tEXt entries, the
+// same way A1111/NovelAI/ComfyUI embed generation metadata.
+function buildMetadataPng(textEntries = []) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(1, 0);
+  ihdr.writeUInt32BE(1, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // truecolor
+  const texts = textEntries.map(([keyword, value]) =>
+    pngChunk("tEXt", Buffer.concat([Buffer.from(keyword, "latin1"), Buffer.from([0]), Buffer.from(value, "utf8")])));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    ...texts,
+    pngChunk("IDAT", deflateSync(Buffer.from([0, 0, 0, 0]))),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+const A1111_PARAMETERS = [
+  "masterpiece, 1girl, silver hair, studio lighting",
+  "Negative prompt: lowres, bad anatomy",
+  "Steps: 28, Sampler: Euler a, CFG scale: 7, Seed: 1234",
+].join("\n");
+
+async function uploadPng(baseUrl, entryId, name, body) {
+  return fetch(
+    `${baseUrl}/api/assets/upload?characterId=sample-character&entryId=${encodeURIComponent(entryId)}&filename=${encodeURIComponent(`${name}.png`)}`,
+    { method: "POST", body },
+  ).then((response) => response.json());
+}
+
+test("PNG upload auto-extracts A1111 / NovelAI / ComfyUI metadata", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const entryId = state.characters[0].images[0].id;
+
+    const a1111 = await uploadPng(baseUrl, entryId, "a1111", buildMetadataPng([["parameters", A1111_PARAMETERS]]));
+    assert.equal(a1111.ok, true);
+    assert.equal(a1111.asset.prompt, "masterpiece, 1girl, silver hair, studio lighting");
+    assert.equal(a1111.asset.promptSource, "png-metadata:a1111");
+    assert.equal(a1111.asset.aiGenerated, true);
+    assert.match(a1111.asset.promptMetadata, /Negative prompt: lowres/);
+
+    const novelai = await uploadPng(baseUrl, entryId, "novelai", buildMetadataPng([
+      ["Software", "NovelAI"],
+      ["Description", "1girl, blue eyes, starry sky"],
+      ["Comment", JSON.stringify({ steps: 28, uc: "lowres" })],
+    ]));
+    assert.equal(novelai.asset.prompt, "1girl, blue eyes, starry sky");
+    assert.equal(novelai.asset.promptSource, "png-metadata:novelai");
+    assert.equal(novelai.asset.aiGenerated, true);
+
+    const comfy = await uploadPng(baseUrl, entryId, "comfy", buildMetadataPng([
+      ["prompt", JSON.stringify({
+        3: { class_type: "KSampler", inputs: { seed: 5 } },
+        6: { class_type: "CLIPTextEncode", inputs: { text: "cinematic portrait, neon city" }, _meta: { title: "CLIP Text Encode (Prompt)" } },
+        7: { class_type: "CLIPTextEncode", inputs: { text: "blurry, watermark" }, _meta: { title: "CLIP Text Encode (Negative)" } },
+      })],
+    ]));
+    assert.equal(comfy.asset.prompt, "cinematic portrait, neon city");
+    assert.equal(comfy.asset.promptSource, "png-metadata:comfyui");
+
+    // Metadata-free PNGs behave exactly as before.
+    const plain = await uploadPng(baseUrl, entryId, "plain", buildMetadataPng());
+    assert.equal(plain.asset.prompt, "");
+    assert.equal(plain.asset.promptSource, undefined);
+
+    // The extracted prompts survive the round-trip into persisted state.
+    const persisted = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const entry = persisted.characters[0].images.find((item) => item.id === entryId);
+    assert.ok(entry.assets.some((item) => item.promptSource === "png-metadata:a1111"));
+  });
+});
+
+test("registered PNG assets extract metadata but never overwrite a manual prompt", async () => {
+  await withServer(async ({ baseUrl, temp }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const entryId = state.characters[0].images[0].id;
+    const png = join(temp, "from-a1111.png");
+    writeFileSync(png, buildMetadataPng([["parameters", A1111_PARAMETERS]]));
+
+    const manual = await fetch(`${baseUrl}/api/assets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ characterId: "sample-character", entryId, sourceFile: basename(png), name: "manual", prompt: "my own prompt" }),
+    }).then((response) => response.json());
+    assert.equal(manual.asset.prompt, "my own prompt");
+    assert.equal(manual.asset.promptSource, undefined);
+
+    const auto = await fetch(`${baseUrl}/api/assets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ characterId: "sample-character", entryId, sourceFile: basename(png), name: "auto" }),
+    }).then((response) => response.json());
+    assert.equal(auto.asset.prompt, "masterpiece, 1girl, silver hair, studio lighting");
+    assert.equal(auto.asset.promptSource, "png-metadata:a1111");
+    assert.equal(auto.asset.aiGenerated, true);
+  });
+});
+
+test("extractPngMetadata reads zTXt chunks and never throws on malformed input", () => {
+  const keyword = Buffer.concat([Buffer.from("parameters", "latin1"), Buffer.from([0, 0])]);
+  const ztxt = pngChunk("zTXt", Buffer.concat([keyword, deflateSync(Buffer.from(A1111_PARAMETERS, "utf8"))]));
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(1, 0);
+  ihdr.writeUInt32BE(1, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const png = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    ztxt,
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+  const metadata = extractPngMetadata(png);
+  assert.equal(metadata.source, "a1111");
+  assert.equal(metadata.prompt, "masterpiece, 1girl, silver hair, studio lighting");
+
+  assert.equal(extractPngMetadata(Buffer.from("not a png at all")), null);
+  assert.equal(extractPngMetadata(png.subarray(0, 16)), null); // truncated mid-chunk
+  assert.equal(extractPngMetadata(buildMetadataPng([["parameters", "\u0000\u0000"]])), null); // NUL-only prompt
 });
 
 test("doctor passes public sample workspace", () => {
@@ -831,8 +958,9 @@ test("sample init seeds placeholder assets with provenance", async () => {
     const character = state.characters[0];
     const masterAssets = character.base.master[0].assets;
     const imageAssets = character.images[0].assets;
-    assert.equal(masterAssets.length, 1);
+    assert.equal(masterAssets.length, 2);
     assert.equal(masterAssets[0].adopted, true);
+    assert.equal(masterAssets.filter((asset) => asset.adopted).length, 1);
     assert.equal(imageAssets.length, 2);
     assert.equal(imageAssets.filter((asset) => asset.adopted).length, 1);
     for (const asset of [...masterAssets, ...imageAssets]) {
@@ -842,7 +970,7 @@ test("sample init seeds placeholder assets with provenance", async () => {
       assert.equal(served.status, 200);
       assert.equal(served.headers.get("content-type"), "image/png");
     }
-    assert.ok(masterAssets[0].file.endsWith("base-reference.png"));
+    assert.ok(masterAssets[0].file.endsWith("base-master-adopted.png"));
   });
 });
 

@@ -16,9 +16,25 @@ import {
 import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { deflateSync } from "node:zlib";
 
 import { BASE_KIT_PARTS, composeAnalyzePrompt, parseKitParts } from "./prompts.mjs";
+import {
+  PALETTES,
+  clipLine,
+  crc32,
+  drawSoftCircle,
+  drawText,
+  encodePng,
+  fillRect,
+  hash32,
+  makeCanvas,
+  mix,
+  mulberry32,
+  paintBackdrop,
+  sanitizeText,
+  textWidth,
+  wrapLines,
+} from "./placeholder-art.mjs";
 import {
   HttpError,
   originPolicyViolation,
@@ -28,6 +44,7 @@ import {
   sendJson,
   serveFile,
 } from "./http-util.mjs";
+import { extractPngMetadata } from "./png-metadata.mjs";
 
 export { composeAnalyzePrompt, parseKitParts };
 
@@ -900,6 +917,26 @@ function makeCharacterFromBody(state, body) {
   };
 }
 
+// PNGs from A1111 / NovelAI / ComfyUI carry the generation prompt in text
+// chunks — surface it automatically instead of requiring an Eagle-style
+// plugin. Only fills empty prompts (never overwrites user input) and never
+// throws: corrupt or metadata-free files leave the asset untouched.
+function applyPngMetadata(asset, filePath) {
+  if (asset.prompt || !filePath.toLowerCase().endsWith(".png")) return;
+  try {
+    const metadata = extractPngMetadata(readFileSync(filePath));
+    if (!metadata) return;
+    asset.prompt = metadata.prompt;
+    asset.promptSource = `png-metadata:${metadata.source}`;
+    asset.aiGenerated = true;
+    if (metadata.parameters && metadata.parameters !== metadata.prompt) {
+      asset.promptMetadata = metadata.parameters;
+    }
+  } catch {
+    // Unreadable file — keep the asset exactly as a plain upload.
+  }
+}
+
 function copyAssetIntoWorkspace(context, characterId, entryId, body) {
   const sourceFileRaw = String(body.sourceFile ?? "").trim();
   if (!sourceFileRaw) throw new HttpError(400, "Asset source file is required");
@@ -928,7 +965,7 @@ function copyAssetIntoWorkspace(context, characterId, entryId, body) {
     destination = join(destinationDir, `${assetName}-${suffix}${ext}`);
   }
   copyFileSync(sourceFile, destination);
-  return {
+  const asset = {
     id: `asset-${safeSlug(entryId)}-${randomUUID().slice(0, 8)}`,
     kind: ext === ".mp4" || ext === ".webm" ? "video" : "image",
     file: toPosixPath(relative(context.projectRoot, destination)),
@@ -941,26 +978,10 @@ function copyAssetIntoWorkspace(context, characterId, entryId, body) {
     usageNotes: String(body.usageNotes ?? ""),
     tags: body.reference ? ["source-reference"] : [],
   };
+  applyPngMetadata(asset, destination);
+  return asset;
 }
 
-
-const CRC_TABLE = (() => {
-  const table = new Uint32Array(256);
-  for (let n = 0; n < 256; n += 1) {
-    let c = n;
-    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    table[n] = c >>> 0;
-  }
-  return table;
-})();
-
-function crc32(buffer) {
-  let crc = 0xffffffff;
-  for (let i = 0; i < buffer.length; i += 1) {
-    crc = CRC_TABLE[(crc ^ buffer[i]) & 0xff] ^ (crc >>> 8);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
 
 // Minimal stored (no compression) ZIP writer — keeps the bulk-download
 // endpoint dependency-free.
@@ -1378,6 +1399,7 @@ async function handleApi(request, response, context, url) {
       usageNotes: "",
       tags: [],
     };
+    applyPngMetadata(newAsset, destination);
     targetEntry.assets = [...(targetEntry.assets ?? []), newAsset];
     state.updatedAt = nowIso();
     writeState(context.stateFile, state);
@@ -1542,81 +1564,188 @@ export function runDoctor(options = {}) {
 
 
 // ---------------------------------------------------------------------------
-// Sample workspace placeholders: dependency-free PNG generation so a fresh
-// `--init sample` workspace shows canonical / adopted / candidate assets
-// without bundling binary fixtures.
+// Sample workspace seeding: dependency-free placeholder art (rendering
+// primitives in placeholder-art.mjs, shared with scripts/demo-agent.mjs) plus
+// a pre-populated queue, so every tab of a fresh `--init sample` workspace is
+// alive on first run without bundling binary fixtures.
 // ---------------------------------------------------------------------------
 
-function pngChunk(type, data) {
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(data.length, 0);
-  const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
-  const crcBuffer = Buffer.alloc(4);
-  crcBuffer.writeUInt32BE(crc32(body), 0);
-  return Buffer.concat([length, body, crcBuffer]);
+function makeSampleArt(spec) {
+  const seed = hash32(spec.file);
+  const rng = mulberry32(seed);
+  const palette = PALETTES[spec.palette % PALETTES.length];
+  const canvas = makeCanvas(spec.w, spec.h);
+  const glow = paintBackdrop(canvas, palette, rng);
+  const white = [246, 248, 252];
+  const soft = [224, 228, 238];
+  const ink = mix(palette.from, [0, 0, 0], 0.62);
+
+  const badge = sanitizeText(spec.badge) || "SAMPLE";
+  fillRect(canvas, 28, 26, textWidth(badge, 2) + 24, 32, ink, 0.5);
+  drawText(canvas, 40, 35, badge, 2, white, 0.95);
+  fillRect(canvas, 28, 70, 110, 4, glow, 0.9);
+
+  const panelX = 32;
+  const panelW = spec.w - panelX * 2;
+  const captionLines = spec.caption ? wrapLines(sanitizeText(spec.caption), Math.floor((panelW - 40) / 12), 2) : [];
+  const titleScale = sanitizeText(spec.title).length <= Math.floor((panelW - 40) / 24) ? 4 : 3;
+  const panelH = 30 + titleScale * 7 + (captionLines.length ? 10 + captionLines.length * 22 : 0);
+  const panelY = spec.h - panelH - 26;
+  fillRect(canvas, panelX, panelY, panelW, panelH, ink, 0.55);
+
+  const titleLine = clipLine(sanitizeText(spec.title) || "SAMPLE", Math.floor((panelW - 40) / (6 * titleScale)));
+  drawText(canvas, panelX + 21, panelY + 17, titleLine, titleScale, [0, 0, 0], 0.3);
+  drawText(canvas, panelX + 20, panelY + 16, titleLine, titleScale, white, 0.98);
+  captionLines.forEach((line, index) => {
+    drawText(canvas, panelX + 20, panelY + 26 + titleScale * 7 + index * 22, line, 2, soft, 0.92);
+  });
+  return encodePng(canvas);
 }
 
-function makePlaceholderPng(width, height, fromColor, toColor) {
-  const rows = [];
-  for (let y = 0; y < height; y += 1) {
-    const row = Buffer.alloc(1 + width * 3);
-    const mix = y / height;
-    for (let x = 0; x < width; x += 1) {
-      const stripe = (x + y) % 96 < 48 ? 1 : 0.84;
-      for (let channel = 0; channel < 3; channel += 1) {
-        row[1 + x * 3 + channel] = Math.round((fromColor[channel] * (1 - mix) + toColor[channel] * mix) * stripe);
-      }
-    }
-    rows.push(row);
-  }
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 2; // truecolor
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    pngChunk("IHDR", ihdr),
-    pngChunk("IDAT", deflateSync(Buffer.concat(rows))),
-    pngChunk("IEND", Buffer.alloc(0)),
-  ]);
-}
+const SAMPLE_REQUEST_NOTE = "image-arranger writes this request only. Ask an agent or operator to process queued image/video generation requests; the generation service is operated outside this tool and this file is updated after processing.";
 
 function seedSampleAssets(context) {
   if (context.init !== "sample") return;
   const state = readState(context.stateFile, context.projectRoot, context.init);
   const character = state.characters?.[0];
   if (!character || character.id !== "sample-character") return;
-  const master = character.base?.master?.[0];
-  const imageEntry = character.images?.[0];
-  if (!master || !imageEntry) return;
-  if ((master.assets ?? []).length || (imageEntry.assets ?? []).length) return;
-  const placeholders = [
-    { name: "base-reference.png", colors: [[108, 92, 231], [36, 30, 66]], target: master, adopted: true, label: "Canonical reference (placeholder)" },
-    { name: "studio-smile-adopted.png", colors: [[26, 158, 110], [16, 52, 38]], target: imageEntry, adopted: true, label: "Adopted candidate (placeholder)" },
-    { name: "studio-smile-candidate.png", colors: [[199, 125, 10], [66, 42, 8]], target: imageEntry, adopted: false, label: "Unadopted candidate (placeholder)" },
-  ];
-  for (const item of placeholders) {
-    const destination = join(context.assetDir, item.name);
-    if (!existsSync(destination)) {
-      writeFileSync(destination, makePlaceholderPng(640, 400, item.colors[0], item.colors[1]));
-    }
-    item.target.assets = [...(item.target.assets ?? []), {
-      id: `asset-${safeSlug(item.target.id)}-${item.name.replace(/[^a-z0-9]+/gi, "-")}`,
+  const pick = (list, id) => (list ?? []).find((item) => item.id === id);
+  const base = character.base ?? {};
+  const master = pick(base.master, "base-sample-character-master");
+  const cap = pick(base.accessory, "base-sample-character-accessory-cap");
+  const smile = pick(base.expression, "base-sample-character-expression-smile");
+  const focus = pick(base.expression, "base-sample-character-expression-focus");
+  const jacket = pick(base.clothing, "base-sample-character-clothing-casual");
+  const studio = pick(base.background, "base-sample-character-background-studio");
+  const imageSmile = pick(character.images, "image-sample-character-studio-smile");
+  const imageRooftop = pick(character.images, "image-sample-character-rooftop-dusk");
+  const video = pick(character.videos, "video-sample-character-dusk-greeting");
+  if (!master || !imageSmile) return;
+  if ((master.assets ?? []).length || (imageSmile.assets ?? []).length) return;
+
+  const specs = [
+    { entry: master, file: "base-master-adopted.png", w: 768, h: 1024, palette: 5, adopted: true, badge: "BASE / MASTER", title: "AOI - FULL-BODY BASE", caption: "teal bob, amber eyes, sky-blue cap, mustard courier jacket", name: "Canonical full-body sheet / 全身カノニカル" },
+    { entry: master, file: "base-master-earlier.png", w: 768, h: 1024, palette: 7, adopted: false, badge: "BASE / CANDIDATE", title: "EARLIER TAKE", caption: "kept for comparison - proportions drift", name: "Earlier take / 比較用の旧テイク" },
+    { entry: cap, file: "base-cap-adopted.png", w: 640, h: 640, palette: 3, adopted: true, badge: "BASE / ACCESSORY", title: "SKY-BLUE CAP", name: "Cap reference / キャップ参照" },
+    { entry: smile, file: "base-smile-adopted.png", w: 640, h: 640, palette: 2, adopted: true, badge: "BASE / EXPRESSION", title: "SMILE", name: "Smile reference / 笑顔参照" },
+    { entry: smile, file: "base-smile-alt.png", w: 640, h: 640, palette: 1, adopted: false, badge: "BASE / CANDIDATE", title: "SMILE - ALT", caption: "wider grin - awaiting review", name: "Alternate smile / 笑顔の別案" },
+    { entry: focus, file: "base-focus-adopted.png", w: 640, h: 640, palette: 0, adopted: true, badge: "BASE / EXPRESSION", title: "FOCUSED", name: "Focused reference / 集中参照" },
+    { entry: jacket, file: "base-jacket-adopted.png", w: 768, h: 960, palette: 4, adopted: true, badge: "BASE / CLOTHING", title: "COURIER JACKET", name: "Jacket reference / ジャケット参照" },
+    { entry: studio, file: "base-studio-adopted.png", w: 1024, h: 640, palette: 6, adopted: true, badge: "BASE / BACKGROUND", title: "STUDIO", name: "Studio backdrop / スタジオ背景" },
+    { entry: imageSmile, file: "image-studio-smile-adopted.png", w: 1024, h: 640, palette: 2, adopted: true, badge: "IMAGE / ADOPTED", title: "SMILING IN THE STUDIO", caption: "waist-up, soft key light", name: "Adopted result / 採用カット" },
+    { entry: imageSmile, file: "image-studio-smile-take2.png", w: 1024, h: 640, palette: 3, adopted: false, badge: "IMAGE / CANDIDATE", title: "STUDIO - TAKE 2", caption: "cooler light - candidate", name: "Take 2 / テイク2（候補）" },
+    { entry: imageRooftop, file: "image-rooftop-dusk-take1.png", w: 1024, h: 640, palette: 1, adopted: false, badge: "IMAGE / NEW RESULT", title: "ROOFTOP AT DUSK", caption: "fresh from the queue - review and adopt", name: "New result / 新着結果（未採用）" },
+  ].filter((spec) => spec.entry);
+
+  const assetIds = new Map();
+  for (const spec of specs) {
+    const destination = join(context.assetDir, spec.file);
+    if (!existsSync(destination)) writeFileSync(destination, makeSampleArt(spec));
+    const assetId = `asset-${safeSlug(spec.entry.id)}-${spec.file.replace(/[^a-z0-9]+/gi, "-")}`;
+    assetIds.set(spec.file, assetId);
+    spec.entry.assets = [...(spec.entry.assets ?? []), {
+      id: assetId,
       kind: "image",
       file: toPosixPath(relative(context.projectRoot, destination)),
-      name: item.label,
-      adopted: item.adopted,
-      prompt: "",
+      name: spec.name,
+      adopted: spec.adopted,
+      prompt: spec.adopted ? (spec.entry.prompt ?? "") : "",
       sourceLicense: "CC0 (generated placeholder)",
       aiGenerated: false,
       humanReviewed: true,
-      usageNotes: "Placeholder bundled with the sample workspace so candidates and adoption are visible on first run.",
+      usageNotes: "Locally generated placeholder bundled with the sample workspace - replace with your own art.",
       tags: [],
     }];
   }
-  state.updatedAt = nowIso();
+
+  if (video && !video.startFrame && !video.endFrame) {
+    video.startFrame = assetIds.get("image-studio-smile-adopted.png") ?? "";
+    video.endFrame = assetIds.get("image-rooftop-dusk-take1.png") ?? "";
+  }
+
+  seedSampleRequests(context, { character, video, imageRooftop, assetIds });
+  recomputeRequestedStatuses(state, context);
   writeState(context.stateFile, state);
+}
+
+// Pre-populate the queue so the request lifecycle (pending + completed) is
+// visible on first run: one completed image request whose result is already
+// registered as a candidate, and one pending video request for the demo
+// agent or a human operator to pick up.
+function seedSampleRequests(context, refs) {
+  ensureDir(context.requestDir);
+  if (readdirSync(context.requestDir).some((file) => file.endsWith(".json"))) return;
+  const { character, video, imageRooftop, assetIds } = refs;
+  const workspaceOutputs = toPosixPath(relative(context.projectRoot, context.outputDir));
+  const relAsset = (file) => toPosixPath(relative(context.projectRoot, join(context.assetDir, file)));
+
+  if (imageRooftop) {
+    writeJson(join(context.requestDir, "req_sample_completed_rooftop.json"), {
+      schema: "image-arranger-request.v1",
+      requestId: "req_sample_completed_rooftop",
+      status: "completed",
+      character: character.id,
+      characterName: character.name,
+      mode: "image",
+      service: "chatgpt",
+      targets: [{
+        action: "generate",
+        entryId: imageRooftop.id,
+        assetId: null,
+        assetName: null,
+        assetFile: null,
+        overview: imageRooftop.overview,
+        prompt: imageRooftop.prompt,
+        referenceUrl: null,
+        basePrompt: "",
+        improvementPrompt: "",
+        inputs: { startFrame: null, endFrame: null, refImages: [] },
+        outputDir: `${workspaceOutputs}/${character.id}`,
+        service: "chatgpt",
+        status: "completed",
+        completedAt: nowIso(),
+        results: [{ file: relAsset("image-rooftop-dusk-take1.png"), assetId: assetIds.get("image-rooftop-dusk-take1.png"), sample: true }],
+      }],
+      requestedAt: nowIso(),
+      completedAt: nowIso(),
+      updatedAt: nowIso(),
+      note: SAMPLE_REQUEST_NOTE,
+    });
+  }
+
+  if (video) {
+    const startFile = relAsset("image-studio-smile-adopted.png");
+    const endFile = relAsset("image-rooftop-dusk-take1.png");
+    writeJson(join(context.requestDir, "req_sample_pending_video.json"), {
+      schema: "image-arranger-request.v1",
+      requestId: "req_sample_pending_video",
+      status: "requested",
+      character: character.id,
+      characterName: character.name,
+      mode: "video",
+      service: "vidu",
+      targets: [{
+        action: "generate",
+        entryId: video.id,
+        assetId: null,
+        assetName: null,
+        assetFile: null,
+        overview: video.overview,
+        prompt: video.prompt,
+        referenceUrl: null,
+        basePrompt: "",
+        improvementPrompt: "",
+        inputs: { startFrame: startFile, endFrame: endFile, durationSec: video.durationSec ?? 8, refImages: [startFile, endFile] },
+        outputDir: `${workspaceOutputs}/${character.id}`,
+        service: "vidu",
+        status: "requested",
+        results: [],
+      }],
+      requestedAt: nowIso(),
+      completedAt: null,
+      note: SAMPLE_REQUEST_NOTE,
+    });
+  }
 }
 
 export function createImageArrangerServer(options = {}) {

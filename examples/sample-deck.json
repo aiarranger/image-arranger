@@ -10,16 +10,16 @@
   "characters": [
     {
       "id": "sample-character",
-      "name": "Sample Character",
+      "name": "Aoi (Sample Character)",
       "workflow": "character",
       "categoryLabels": {},
-      "description": "Public sample for character base references and image prompt composition.",
+      "description": "Fictional demo character bundled with image-arranger: Aoi, a cheerful bicycle courier with a short teal bob, amber eyes, a sky-blue cap and a mustard jacket. Every image is generated locally at first run — replace with your own art. / image-arranger 同梱の架空デモキャラ「アオイ」。画像はすべて初回起動時にローカル生成されるプレースホルダーです。",
       "base": {
         "master": [
           {
             "id": "base-sample-character-master",
-            "overview": "Full-body base",
-            "prompt": "full body character design sheet, neutral standing pose, consistent face, clean background",
+            "overview": "Full-body base / 全身ベース",
+            "prompt": "full body character reference sheet of Aoi, a cheerful young bicycle courier with a short teal bob and amber eyes, neutral A-pose, front view, flat pastel background, soft even lighting, clean cel shading, consistent face, single character, no text, no watermark",
             "version": 1,
             "checked": false,
             "requestStatus": "idle",
@@ -30,8 +30,8 @@
         "accessory": [
           {
             "id": "base-sample-character-accessory-cap",
-            "overview": "Cap",
-            "prompt": "wearing a simple blue cap",
+            "overview": "Sky-blue cap / 水色キャップ",
+            "prompt": "isolated reference of Aoi's sky-blue baseball cap, slightly worn brim, faithful to the master sheet colors, flat neutral background, clean cel shading, single object, no text",
             "version": 1,
             "checked": false,
             "requestStatus": "idle",
@@ -42,8 +42,8 @@
         "expression": [
           {
             "id": "base-sample-character-expression-smile",
-            "overview": "Smile",
-            "prompt": "friendly smile, relaxed eyes",
+            "overview": "Smile / 笑顔",
+            "prompt": "face close-up of Aoi with a bright friendly smile, relaxed eyes, faithful to the master sheet, flat neutral background, clean cel shading, no text",
             "version": 1,
             "checked": false,
             "requestStatus": "idle",
@@ -52,8 +52,8 @@
           },
           {
             "id": "base-sample-character-expression-focus",
-            "overview": "Focused",
-            "prompt": "focused expression, looking forward",
+            "overview": "Focused / 集中",
+            "prompt": "face close-up of Aoi with a focused expression, slight frown, eyes locked forward, faithful to the master sheet, flat neutral background, clean cel shading, no text",
             "version": 1,
             "checked": false,
             "requestStatus": "idle",
@@ -64,8 +64,8 @@
         "clothing": [
           {
             "id": "base-sample-character-clothing-casual",
-            "overview": "Casual",
-            "prompt": "casual jacket, clean readable silhouette",
+            "overview": "Courier jacket / 配達ジャケット",
+            "prompt": "isolated outfit reference of Aoi's mustard-yellow courier jacket with rolled sleeves over a white tee, faithful colors and trims, clean readable silhouette, flat neutral background, no text",
             "version": 1,
             "checked": false,
             "requestStatus": "idle",
@@ -76,8 +76,8 @@
         "background": [
           {
             "id": "base-sample-character-background-studio",
-            "overview": "Studio",
-            "prompt": "simple bright studio background",
+            "overview": "Studio / スタジオ",
+            "prompt": "simple bright studio background, soft white sweep with a hint of warm bounce light, empty scene, no characters, no text",
             "version": 1,
             "checked": false,
             "requestStatus": "idle",
@@ -89,8 +89,8 @@
       "images": [
         {
           "id": "image-sample-character-studio-smile",
-          "overview": "Smiling in the studio",
-          "prompt": "polished illustration, reusable game asset concept",
+          "overview": "Smiling in the studio / スタジオで笑顔",
+          "prompt": "waist-up portrait of Aoi smiling at the camera in a bright studio, sky-blue cap and mustard courier jacket, soft key light with warm bounce, crisp clean line art, polished illustration, single character, no text, no watermark",
           "version": 1,
           "checked": false,
           "requestStatus": "idle",
@@ -111,9 +111,46 @@
               "base-sample-character-background-studio"
             ]
           }
+        },
+        {
+          "id": "image-sample-character-rooftop-dusk",
+          "overview": "Rooftop at dusk / 夕暮れの屋上",
+          "prompt": "Aoi leaning on a rooftop railing at dusk after her last delivery, warm rim light on her teal hair, city bokeh lights below, wind lifting her jacket collar, cinematic color grading, single character, no text, no watermark",
+          "version": 1,
+          "checked": false,
+          "requestStatus": "idle",
+          "tags": [],
+          "assets": [],
+          "refs": {
+            "master": "base-sample-character-master",
+            "accessory": [
+              "base-sample-character-accessory-cap"
+            ],
+            "expression": [
+              "base-sample-character-expression-smile"
+            ],
+            "clothing": [
+              "base-sample-character-clothing-casual"
+            ],
+            "background": []
+          }
         }
       ],
-      "videos": []
+      "videos": [
+        {
+          "id": "video-sample-character-dusk-greeting",
+          "overview": "Dusk greeting, 8s / 夕暮れのあいさつ（8秒）",
+          "prompt": "0-2s: start on the studio portrait, slow push-in from waist-up to a gentle face close-up as Aoi notices the camera. 2-4s: she breaks into a bright smile and gives a small wave, hair swaying once. 4-6s: quarter orbit around her while the light warms to golden hour. 6-8s: she turns toward the dusk skyline and the shot settles on the rooftop end frame, holding on her smiling profile. Keep her face sharp and in focus throughout, consistent character design, no text, no watermark",
+          "version": 1,
+          "checked": false,
+          "requestStatus": "idle",
+          "tags": [],
+          "assets": [],
+          "startFrame": "",
+          "endFrame": "",
+          "durationSec": 8
+        }
+      ]
     },
     {
       "id": "sample-game-assets",
@@ -129,12 +166,12 @@
           "en": "Format"
         }
       },
-      "description": "Public sample for standalone image and video asset prompts.",
+      "description": "Public sample for standalone image and video asset prompts. / 単発の画像・動画素材プロンプトを管理するサンプル。",
       "base": {
         "master": [
           {
             "id": "base-sample-game-rule",
-            "overview": "Common rules",
+            "overview": "Common rules / 共通ルール",
             "prompt": "one asset per prompt, no text, no logo, no watermark, clean reusable game material",
             "version": 1,
             "checked": false,
@@ -146,7 +183,7 @@
         "accessory": [
           {
             "id": "base-sample-game-single-image",
-            "overview": "Single image only",
+            "overview": "Single image only / 1画像のみ",
             "prompt": "create exactly one image, not a grid or collage",
             "version": 1,
             "checked": false,
@@ -158,7 +195,7 @@
         "expression": [
           {
             "id": "base-sample-game-scene-static",
-            "overview": "Still image",
+            "overview": "Still image / 静止画像",
             "prompt": "stable image for a reusable asset library",
             "version": 1,
             "checked": false,
@@ -170,7 +207,7 @@
         "clothing": [
           {
             "id": "base-sample-game-format-wide",
-            "overview": "Wide background",
+            "overview": "Wide background / 横長背景",
             "prompt": "wide game background, readable center area, no UI",
             "version": 1,
             "checked": false,
@@ -184,8 +221,8 @@
       "images": [
         {
           "id": "image-sample-wide-background",
-          "overview": "Wide background sample",
-          "prompt": "wide clean training-room background, readable center area, no characters, no UI",
+          "overview": "Wide background sample / 横長背景サンプル",
+          "prompt": "wide clean training-room background, late afternoon light through tall windows, readable center area for UI overlays, no characters, no UI, no text",
           "version": 1,
           "checked": false,
           "requestStatus": "idle",
