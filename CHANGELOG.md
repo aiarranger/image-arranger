@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Cmd+K / Ctrl+K command palette: fuzzy search across commands and every entry in every character (overview + prompt), with match highlighting and keyboard navigation.
+- First-run guided tour: five coach-mark steps over the live UI, replayable from the "?" header button, with Back/Next/Skip and full keyboard support.
+- Quality gate for important generations: entries can require an automated check of each generated candidate against their base references, with prompt-repair retries up to a per-entry attempt budget.
 - Initial public release candidate: local-first prompt/asset manager with base (per-part canonical references), image, video, queue, and gallery tabs.
 - Request-file contract (`image-arranger-request.v1`) for human or agent processors, with `draft-prompt`, `analyze`, `generate`, and `improve` actions.
 - Optional CDP automation driver (`scripts/process-queue.mjs`) that processes queued ChatGPT image targets end to end with reviewable run logs.

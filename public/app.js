@@ -225,6 +225,7 @@ const I18N = {
     cmdExportDeck: "選択した素材をエクスポート（DL）",
     helpTooltip: "操作ガイドを再生",
     tourSkip: "スキップ",
+    tourBack: "戻る",
     tourNext: "次へ",
     tourDone: "完了",
     tourStepOf: (i, n) => `ステップ ${i} / ${n}`,
@@ -465,6 +466,7 @@ const I18N = {
     cmdExportDeck: "Export selected entries (download)",
     helpTooltip: "Replay the guided tour",
     tourSkip: "Skip",
+    tourBack: "Back",
     tourNext: "Next",
     tourDone: "Done",
     tourStepOf: (i, n) => `Step ${i} of ${n}`,
@@ -4098,6 +4100,39 @@ function paletteScore(query, text) {
   return matched >= q.length ? 25 : -1;
 }
 
+// Highlight why an item matched: wrap the matched substring (or, failing
+// that, each in-order subsequence character) of the visible label in <mark>.
+// Mirrors paletteScore's matching order; output is fully HTML-escaped.
+function paletteHighlight(label, query) {
+  const raw = String(label ?? "");
+  const q = String(query ?? "").trim().toLowerCase();
+  if (!q) return escapeHtml(raw);
+  const lower = raw.toLowerCase();
+  // Substring offsets are only valid on raw when lowercasing preserves length
+  // (e.g. U+0130 "İ" lowercases to 2 code units); otherwise use the
+  // per-character subsequence path below, which never mixes offsets.
+  if (lower.length === raw.length) {
+    const at = lower.indexOf(q);
+    if (at >= 0) {
+      return `${escapeHtml(raw.slice(0, at))}<mark>${escapeHtml(raw.slice(at, at + q.length))}</mark>${escapeHtml(raw.slice(at + q.length))}`;
+    }
+  }
+  let out = "";
+  let matched = 0;
+  for (const char of raw) {
+    if (matched < q.length && char.toLowerCase() === q[matched]) {
+      out += `<mark>${escapeHtml(char)}</mark>`;
+      matched += 1;
+    } else {
+      out += escapeHtml(char);
+    }
+  }
+  // Entries are scored against item.search (overview + prompt) but highlighted
+  // against the label only; if the query didn't fully match within the label,
+  // partial scattered marks are meaningless — show the plain label instead.
+  return matched >= q.length ? out : escapeHtml(raw);
+}
+
 function paletteFilter(query) {
   const commands = paletteCommands()
     .map((command) => ({ ...command, score: paletteScore(query, command.label) }))
@@ -4133,7 +4168,7 @@ function paletteRenderList() {
   list.innerHTML = paletteState.items.length
     ? paletteState.items.map((item, index) => `
       <button type="button" class="palette-item${item.type === "entry" ? " entry" : ""}" id="palette-item-${index}" role="option" aria-selected="false" data-palette-index="${index}">
-        <span class="palette-item-label">${escapeHtml(item.label)}</span>
+        <span class="palette-item-label">${paletteHighlight(item.label, paletteState.query)}</span>
         ${item.hint ? `<span class="palette-item-hint">${escapeHtml(item.hint)}</span>` : ""}
       </button>`).join("")
     : `<p class="palette-empty">${t("paletteNoResults")}</p>`;
@@ -4293,12 +4328,14 @@ function startTour(force = false) {
       <p id="tourBody"></p>
       <div class="tour-tip-actions">
         <button type="button" class="ghost small" id="tourSkipBtn">${t("tourSkip")}</button>
+        <button type="button" class="ghost small" id="tourBackBtn">${t("tourBack")}</button>
         <button type="button" class="primary" id="tourNextBtn">${t("tourNext")}</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
   tour.overlay = overlay;
   overlay.querySelector("#tourSkipBtn").onclick = () => endTour();
+  overlay.querySelector("#tourBackBtn").onclick = () => tourRetreat();
   overlay.querySelector("#tourNextBtn").onclick = () => tourAdvance();
   document.addEventListener("keydown", tourKeydown, true);
   window.addEventListener("resize", tourReposition);
@@ -4318,12 +4355,16 @@ function tourKeydown(event) {
     tourAdvance();
     return;
   }
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    tourRetreat();
+    return;
+  }
   if (event.key === "Tab") {
-    // Mini focus trap: keyboard users cycle between Skip and Next.
-    const focusables = [
-      tour.overlay?.querySelector("#tourSkipBtn"),
-      tour.overlay?.querySelector("#tourNextBtn"),
-    ].filter(Boolean);
+    // Mini focus trap: keyboard users cycle Skip / Back / Next.
+    const focusables = Array.from(
+      tour.overlay?.querySelectorAll(".tour-tip-actions button") ?? [],
+    ).filter((node) => !node.hidden);
     if (!focusables.length) return;
     event.preventDefault();
     const at = focusables.indexOf(document.activeElement);
@@ -4351,6 +4392,25 @@ function tourAdvance() {
   endTour();
 }
 
+// Walk backwards to the previous step that still has a live anchor; the Back
+// button is hidden on the first step, so running out of steps just stays put.
+function tourRetreat() {
+  if (!tour.active) return;
+  const steps = tourSteps();
+  let prev = tour.step - 1;
+  while (prev >= 0) {
+    const step = steps[prev];
+    try { step.prepare?.(); } catch { /* never block the tour */ }
+    const anchor = tourAnchor(step);
+    if (anchor) {
+      tour.step = prev;
+      tourShowStep(steps, step, anchor);
+      return;
+    }
+    prev -= 1;
+  }
+}
+
 function tourShowStep(steps, step, anchor) {
   const overlay = tour.overlay;
   if (!overlay) return;
@@ -4359,6 +4419,8 @@ function tourShowStep(steps, step, anchor) {
   overlay.querySelector("#tourBody").textContent = step.body;
   const nextBtn = overlay.querySelector("#tourNextBtn");
   nextBtn.textContent = tour.step >= steps.length - 1 ? t("tourDone") : t("tourNext");
+  // Back is meaningless on the first step; `hidden` also drops it from the trap.
+  overlay.querySelector("#tourBackBtn").hidden = tour.step === 0;
   // Instant scroll (no smooth) so positioning is synchronous and the only
   // animated property stays opacity/transform on the tooltip.
   try { anchor.scrollIntoView({ block: "center", behavior: "auto" }); } catch { /* ok */ }
