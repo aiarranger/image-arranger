@@ -65,7 +65,7 @@ The tab order *is* the workflow: **Create kit → Base → Image → Video**, wi
 - **Video** — point start/end frames at adopted images for image-to-video services.
 - **Queue** — the outbox: every request you submit becomes a JSON file a human or agent can process. Review, edit, cancel, or complete pending requests here.
 
-A separate **Gallery** view (the *Gallery* button in the header) shows every adopted image across the deck in one place.
+A separate **Gallery** view (the *Gallery* button in the header) shows the adopted images of your **Image** entries in one place (Base reference material is deliberately excluded).
 
 Uploading a PNG that still carries its generation metadata (A1111 / NovelAI / ComfyUI) auto-fills the prompt fields on import — provenance travels with the file.
 

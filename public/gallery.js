@@ -3,9 +3,6 @@
 const GALLERY_I18N = {
   en: {
     favorite: "Favorite",
-    filterAll: "All",
-    filterBase: "Base",
-    filterImage: "Image",
     speechLines: [
       "Hehe ♥", "Surprised?", "Thanks for looking!", "Hey, which me do you like?",
       "You can keep watching ♥", "Great to see you today!", "Tapping tickles~", "Added me to your favorites yet?",
@@ -17,9 +14,6 @@ const GALLERY_I18N = {
   },
   ja: {
     favorite: "お気に入り",
-    filterAll: "すべて",
-    filterBase: "ベース",
-    filterImage: "画像",
     speechLines: [
       "えへへ♪", "びっくりした？", "見てくれてありがと！", "ねぇ、どの私が好き？",
       "ずっと見てていいよ♪", "今日も会えたね！", "タップ、くすぐったいよ〜", "お気に入り、増やしてくれた？",
@@ -43,7 +37,6 @@ const assetUrl = (file) => `/asset?path=${encodeURIComponent(file)}`;
 const IMG_EXT = /\.(png|jpe?g|webp|gif|avif)$/i;
 let allExpressions = [];
 let expressions = [];
-let activeFilter = 'all';
 let surfacePan = { x:0, y:0 };
 let tileLayout = null;
 let tileCards = [];
@@ -210,41 +203,6 @@ function buildColumns() {
   }
 }
 
-function expressionCounts() {
-  return {
-    all: allExpressions.length,
-    base: allExpressions.filter(e => e.origin === 'base').length,
-    image: allExpressions.filter(e => e.origin === 'image').length,
-  };
-}
-
-function applyGalleryFilter(origin = activeFilter) {
-  activeFilter = origin;
-  expressions = origin === 'all' ? [...allExpressions] : allExpressions.filter(e => e.origin === origin);
-  surfacePan = { x:0, y:0 };
-  tileLayout = null;
-  tileCards = [];
-  rebuildWeighted();
-  buildColumns();
-  document.querySelectorAll('[data-gallery-filter]').forEach((button) => {
-    button.classList.toggle('active', button.dataset.galleryFilter === activeFilter);
-  });
-}
-
-function renderGalleryFilters() {
-  const host = $('#galleryFilters');
-  if (!host) return;
-  const counts = expressionCounts();
-  const labels = { all: T.filterAll, base: T.filterBase, image: T.filterImage };
-  host.innerHTML = ['all', 'base', 'image'].map((origin) => `
-    <button type="button" class="${origin === activeFilter ? 'active' : ''}" data-gallery-filter="${origin}" ${counts[origin] ? '' : 'disabled'}>
-      ${labels[origin]} <span>${counts[origin]}</span>
-    </button>
-  `).join('');
-  host.querySelectorAll('[data-gallery-filter]').forEach((button) => {
-    button.onclick = () => applyGalleryFilter(button.dataset.galleryFilter);
-  });
-}
 // タイル境界を越えた時だけ呼ばれる。各カードのワールド座標を引き直して
 // 表情と千鳥オフセットを更新する（毎フレームは走らない）。
 function reflowTiles() {
@@ -465,11 +423,9 @@ function collectAdopted(ch) {
       }
     }
   };
-  // The gallery is for adopted still images across the character, including
-  // canonical base references created through Create kit.
-  for (const rows of Object.values(ch.base ?? {})) {
-    for (const entry of rows ?? []) addEntry(entry, 'base');
-  }
+  // Contract (owner decision 2026-06-13): the gallery shows ONLY adopted
+  // assets from Image-tab entries. Base entries are reference material and
+  // are deliberately excluded.
   for (const entry of ch.images ?? []) {
     addEntry(entry, 'image');
   }
@@ -505,8 +461,9 @@ fetch('/api/state').then(r => r.json()).then(state => {
   // 全画像を先読みしておく。タイル使い回しでsrcを差し替えた瞬間の
   // 「ちらつき」（読み込み中の空白が見える）を防ぐ。
   for (const e of allExpressions) { const im = new Image(); im.src = e.img; }
-  renderGalleryFilters();
-  applyGalleryFilter('all');
+  expressions = [...allExpressions];
+  rebuildWeighted();
+  buildColumns();
   // リサイズは150msのtrailingデバウンス：録画中のウィンドウ操作で
   // 1イベントごとに全カードを作り直すスタッターを防ぐ。
   let resizeTimer = 0;

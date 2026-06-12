@@ -79,6 +79,13 @@ i18n パリティ（ja=en=261）/ CSP / 契約互換 すべて合格。初心者
 
 ### Gallery の対象範囲（#9 を確定）
 
+> **⚠ 2026-06-13 夜にオーナー裁定で上書き（こちらが最終決定）**:
+> **ギャラリーは「画像（Image）エントリで採用されたもの」のみが対象。ベースは対象外。**
+> 下記の旧決定（全採用静止画＋originフィルタ）は破棄。実装は修正済み（base収集と
+> originフィルタチップを撤去、README EN/JA・CHANGELOGも契約として明文化）。
+> 以後この仕様を変更する場合はオーナー承認必須。
+
+
 **「すべての採用済み静止画（Base + Image、source-reference 除外）」で確定。** 根拠:
 README の製品定義が「a separate Gallery view shows **every adopted image across the deck**」であり、
 初心者テストの期待（Baseで採用したシートがギャラリーに出る）とも一致する。絞り込みはしない。

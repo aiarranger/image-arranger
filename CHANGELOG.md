@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent bootstrap docs for Codex/Claude Code, including `CLAUDE.md`, a Quick bootstrap in `AGENTS.md`, and a CI boot-smoke check that starts the app and runs the demo agent.
 - Create kit route cards, inline queue guidance, integrated analysis-result import flow, empty-source CTA, and selected-source count in JA/EN.
 - Color-palette kit support: palette part keys are persisted, palette generation can be queued from adopted references, and adopted palettes can be attached to sheet requests as color authority references.
+- Phase 5 UX assists: queue flow diagrams, prompt insertion chips, sheet request previews, pending return slots, qualityReport timelines, and quality-gate issue chips that queue targeted improve requests.
 - Launch marketing drafts for X, note, dev.to, Reddit, plus posting checklist and FAQ under `docs/marketing/`.
 
 ### Changed
@@ -44,8 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sample deck v2 (courier-girl Aoi): every tab is populated on first run with locally generated art, and the queue is pre-seeded with one pending and one completed request.
 - Startup now reports a self-solving command when the requested port is already in use.
 - `npm run demo-agent -- --workspace ...` now honors the last repeated option, allowing npm-script defaults to be overridden cleanly.
-- Gallery now includes adopted Base references as well as Image-tab adopted assets, matching the documented "adopted images across the deck" behavior.
-- Gallery scope is intentionally every adopted still image from Base + Image entries, excluding `source-reference` assets, with origin filter chips for All/Base/Image.
+- Gallery scope contract: the gallery shows adopted assets of Image entries only (`source-reference` assets excluded); Base reference material is deliberately out of scope.
 
 ### Fixed
 
