@@ -1345,11 +1345,18 @@ function insertTextAtCursor(textarea, text) {
   textarea.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+function fitTextareaToContent(textarea) {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  textarea.style.height = `${textarea.scrollHeight + 2}px`;
+}
+
 function bindPromptChipButtons(root = document) {
   root.querySelectorAll("[data-prompt-chip]").forEach((button) => {
     button.onclick = () => {
       const textarea = document.querySelector(button.dataset.promptTarget);
       insertTextAtCursor(textarea, button.dataset.promptChip);
+      if (textarea?.id === "sheetPrompt") fitTextareaToContent(textarea);
     };
   });
 }
@@ -3542,7 +3549,14 @@ function bind() {
   if ($("#kitPaletteQueueBtn")) $("#kitPaletteQueueBtn").onclick = (event) =>
     withBusy(event.currentTarget, requestPaletteGeneration).catch((error) => toast(error.message, { kind: "error" }));
   if ($("#sheetName")) $("#sheetName").onchange = () => { state.kit.sheetName = $("#sheetName").value; };
-  if ($("#sheetPrompt")) $("#sheetPrompt").oninput = () => { state.kit.sheetPrompt = $("#sheetPrompt").value; };
+  if ($("#sheetPrompt")) {
+    const sheetPrompt = $("#sheetPrompt");
+    fitTextareaToContent(sheetPrompt);
+    sheetPrompt.oninput = () => {
+      state.kit.sheetPrompt = sheetPrompt.value;
+      fitTextareaToContent(sheetPrompt);
+    };
+  }
   if ($("#sheetQualityGateEnabled")) $("#sheetQualityGateEnabled").onchange = () => { state.kit.sheetQualityGateEnabled = $("#sheetQualityGateEnabled").checked; render(); };
   if ($("#sheetQualityGateAttempts")) $("#sheetQualityGateAttempts").oninput = () => { state.kit.sheetQualityGateMaxAttempts = clampQualityAttempts($("#sheetQualityGateAttempts").value); };
   if ($("#sheetTplSelect")) {
