@@ -268,6 +268,7 @@ async function waitForNewVideo(page, beforeVideos, { onTick = null } = {}) {
   const before = new Set(beforeVideos);
   const startedAt = Date.now();
   let lastBeat = 0;
+  let lastReload = 0;
   while (Date.now() - startedAt < TIMEOUT_MS) {
     const state = await viduState(page);
     const fresh = state.videos.filter((src) => !before.has(src) && !src.startsWith("blob:"));
@@ -279,6 +280,12 @@ async function waitForNewVideo(page, beforeVideos, { onTick = null } = {}) {
     if (onTick && elapsed - lastBeat >= 30) {
       lastBeat = elapsed;
       onTick(elapsed, state);
+    }
+    if (elapsed >= 180 && state.videos.length === 0 && elapsed - lastReload >= 120) {
+      lastReload = elapsed;
+      await page.send("Page.reload", { ignoreCache: true });
+      await waitFor(page, "document.readyState === \"complete\"", { timeoutMs: 30000, label: "Vidu reload after empty history" }).catch(() => {});
+      await sleep(8000);
     }
     await sleep(10000);
   }
