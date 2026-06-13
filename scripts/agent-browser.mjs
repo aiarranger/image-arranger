@@ -451,8 +451,8 @@ const FIRE_POINTER_SEQUENCE = `(el) => {
 }`;
 
 const MODEL_BUTTON = `(document.querySelector(${JSON.stringify("[data-testid=\"model-switcher-dropdown-button\"]")})
-  ?? [...document.querySelectorAll('header button[aria-haspopup="menu"], main button[aria-haspopup="menu"]')]
-    .find((b) => /gpt|model|thinking|pro|auto|instant/i.test(b.innerText)))`;
+  ?? [...document.querySelectorAll('header button[aria-haspopup="menu"], main button[aria-haspopup="menu"], form button[aria-haspopup="menu"]')]
+    .find((b) => /gpt|model|thinking|pro|auto|instant|最速|標準|最高|^高$/i.test(b.innerText.replace(/\\s+/g, ""))))`;
 
 export async function ensureModel(page, pattern, { timeoutMs = 12000 } = {}) {
   const wantSource = String(pattern);
@@ -475,14 +475,14 @@ export async function ensureModel(page, pattern, { timeoutMs = 12000 } = {}) {
   if (!opened) return { status: "unavailable", reason: "model switcher disappeared before it could be opened" };
 
   try {
-    await waitFor(page, `document.querySelectorAll('[role="menu"] [role="menuitem"], [role="listbox"] [role="option"]').length > 0`, {
+    await waitFor(page, `document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemradio"], [role="listbox"] [role="option"]').length > 0`, {
       timeoutMs: Math.min(6000, timeoutMs), label: "model menu open" });
   } catch {
     return { status: "unavailable", reason: "model menu did not open" };
   }
 
   const picked = await evaluate(page, `(() => {
-    const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="listbox"] [role="option"]')];
+    const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemradio"], [role="listbox"] [role="option"]')];
     const item = items.find((el) => new RegExp(${JSON.stringify(wantSource)}, "i").test(el.innerText));
     if (!item) return { ok: false, seen: items.map((el) => el.innerText.replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 12) };
     (${FIRE_POINTER_SEQUENCE})(item);

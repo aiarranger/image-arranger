@@ -37,6 +37,7 @@
   --r-md: 12px;
   --r-lg: 16px;
   --r-pill: 999px;
+  --viewport-bottom-room: max(96px, calc(env(safe-area-inset-bottom) + 96px));
 }
 
 * { box-sizing: border-box; }
@@ -59,7 +60,7 @@ button { cursor: pointer; }
   width: min(1252px, calc(100vw - 32px));
   min-width: 0;
   margin: 0 auto;
-  padding: 14px 0 48px;
+  padding: 14px 0 var(--viewport-bottom-room);
 }
 .top {
   display: grid;
@@ -275,7 +276,7 @@ select:focus-visible {
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.92), rgba(244, 239, 255, 0.7));
 }
 .panel-head h2 { margin: 0; font-size: 16px; }
-.panel-body { padding: 10px 14px 28px; }
+.panel-body { padding: 10px 14px 56px; }
 
 .base-toolbar,
 .list-toolbar {

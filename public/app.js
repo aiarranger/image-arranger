@@ -5394,31 +5394,43 @@ window.addEventListener("wheel", (event) => {
       node = node.parentElement;
     }
     scrollWatch.stuck += 1;
-    if (scrollWatch.stuck < 4 || Date.now() - scrollWatch.reportedAt < 15000) return;
-    scrollWatch.reportedAt = Date.now();
-    scrollWatch.stuck = 0;
     const anims = document.getAnimations();
     const vtAnims = anims.filter((a) => String(a.effect?.pseudoElement ?? "").includes("view-transition"));
-    const fixedCover = Array.from(document.querySelectorAll("body *")).filter((el) => {
-      const cs = getComputedStyle(el);
-      const rect = el.getBoundingClientRect();
-      return cs.position === "fixed" && rect.width > window.innerWidth * 0.8 && rect.height > window.innerHeight * 0.8;
-    }).map((el) => el.id || String(el.className).slice(0, 40));
-    console.warn("[scroll-diagnostic]", JSON.stringify({
-      scrollTop: se.scrollTop, scrollHeight: se.scrollHeight, innerHeight: window.innerHeight,
-      zoom: Math.round((window.outerWidth / window.innerWidth) * 100) / 100,
-      defaultPrevented: event.defaultPrevented,
-      target: event.target instanceof Element ? `${event.target.tagName}.${String(event.target.className).slice(0, 40)}` : String(event.target),
-      htmlOverflow: getComputedStyle(document.documentElement).overflowY,
-      bodyOverflow: getComputedStyle(document.body).overflowY,
-      viewTransitionAnims: vtAnims.length, animations: anims.length,
-      fixedCover, tourActive: tour.active, modalOpen: Boolean(modalA11y.activeModal()),
-      viewTransitionBusy,
-    }));
+    if (scrollWatch.stuck >= 4 && Date.now() - scrollWatch.reportedAt >= 15000) {
+      scrollWatch.reportedAt = Date.now();
+      const fixedCover = Array.from(document.querySelectorAll("body *")).filter((el) => {
+        const cs = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return cs.position === "fixed" && rect.width > window.innerWidth * 0.8 && rect.height > window.innerHeight * 0.8;
+      }).map((el) => el.id || String(el.className).slice(0, 40));
+      console.warn("[scroll-diagnostic]", JSON.stringify({
+        scrollTop: se.scrollTop, scrollHeight: se.scrollHeight, innerHeight: window.innerHeight,
+        zoom: Math.round((window.outerWidth / window.innerWidth) * 100) / 100,
+        defaultPrevented: event.defaultPrevented,
+        target: event.target instanceof Element ? `${event.target.tagName}.${String(event.target.className).slice(0, 40)}` : String(event.target),
+        htmlOverflow: getComputedStyle(document.documentElement).overflowY,
+        bodyOverflow: getComputedStyle(document.body).overflowY,
+        viewTransitionAnims: vtAnims.length, animations: anims.length,
+        fixedCover, tourActive: tour.active, modalOpen: Boolean(modalA11y.activeModal()),
+        viewTransitionBusy,
+      }));
+    }
     // Known-safe repairs.
     vtAnims.forEach((a) => { try { a.cancel(); } catch { /* best effort */ } });
     document.querySelector("#exitFlash")?.remove();
     if (tour.active && !tour.overlay?.isConnected) endTour();
+    const beforeRepairTop = se.scrollTop;
+    const maxTop = Math.max(0, se.scrollHeight - window.innerHeight);
+    const fallbackDelta = Math.min(
+      Math.max(Math.abs(event.deltaY), 160),
+      Math.max(160, window.innerHeight * 0.85),
+    );
+    requestAnimationFrame(() => {
+      if (se.scrollTop === beforeRepairTop && beforeRepairTop < maxTop - 2) {
+        se.scrollTop = Math.min(maxTop, beforeRepairTop + fallbackDelta);
+      }
+      if (se.scrollTop !== beforeRepairTop) scrollWatch.stuck = 0;
+    });
   });
 }, { capture: true, passive: true });
 
