@@ -92,13 +92,17 @@ present, the driver returns the image immediately; when absent it requires two
 stable polls so a progressive preview is not grabbed mid-generation.
 
 ### `modelSwitcher` — `[data-testid="model-switcher-dropdown-button"]`
-The model picker button in the chat header (label shows the active model, e.g.
-"5.2 Pro" / "Thinking"). Used by `ensureModel()` when `--image-model <pattern>`
-is passed: the driver opens the dropdown (full pointer-event sequence — the
-menu is Radix-style and opens on pointerdown) and clicks the `[role="menuitem"]`
-whose text matches the pattern. Advisory: every failure path logs a warning and
-the generation proceeds with the active model. A structural fallback scans
-`header/main button[aria-haspopup="menu"]` whose label looks like a model name.
+The model / thinking-effort picker. Older ChatGPT builds expose a header
+dropdown with this testid; current builds (2026-06) expose a composer button
+labeled with the active tier (JP: 最速/標準/高/最高/Pro 拡張) whose menu uses
+`[role="menuitemradio"]` items. `ensureModel()` (driven by
+`--image-model <pattern>`) handles both: it finds the trigger via the testid or
+a structural scan of `header/main/form button[aria-haspopup="menu"]` with a
+model-ish label, opens it with a full pointer-event sequence (Radix menus open
+on pointerdown), clicks the menuitem/menuitemradio matching the pattern, and
+verifies the trigger label changed. Advisory: every failure path logs a warning
+and the generation proceeds with the active tier. Verified live 2026-06-13
+(高→標準→高 round-trip).
 
 ### `userMessage` — `[data-testid*="user-message"]`
 Marks a turn as the user's. Locale-independent. Images inside a user turn are

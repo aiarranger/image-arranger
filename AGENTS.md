@@ -73,8 +73,9 @@ node scripts/process-queue.mjs --dry-run            # list what would run
 node scripts/process-queue.mjs --request <id>       # one request only
 node scripts/process-queue.mjs --parallel 3         # N targets at once, each in its own chat tab (default 1)
 node scripts/process-queue.mjs --keep-tabs          # leave chats open to inspect
-node scripts/process-queue.mjs --image-model thinking  # force the Thinking model before each generation
-                                                       # (workaround: Pro-mode image generation can fail)
+node scripts/process-queue.mjs --image-model 高        # select the thinking tier matching the pattern before
+                                                       # each generation (JP labels: 最速/標準/高/最高/Pro 拡張;
+                                                       # workaround: "Pro 拡張" can fail image generation)
 ```
 
 Division of labour:
