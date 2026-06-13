@@ -64,6 +64,44 @@ For any frontend change or user-reported UI bug, verify the actual screen as a u
 - Report exact evidence: URL, viewport size, starting tab/screen, actions in order, what was visible at the apparent stopping point, whether another natural scroll changed anything, and what remained unreachable or newly visible.
 - Do not report “confirmed fixed” until both the main-agent check and the context-less sub-agent check pass, or until remaining failures are explicitly documented as skipped because they require operator judgment.
 
+## Public demo / intro video production (agents MUST follow)
+
+These rules apply when producing an image-arranger intro, demo, tutorial, or public-facing
+video. They are hard gates learned from operator feedback on 2026-06-13.
+
+- Treat the latest user-specified URLs as hard sources of truth. For this machine,
+  `http://127.0.0.1:4217/` is the real image-arranger product screen source unless
+  the operator gives a newer URL. If the operator says to use real screens only, every
+  product UI pixel in the video must be freshly captured from that real app URL.
+- A planning/review page such as `http://127.0.0.1:4190/` may define the storyboard,
+  timeline, copy, and allowed claims, but it is not product proof. Do not show that
+  reviewer/planning UI in the public video unless the operator explicitly asks for it.
+- Do not use mock UI, recreated HTML/canvas screens, synthetic dashboards, old composite
+  videos, screenshots of rejected attempts, or Vidu-generated fake product screens when
+  real product screens are required.
+- Before generating or compositing, write a shot-source map: scene/time range, exact
+  on-screen text, allowed source for that text, visual layer, and the file/URL that will
+  supply the layer. Do not proceed while any scene has an unapproved source.
+- Public video text is whitelist-only. Use only the copy and claims in the approved
+  storyboard/plan or in the live product UI being recorded. Do not add internal labels,
+  version names, attempt numbers, queue counts as status, request IDs, file paths,
+  review checklist text, debug data, JSON, logs, hidden prompts, account names, or
+  private URLs unless the approved storyboard explicitly requires them.
+- If old or wrong videos/assets appear inside the live product UI, fix the data selection
+  or recapture the correct screen. Do not cover it with cards, crop it away, or call the
+  result final.
+- Generated presenter or character assets may support the video, but cannot replace the
+  product proof. Reject assets with accidental readable labels, text stuck to the
+  character, white-background remnants, visible watermarks/logos, or material character
+  drift.
+- Review the final video by sampling every scene boundary and midpoint, then watch the
+  transitions that carry the main proof. Fail the attempt if any unapproved text,
+  internal information, fake UI, rejected/old asset, broken Japanese/English, character
+  drift, low-quality cutout, or unreadable screen appears.
+- If a prerequisite screen or high-quality asset is missing, stop and fix the source
+  first. Do not spend generation credits on a composition that cannot pass the real-screen
+  and content-whitelist gates.
+
 ## Scripted Processing (preferred)
 
 > **Disclaimer**: the bundled automation driver operates **your** browser with **your** account at **your** responsibility, and may conflict with a generation service's terms of service — review them before use. The stable, supported interface is the request-file contract described in this document; the driver is an optional, replaceable convenience.
