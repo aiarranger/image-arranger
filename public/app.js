@@ -12,6 +12,10 @@ const I18N = {
     generate: "生成",
     analyze: "分析",
     kitIntro: "キャラクターのコア画像から、一貫性を伝えることのできるベース資料を作ります。",
+    baseIntro: "キャラクターのベース画像を管理します。画像生成で参照する画像には採用をつけてください。",
+    imageIntro: "キャラクターの生成された画像を管理します。画像生成や動画生成で参照する画像には採用をつけてください。",
+    videoIntro: "キャラクターの採用画像をもとに動画を作成します。",
+    queueIntro: "AI経由でプロンプト生成/画像生成/動画生成を依頼するリクエスト一覧です。",
     kitSource: "コア画像（マスター）",
     kitSourceHelp: "キャラクターのコアとしたい画像をアップロード、もしくは選択してください。",
     kitUpload: "画像をアップロード",
@@ -324,6 +328,10 @@ const I18N = {
     generate: "Generate",
     analyze: "Analyze",
     kitIntro: "From the character's core image, build base materials that communicate its consistency.",
+    baseIntro: "Manage the character's base images. Mark the images you want image generation to reference as adopted.",
+    imageIntro: "Manage the character's generated images. Mark the images you want image or video generation to reference as adopted.",
+    videoIntro: "Create videos from the character's adopted images.",
+    queueIntro: "Requests to an AI for prompt drafting, image generation, and video generation.",
     kitSource: "Core image (Master)",
     kitSourceHelp: "Upload or select the image(s) you want as this character's core.",
     kitUpload: "Upload image",
@@ -2498,20 +2506,31 @@ function renderKit() {
   `;
 }
 
+const MODE_INTRO_KEYS = { base: "baseIntro", image: "imageIntro", video: "videoIntro", queue: "queueIntro" };
+
+// One-line plain-language description at the top of each tab (same visual
+// language as the kit intro bar).
+function modeIntro() {
+  const key = MODE_INTRO_KEYS[state.mode];
+  return key ? `<p class="kit-intro">${t(key)}</p>` : "";
+}
+
 function renderRows() {
-  if (state.mode === "queue") return renderQueue();
+  if (state.mode === "queue") return `${modeIntro()}${renderQueue()}`;
   if (state.mode === "kit") return renderKit();
-  if (state.mode === "base") return `${renderListToolbar()}${renderBase()}`;
+  if (state.mode === "base") return `${modeIntro()}${renderListToolbar()}${renderBase()}`;
   const ch = character();
   const rows = state.mode === "video" ? ch.videos : ch.images;
   const filtered = rows.filter((entry) => !state.filter || entry.overview.toLowerCase().includes(state.filter.toLowerCase()));
   if (state.mode === "image") {
     return `
+      ${modeIntro()}
       ${renderListToolbar()}
       ${filtered.length ? `<div class="bgrid">${filtered.map(entryCard).join("")}</div>` : (rows.length ? `<div class="empty">${t("noRows")}</div>` : emptyState("rows"))}
     `;
   }
   return `
+    ${modeIntro()}
     ${renderListToolbar()}
     ${filtered.length ? `<div class="bgrid">${filtered.map(videoCard).join("")}</div>` : (rows.length ? `<div class="empty">${t("noRows")}</div>` : emptyState("rows"))}
   `;
