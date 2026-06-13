@@ -275,7 +275,7 @@ select:focus-visible {
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.92), rgba(244, 239, 255, 0.7));
 }
 .panel-head h2 { margin: 0; font-size: 16px; }
-.panel-body { padding: 10px 14px 14px; }
+.panel-body { padding: 10px 14px 28px; }
 
 .base-toolbar,
 .list-toolbar {
@@ -435,6 +435,7 @@ select:focus-visible {
   padding: 7px 10px;
 }
 .prompt-toggle strong { color: var(--purple); font-size: 11px; letter-spacing: .08em; }
+[data-revealed-panel] { scroll-margin-top: 96px; }
 .prompt-preview {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1096,7 +1097,7 @@ textarea.prompt {
 }
 
 /* ---- base kit (素材作成) ---- */
-.kit { display: flex; flex-direction: column; gap: 10px; }
+.kit { display: flex; flex-direction: column; gap: 10px; padding-bottom: 96px; }
 .kit-intro {
   margin: 0;
   padding: 12px 14px;
@@ -1106,6 +1107,43 @@ textarea.prompt {
   font-size: 13px;
 }
 .kit-step { margin: 14px 0 2px; font-size: 14.5px; color: var(--ink); }
+.kit-upload {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: stretch;
+}
+.kit-upload-box {
+  min-width: min(100%, 280px);
+  border: 1.5px dashed var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: var(--accent-08);
+  display: grid;
+  gap: 4px;
+  align-content: center;
+  cursor: pointer;
+  color: var(--ink);
+}
+.kit-upload-box:hover,
+.kit-upload-box.dragging {
+  border-color: var(--purple);
+  background: var(--soft);
+}
+.kit-upload-box input { display: none; }
+.kit-upload-box span { font-weight: 900; }
+.kit-upload-box small { color: var(--muted); font-size: 11px; }
+.kit-upload-master {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.kit-upload-master input { width: auto; margin: 0; }
 .kit-sources { display: flex; flex-wrap: wrap; gap: 10px; }
 .kit-source {
   display: flex;
@@ -1142,7 +1180,7 @@ textarea.prompt {
 .kit-part.selected { border-color: var(--purple); background: var(--soft); }
 .kit-name { display: flex; flex-direction: column; gap: 4px; max-width: 420px; font-size: 12.5px; color: var(--muted); }
 .kit-name input { padding: 8px 10px; border: 1.5px solid var(--line); border-radius: 10px; font-size: 13px; }
-.kit-actions { display: flex; gap: 10px; }
+.kit-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .kit-json { width: 100%; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 10px; font-family: var(--mono); font-size: 12px; resize: vertical; }
 
 /* ---- kit results & part selection ---- */
@@ -1431,9 +1469,36 @@ textarea.prompt {
   flex-direction: column;
   gap: 8px;
 }
-.kit-route.active-route { max-width: 900px; }
+.kit-route.active-route { max-width: none; }
 .kit-route-head { display: flex; align-items: center; gap: 8px; font-size: 14.5px; }
 .kit-route-sub { margin: 10px 0 0; font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 12px; }
+.kit-details {
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.58);
+  scroll-margin-top: 96px;
+}
+.kit-details summary {
+  display: flex;
+  align-items: center;
+  width: calc(100% + 24px);
+  min-height: 44px;
+  margin: -9px -12px;
+  padding: 0 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 900;
+  touch-action: manipulation;
+}
+.kit-details summary:hover { background: rgba(155, 125, 255, 0.08); color: var(--purple); }
+.kit-details[open] {
+  display: grid;
+  gap: 10px;
+}
+.kit-details[open] summary { margin: -9px -12px 8px; }
 .kit-empty-source,
 .kit-empty-inline {
   border: 1.5px dashed var(--line);
@@ -1495,13 +1560,24 @@ textarea.prompt {
   border-radius: 12px;
   padding: 10px 12px;
   background: rgba(255, 255, 255, 0.58);
+  scroll-margin-top: 96px;
 }
 .request-preview summary {
+  display: flex;
+  align-items: center;
+  width: calc(100% + 24px);
+  min-height: 44px;
+  margin: -10px -12px 0;
+  padding: 0 12px;
+  border-radius: 10px;
   cursor: pointer;
   color: var(--ink);
   font-size: 12.5px;
   font-weight: 900;
+  touch-action: manipulation;
 }
+.request-preview summary:hover { background: rgba(155, 125, 255, 0.08); color: var(--purple); }
+.request-preview[open] summary { margin-bottom: 8px; }
 .request-preview-grid,
 .request-preview-refs {
   display: flex;

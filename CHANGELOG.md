@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Color-palette kit support: palette part keys are persisted, palette generation can be queued from adopted references, and adopted palettes can be attached to sheet requests as color authority references.
 - Phase 5 UX assists: queue flow diagrams, prompt insertion chips, sheet request previews, pending return slots, qualityReport timelines, and quality-gate issue chips that queue targeted improve requests.
 - Launch marketing drafts for X, note, dev.to, Reddit, plus posting checklist and FAQ under `docs/marketing/`.
+- Create kit image upload: upload, drop, or paste a core image directly from the Create kit screen, with "Save as Master" enabled by default.
 
 ### Changed
 
@@ -45,7 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sample deck v2 (courier-girl Aoi): every tab is populated on first run with locally generated art, and the queue is pre-seeded with one pending and one completed request.
 - Startup now reports a self-solving command when the requested port is already in use.
 - `npm run demo-agent -- --workspace ...` now honors the last repeated option, allowing npm-script defaults to be overridden cleanly.
-- Gallery scope contract: the gallery shows adopted assets of Image entries only (`source-reference` assets excluded); Base reference material is deliberately out of scope.
+- Gallery scope contract: the gallery shows every adopted still image across Base and Image entries (`source-reference` assets excluded).
+- Create kit is now a continuous 1→2→3 flow: pick or upload a core image, create a character setup sheet, then optionally decompose into parts. Route cards, selected-count text, kit palette controls, and kit-level sheet quality gates were removed.
+- Queue and Create kit copy now avoid implementation terms such as request files, commands, and agent handoff language in user-facing UI.
+- Agent instructions now require real-screen GUI verification for frontend changes, including a context-less sub-agent check and visible after-click evidence for details/accordion/button flows.
 
 ### Fixed
 
@@ -53,6 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remaining hardcoded Japanese UI strings now render in English when the UI language is English.
 - Gallery works again under the strict CSP: its inline rendering engine (blocked by `default-src 'self'`) is extracted to `public/gallery.js`.
 - Gallery favorite ids saved before entry-qualified gallery ids are migrated on load, so existing favorites remain selected.
+- Create kit scrolling no longer depends on route-card expansion, and long scrollable views skip View Transitions to avoid frozen snapshot overlays.
+- Create kit details controls now scroll newly revealed settings into view, so clicking "Details" near the viewport bottom no longer appears to do nothing.
+- Create kit details rows now use full-width 44px click targets, so the empty area inside the visible row opens the settings too.
 
 ### Security
 

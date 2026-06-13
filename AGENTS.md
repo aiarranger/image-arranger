@@ -38,6 +38,21 @@ node server.mjs --workspace ./workspace/demo --init sample --port 4321
 node scripts/demo-agent.mjs --workspace ./workspace/demo --server http://127.0.0.1:4321
 ```
 
+## Mandatory GUI/UX verification (agents MUST follow)
+
+For any frontend change or user-reported UI bug, verify the actual screen as a user. DOM metrics, source reading, or a developer shortcut are supporting evidence only; they are never enough to mark the issue fixed.
+
+- Use the Browser/in-app browser or equivalent real UI automation. If the operator explicitly gives a URL or data set for verification, use that exact URL/data set and keep checks read-only unless mutation is required by the task.
+- The main agent must also launch a **context-less sub-agent** for UI QA (`fork_context: false` or equivalent). Give it only the running URL, the user-visible task, and any user screenshot. Do not give implementation notes or source context. Treat its report as an independent user-path check.
+- Close every sub-agent immediately after its assigned QA task is complete, cancelled, no longer needed, or superseded by a newer user request. Sub-agents are per-task resources; never leave completed, failed, interrupted, or stale sub-agents open between tasks.
+- Test the user-visible path first. Do not click hidden route cards, alternate tabs, accordions, or developer-known controls unless the screen itself clearly tells the user to do so.
+- Check at least a normal desktop viewport and a short desktop viewport for screens touched by the change. For scroll-heavy flows, include the reported viewport when known.
+- A screen fails if the viewport bottom shows clipped text/cards/controls that imply more content but natural scrolling cannot reveal the next expected action.
+- A click fails if it changes DOM/state but no new content, focus, selection, toast, navigation, or enabled action becomes visible in the current viewport. Details/accordion/button content that appears only below the fold after the click is still a failure unless the UI automatically scrolls or focuses it into view.
+- For every button, details summary, tab, route selector, and accordion touched by the work, click it and record the visible result. Sample neighboring screens that use the same UI pattern, especially Base, Image, Queue, Gallery, and Material/Create kit.
+- Report exact evidence: URL, viewport size, starting tab/screen, actions in order, what was visible at the apparent stopping point, whether another natural scroll changed anything, and what remained unreachable or newly visible.
+- Do not report “confirmed fixed” until both the main-agent check and the context-less sub-agent check pass, or until remaining failures are explicitly documented as skipped because they require operator judgment.
+
 ## Scripted Processing (preferred)
 
 > **Disclaimer**: the bundled automation driver operates **your** browser with **your** account at **your** responsibility, and may conflict with a generation service's terms of service — review them before use. The stable, supported interface is the request-file contract described in this document; the driver is an optional, replaceable convenience.
