@@ -11,7 +11,7 @@ const I18N = {
     queue: "キュー",
     generate: "生成",
     analyze: "分析",
-    kitIntro: "キャラクターのコア画像から、設定シートとパーツ別ベースを作ります。",
+    kitIntro: "キャラクターのコア画像から、一貫性を伝えることのできるベース資料を作ります。",
     kitSource: "コア画像（マスター）",
     kitSourceHelp: "キャラクターのコアとしたい画像をアップロード、もしくは選択してください。",
     kitUpload: "画像をアップロード",
@@ -23,7 +23,6 @@ const I18N = {
     kitPartsAuto: "どのパーツに分解するか（顔・表情・角・翼・尻尾など）は、AIが画像を分析して判断します。",
     kitRouteChoose: "作り方を選ぶ（どちらかのルートへ）",
     routeA: "A. シートを作る",
-    routeABadge: "推奨",
     routeADesc: "参照画像から、キャラクターの正になる1枚のリファレンスシートを作ります。",
     routeASteps: "3ステップ: 参照選択 → シート設定 → キュー処理",
     routeB: "B. パーツに分解",
@@ -32,7 +31,7 @@ const I18N = {
     routeBSteps: "4ステップ: 解析依頼 → 結果確認 → パーツ選択 → 取り込み",
     kitChooseRouteHelp: "目的に近い方だけ開きます。迷ったら、まずAで全体の正を作ります。",
     kitBackToRoutes: "作り方を選び直す",
-    kitSheetTitle: "キャラクター設定シートを作る（推奨）",
+    kitSheetTitle: "キャラクター設定シートを作る",
     kitSheetIntro: "選んだ画像からキャラクター設定シートを作り、マスターに登録します。",
     kitDetails: "詳細設定",
     sheetName: "シート名",
@@ -324,7 +323,7 @@ const I18N = {
     queue: "Queue",
     generate: "Generate",
     analyze: "Analyze",
-    kitIntro: "Create an identity sheet and per-part bases from the character's core image.",
+    kitIntro: "From the character's core image, build base materials that communicate its consistency.",
     kitSource: "Core image (Master)",
     kitSourceHelp: "Upload or select the image(s) you want as this character's core.",
     kitUpload: "Upload image",
@@ -336,7 +335,6 @@ const I18N = {
     kitPartsAuto: "The AI decides which parts to extract (face, expressions, horns, wings, tail...) by analyzing the image.",
     kitRouteChoose: "Choose a route (either one)",
     routeA: "A. Create the sheet",
-    routeABadge: "Recommended",
     routeADesc: "Generate one canonical reference sheet from the selected source images.",
     routeASteps: "3 steps: pick references → configure sheet → process queue",
     routeB: "B. Decompose into parts",
@@ -345,7 +343,7 @@ const I18N = {
     routeBSteps: "4 steps: request analysis → review result → choose parts → import",
     kitChooseRouteHelp: "Only the chosen route opens. If unsure, start with A to create the overall canon.",
     kitBackToRoutes: "Choose a different route",
-    kitSheetTitle: "Create the character setup sheet (recommended)",
+    kitSheetTitle: "Create the character setup sheet",
     kitSheetIntro: "Create a character setup sheet from the selected image(s), then register it as Master.",
     kitDetails: "Advanced settings",
     sheetName: "Sheet name",
@@ -5340,6 +5338,14 @@ function endTour() {
   tour.lastFocus = null;
   if (node && document.contains(node) && typeof node.focus === "function") node.focus();
 }
+
+// BFCache restore (browser back from gallery.html) revives the page exactly as
+// it was left: the white #exitFlash and, if the user followed the tour's
+// Gallery step, the dark tour dim would otherwise keep covering the screen.
+window.addEventListener("pageshow", (event) => {
+  document.querySelector("#exitFlash")?.remove();
+  if (event.persisted && tour.active) endTour();
+});
 
 loadDeck().then(() => {
   startLivePoll();
