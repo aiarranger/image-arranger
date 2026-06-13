@@ -5366,6 +5366,62 @@ window.addEventListener("pageshow", (event) => {
   if (event.persisted && tour.active) endTour();
 });
 
+// Stuck-scroll watchdog. A session-specific failure mode keeps recurring for
+// the operator (wheel scrolling stops while clipped content clearly continues
+// below the fold) that no clean-browser reproduction has triggered. When N
+// consecutive downward wheel events move neither the page nor any scrollable
+// ancestor of the wheel target, this (1) prints one full diagnostic snapshot
+// to the console — the data we need to finally pin the cause — and
+// (2) applies the known-safe repairs: cancel stuck view-transition animations,
+// drop leftover one-shot overlays, end a stale tour.
+const scrollWatch = { stuck: 0, lastTop: -1, reportedAt: 0 };
+window.addEventListener("wheel", (event) => {
+  if (event.deltaY <= 0) return;
+  const se = document.scrollingElement || document.documentElement;
+  const scrollable = se.scrollHeight > window.innerHeight + 8;
+  const atBottom = se.scrollTop + window.innerHeight >= se.scrollHeight - 4;
+  if (!scrollable || atBottom) { scrollWatch.stuck = 0; return; }
+  const topNow = se.scrollTop;
+  requestAnimationFrame(() => {
+    if (se.scrollTop !== topNow) { scrollWatch.stuck = 0; return; }
+    // The wheel may be legitimately consumed by an inner scroller that is not
+    // yet at its end — only count events whose target has no such ancestor.
+    let node = event.target instanceof Element ? event.target : null;
+    while (node && node !== document.body) {
+      const cs = getComputedStyle(node);
+      if (/(auto|scroll)/.test(cs.overflowY) && node.scrollHeight > node.clientHeight + 2
+        && node.scrollTop + node.clientHeight < node.scrollHeight - 2) return;
+      node = node.parentElement;
+    }
+    scrollWatch.stuck += 1;
+    if (scrollWatch.stuck < 4 || Date.now() - scrollWatch.reportedAt < 15000) return;
+    scrollWatch.reportedAt = Date.now();
+    scrollWatch.stuck = 0;
+    const anims = document.getAnimations();
+    const vtAnims = anims.filter((a) => String(a.effect?.pseudoElement ?? "").includes("view-transition"));
+    const fixedCover = Array.from(document.querySelectorAll("body *")).filter((el) => {
+      const cs = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return cs.position === "fixed" && rect.width > window.innerWidth * 0.8 && rect.height > window.innerHeight * 0.8;
+    }).map((el) => el.id || String(el.className).slice(0, 40));
+    console.warn("[scroll-diagnostic]", JSON.stringify({
+      scrollTop: se.scrollTop, scrollHeight: se.scrollHeight, innerHeight: window.innerHeight,
+      zoom: Math.round((window.outerWidth / window.innerWidth) * 100) / 100,
+      defaultPrevented: event.defaultPrevented,
+      target: event.target instanceof Element ? `${event.target.tagName}.${String(event.target.className).slice(0, 40)}` : String(event.target),
+      htmlOverflow: getComputedStyle(document.documentElement).overflowY,
+      bodyOverflow: getComputedStyle(document.body).overflowY,
+      viewTransitionAnims: vtAnims.length, animations: anims.length,
+      fixedCover, tourActive: tour.active, modalOpen: Boolean(modalA11y.activeModal()),
+      viewTransitionBusy,
+    }));
+    // Known-safe repairs.
+    vtAnims.forEach((a) => { try { a.cancel(); } catch { /* best effort */ } });
+    document.querySelector("#exitFlash")?.remove();
+    if (tour.active && !tour.overlay?.isConnected) endTour();
+  });
+}, { capture: true, passive: true });
+
 loadDeck().then(() => {
   startLivePoll();
   // First-run guided tour: deferred so the first paint settles, and run from a
