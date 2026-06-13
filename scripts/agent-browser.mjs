@@ -277,6 +277,10 @@ export const SELECTORS = {
 export const SIGNALS = {
   // Present while the assistant is streaming a response.
   stopButton: '[data-testid="stop-button"]',
+  // The model picker button in the chat header (e.g. "5.2 Pro" / "Thinking").
+  // Used by ensureModel(); WARN-ONLY — the driver generates with whatever
+  // model is active when this is missing.
+  modelSwitcher: '[data-testid="model-switcher-dropdown-button"]',
   // The image-generation action overlay that marks a finished render.
   imageGenOverlay: '[data-testid^="image-gen-overlay"]',
   // Marks a turn as the user's (so its attachments are never mistaken for a
@@ -354,6 +358,7 @@ export async function checkLogin(page, { timeoutMs = 20000 } = {}) {
 export const MONITORED_SIGNALS = {
   userMessage: SIGNALS.userMessage,
   imageGenOverlay: SIGNALS.imageGenOverlay,
+  modelSwitcher: SIGNALS.modelSwitcher,
 };
 
 // Build the warnings array from the in-page monitored-signal probe result.
@@ -426,6 +431,76 @@ export async function selectorSelfTest(page) {
   const checks = results.checks;
   const missing = checks.filter((c) => !c.ok).map((c) => c.name);
   return { ok: missing.length === 0, checks, missing, warnings: monitored };
+}
+
+// ---------------------------------------------------------------------------
+// Model switching. ChatGPT's model picker is a Radix-style dropdown: it opens
+// on pointerdown, so a full pointer-event sequence is dispatched instead of a
+// bare .click(). ADVISORY by design — every failure path returns
+// { status: "unavailable", reason } and the caller generates with whatever
+// model is currently active (a wrong model is still better than no image).
+// Motivating case: ChatGPT's Pro model intermittently fails image generation,
+// while Thinking works — `--image-model thinking` routes around it.
+// ---------------------------------------------------------------------------
+
+const FIRE_POINTER_SEQUENCE = `(el) => {
+  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+    const Ctor = type.startsWith("pointer") && window.PointerEvent ? PointerEvent : MouseEvent;
+    el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, view: window, buttons: 1, pointerId: 1 }));
+  }
+}`;
+
+const MODEL_BUTTON = `(document.querySelector(${JSON.stringify("[data-testid=\"model-switcher-dropdown-button\"]")})
+  ?? [...document.querySelectorAll('header button[aria-haspopup="menu"], main button[aria-haspopup="menu"]')]
+    .find((b) => /gpt|model|thinking|pro|auto|instant/i.test(b.innerText)))`;
+
+export async function ensureModel(page, pattern, { timeoutMs = 12000 } = {}) {
+  const wantSource = String(pattern);
+  const readButton = () => evaluate(page, `(() => {
+    const btn = ${MODEL_BUTTON};
+    return btn ? { found: true, text: btn.innerText.replace(/\s+/g, " ").trim() } : { found: false };
+  })()`);
+
+  const current = await readButton();
+  if (!current?.found) return { status: "unavailable", reason: "model switcher button not found (see SELECTORS.md: modelSwitcher)" };
+  const want = new RegExp(wantSource, "i");
+  if (want.test(current.text)) return { status: "ok", model: current.text, changed: false };
+
+  const opened = await evaluate(page, `(() => {
+    const btn = ${MODEL_BUTTON};
+    if (!btn) return false;
+    (${FIRE_POINTER_SEQUENCE})(btn);
+    return true;
+  })()`);
+  if (!opened) return { status: "unavailable", reason: "model switcher disappeared before it could be opened" };
+
+  try {
+    await waitFor(page, `document.querySelectorAll('[role="menu"] [role="menuitem"], [role="listbox"] [role="option"]').length > 0`, {
+      timeoutMs: Math.min(6000, timeoutMs), label: "model menu open" });
+  } catch {
+    return { status: "unavailable", reason: "model menu did not open" };
+  }
+
+  const picked = await evaluate(page, `(() => {
+    const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="listbox"] [role="option"]')];
+    const item = items.find((el) => new RegExp(${JSON.stringify(wantSource)}, "i").test(el.innerText));
+    if (!item) return { ok: false, seen: items.map((el) => el.innerText.replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 12) };
+    (${FIRE_POINTER_SEQUENCE})(item);
+    return { ok: true };
+  })()`);
+  if (!picked?.ok) {
+    await evaluate(page, `document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+    return { status: "unavailable", reason: `no menu item matched /${wantSource}/i (saw: ${(picked?.seen ?? []).join(" | ") || "nothing"})` };
+  }
+
+  try {
+    await waitFor(page, `new RegExp(${JSON.stringify(wantSource)}, "i").test((${MODEL_BUTTON})?.innerText ?? "")`, {
+      timeoutMs, label: "model switched" });
+  } catch {
+    return { status: "unavailable", reason: "menu item clicked but the switcher label did not change" };
+  }
+  const after = await readButton();
+  return { status: "ok", model: after?.text ?? wantSource, changed: true };
 }
 
 export async function attachImages(page, files, { timeoutMs = 90000 } = {}) {

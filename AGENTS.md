@@ -73,6 +73,8 @@ node scripts/process-queue.mjs --dry-run            # list what would run
 node scripts/process-queue.mjs --request <id>       # one request only
 node scripts/process-queue.mjs --parallel 3         # N targets at once, each in its own chat tab (default 1)
 node scripts/process-queue.mjs --keep-tabs          # leave chats open to inspect
+node scripts/process-queue.mjs --image-model thinking  # force the Thinking model before each generation
+                                                       # (workaround: Pro-mode image generation can fail)
 ```
 
 Division of labour:

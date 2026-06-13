@@ -22,7 +22,7 @@ if (typeof WebSocket === "undefined") {
 import { mkdirSync } from "node:fs";
 import { isAbsolute, join, resolve, basename } from "node:path";
 import {
-  DEFAULTS, RunLog, ensureChrome, openChat, closePage, checkLogin,
+  DEFAULTS, RunLog, ensureChrome, openChat, closePage, checkLogin, ensureModel,
   attachImages, setPrompt, sendMessage, waitForImageReply, waitForTextReply, downloadImage, sleep,
   selectorSelfTest,
 } from "./agent-browser.mjs";
@@ -54,6 +54,7 @@ Options:
   --cdp-port <n>     automation Chrome CDP port (default ${DEFAULTS.cdpPort})
   --max <n>          cap targets processed (default 20)
   --parallel <n>     targets in flight at once, each in its own tab (default 1)
+  --image-model <m>  switch ChatGPT to the model matching <m> (e.g. thinking) before each generation
   --keep-tabs        leave chat tabs open for inspection
   --help, -h         show this help and exit
 
@@ -73,6 +74,11 @@ const RETRIES_PER_TARGET = 3;
 const QUALITY_CHECK_RETRIES = 2;
 // How many targets run at once, each in its own chat tab (--parallel <n>).
 const PARALLEL = Math.max(1, Number(option("--parallel", process.env.IMAGE_ARRANGER_PARALLEL ?? "1")) || 1);
+// Force the ChatGPT model before each image generation (--image-model <pattern>,
+// e.g. "thinking"). Advisory: when switching fails the driver logs a warning
+// and generates with whatever model is active. Workaround for Pro-mode image
+// generation outages.
+const IMAGE_MODEL = option("--image-model", process.env.IMAGE_ARRANGER_IMAGE_MODEL ?? null);
 
 async function api(path, body = null) {
   const response = await fetch(`${SERVER}${path}`, body
@@ -200,6 +206,11 @@ async function main() {
       const page = await openChat({ cdpPort: CDP_PORT });
       try {
         runLog.log(`[${tag}] generation ${qualityAttempt}, service attempt ${attempt}/${RETRIES_PER_TARGET}: new chat opened`);
+        if (IMAGE_MODEL) {
+          const model = await ensureModel(page, IMAGE_MODEL);
+          if (model.status === "ok") runLog.log(`[${tag}] model: ${model.model}${model.changed ? " (switched)" : ""}`);
+          else runLog.log(`[${tag}] could not switch the model to "${IMAGE_MODEL}": ${model.reason} — generating with the current model`, "warn");
+        }
         const attached = await attachImages(page, files);
         runLog.log(`[${tag}] attached ${attached} reference image(s)`);
         await runLog.shot(page, `attached-${row.entryId}-q${qualityAttempt}`);

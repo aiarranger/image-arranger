@@ -91,6 +91,15 @@ The image-generation action overlay that marks a **finished** render. When
 present, the driver returns the image immediately; when absent it requires two
 stable polls so a progressive preview is not grabbed mid-generation.
 
+### `modelSwitcher` — `[data-testid="model-switcher-dropdown-button"]`
+The model picker button in the chat header (label shows the active model, e.g.
+"5.2 Pro" / "Thinking"). Used by `ensureModel()` when `--image-model <pattern>`
+is passed: the driver opens the dropdown (full pointer-event sequence — the
+menu is Radix-style and opens on pointerdown) and clicks the `[role="menuitem"]`
+whose text matches the pattern. Advisory: every failure path logs a warning and
+the generation proceeds with the active model. A structural fallback scans
+`header/main button[aria-haspopup="menu"]` whose label looks like a model name.
+
 ### `userMessage` — `[data-testid*="user-message"]`
 Marks a turn as the user's. Locale-independent. Images inside a user turn are
 reference attachments and are **never** treated as deliverables. **Monitored
@@ -122,7 +131,7 @@ thumbnail count is reached **and** no spinner remains.
 
 ## Monitored signals (WARN-ONLY in `--check`)
 
-Two `SIGNALS` entries — `userMessage` and `imageGenOverlay` — are probed by the
+Three `SIGNALS` entries — `userMessage`, `imageGenOverlay`, and `modelSwitcher` — are probed by the
 self-test as **monitored signals**. They are reported by `--check` when absent
 (`monitored signal <name>: ABSENT`) but they are **never** load-bearing: a
 missing monitored signal does **not** fail the self-test and does **not** cause
