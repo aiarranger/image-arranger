@@ -1,0 +1,20 @@
+Hero Public Copy Lock Report
+Generated: 2026-06-20T12:35:50.311Z
+Verdict: PASS
+
+Locked sources:
+- product URL: http://127.0.0.1:4217/
+- external URL: https://x.com/fishing_kiyogon/status/2065218662689349934?s=20
+- repo: aiarranger/image-arranger
+
+Checked:
+- /Users/macstudio/Developer/image-arranger/workspace/demo-aichan/intro-video-zero-from-scratch/05-edit/remotion-real-screen/src/video-hero-2min.manifest.json
+- /Users/macstudio/Developer/image-arranger/workspace/demo-aichan/intro-video-zero-from-scratch/05-edit/remotion-real-screen/src/ImageArrangerHero2Min.tsx
+- manifest copyLock.publicCaptions
+- manifest captions
+- rejected mock/chaos strings
+- exact operator URL and 4217 product URL
+
+Warnings: none
+
+Failures: none

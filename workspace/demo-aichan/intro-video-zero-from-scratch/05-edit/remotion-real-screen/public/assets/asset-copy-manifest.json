@@ -1,0 +1,276 @@
+{
+  "generatedAt": "2026-06-20T12:29:03.489Z",
+  "rule": "Only approved v6 real-screen captures, presenter-v6 PNGs, v6/hero narration WAVs, and continuity-bed.wav are copied for Remotion.",
+  "copied": [
+    {
+      "from": "04-captures/real-screen-v6/x-v6-final-source-page.png",
+      "to": "public/assets/captures/x-v6-final-source-page.png",
+      "basename": "x-v6-final-source-page.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/x-addressbar-exact-url-selected-public-clean.png",
+      "to": "public/assets/captures/x-addressbar-exact-url-selected-public-clean.png",
+      "basename": "x-addressbar-exact-url-selected-public-clean.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/x-copy-menu-open.png",
+      "to": "public/assets/captures/x-copy-menu-open.png",
+      "basename": "x-copy-menu-open.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/x-link-copy-handoff-clean.mp4",
+      "to": "public/assets/captures/x-link-copy-handoff-clean.mp4",
+      "basename": "x-link-copy-handoff-clean.mp4"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-create-open-empty-public-crop.png",
+      "to": "public/assets/captures/4217-create-open-empty-public-crop.png",
+      "basename": "4217-create-open-empty-public-crop.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-draft-request-row-public-crop.png",
+      "to": "public/assets/captures/4217-draft-request-row-public-crop.png",
+      "basename": "4217-draft-request-row-public-crop.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-v6-post-draft-generation-agent-copied.png",
+      "to": "public/assets/captures/4217-v6-post-draft-generation-agent-copied.png",
+      "basename": "4217-v6-post-draft-generation-agent-copied.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-v6-post-draft-generation-detail-open.png",
+      "to": "public/assets/captures/4217-v6-post-draft-generation-detail-open.png",
+      "basename": "4217-v6-post-draft-generation-detail-open.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-v6-final-image-tab-before-new.png",
+      "to": "public/assets/captures/4217-v6-final-image-tab-before-new.png",
+      "basename": "4217-v6-final-image-tab-before-new.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/chatgpt-v6-before-send-public-crop.png",
+      "to": "public/assets/captures/chatgpt-v6-before-send-public-crop.png",
+      "basename": "chatgpt-v6-before-send-public-crop.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/chatgpt-v6-reply-public-crop.png",
+      "to": "public/assets/captures/chatgpt-v6-reply-public-crop.png",
+      "basename": "chatgpt-v6-reply-public-crop.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-v6-generated-alpha-card-filtered-public-clean.png",
+      "to": "public/assets/captures/4217-v6-generated-alpha-card-filtered-public-clean.png",
+      "basename": "4217-v6-generated-alpha-card-filtered-public-clean.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-registered-modal-public-crop.png",
+      "to": "public/assets/captures/4217-registered-modal-public-crop.png",
+      "basename": "4217-registered-modal-public-crop.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-base-overview.png",
+      "to": "public/assets/captures/4217-base-overview.png",
+      "basename": "4217-base-overview.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-base-face.png",
+      "to": "public/assets/captures/4217-base-face.png",
+      "basename": "4217-base-face.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-base-outfit.png",
+      "to": "public/assets/captures/4217-base-outfit.png",
+      "basename": "4217-base-outfit.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-base-expression.png",
+      "to": "public/assets/captures/4217-base-expression.png",
+      "basename": "4217-base-expression.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-base-parts.png",
+      "to": "public/assets/captures/4217-base-parts.png",
+      "basename": "4217-base-parts.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-retry-reject.png",
+      "to": "public/assets/captures/4217-retry-reject.png",
+      "basename": "4217-retry-reject.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-retry-queued-detail.png",
+      "to": "public/assets/captures/4217-retry-queued-detail.png",
+      "basename": "4217-retry-queued-detail.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-retry-adopted-public-crop.png",
+      "to": "public/assets/captures/4217-retry-adopted-public-crop.png",
+      "basename": "4217-retry-adopted-public-crop.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-retry-corrected-public-crop.png",
+      "to": "public/assets/captures/4217-retry-corrected-public-crop.png",
+      "basename": "4217-retry-corrected-public-crop.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-video-queued-detail.png",
+      "to": "public/assets/captures/4217-video-queued-detail.png",
+      "basename": "4217-video-queued-detail.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/vidu-submitted-form-public-crop.png",
+      "to": "public/assets/captures/vidu-submitted-form-public-crop.png",
+      "basename": "vidu-submitted-form-public-crop.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/vidu-result-player-public-crop.png",
+      "to": "public/assets/captures/vidu-result-player-public-crop.png",
+      "basename": "vidu-result-player-public-crop.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-video-returned-player-motion.mp4",
+      "to": "public/assets/captures/4217-video-returned-player-motion.mp4",
+      "basename": "4217-video-returned-player-motion.mp4"
+    },
+    {
+      "from": "04-captures/real-screen-v6/4217-video-managed-detail-public-crop.png",
+      "to": "public/assets/captures/4217-video-managed-detail-public-crop.png",
+      "basename": "4217-video-managed-detail-public-crop.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/url-input-scroll-proof-clean.mp4",
+      "to": "public/assets/captures/focus-preflight/url-input-scroll-proof-clean.mp4",
+      "basename": "url-input-scroll-proof-clean.mp4"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/url-input-exact-value.png",
+      "to": "public/assets/captures/focus-preflight/url-input-exact-value.png",
+      "basename": "url-input-exact-value.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/x-link-copy-menu-item.png",
+      "to": "public/assets/captures/focus-preflight/x-link-copy-menu-item.png",
+      "basename": "x-link-copy-menu-item.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/queue-row-public-clean.png",
+      "to": "public/assets/captures/focus-preflight/queue-row-public-clean.png",
+      "basename": "queue-row-public-clean.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/prompt-drafted-public-clean.png",
+      "to": "public/assets/captures/focus-preflight/prompt-drafted-public-clean.png",
+      "basename": "prompt-drafted-public-clean.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/registered-url-scroll-proof-clean.mp4",
+      "to": "public/assets/captures/focus-preflight/registered-url-scroll-proof-clean.mp4",
+      "basename": "registered-url-scroll-proof-clean.mp4"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/registered-result-image-public-clean.png",
+      "to": "public/assets/captures/focus-preflight/registered-result-image-public-clean.png",
+      "basename": "registered-result-image-public-clean.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/registered-prompt-source-public-clean.png",
+      "to": "public/assets/captures/focus-preflight/registered-prompt-source-public-clean.png",
+      "basename": "registered-prompt-source-public-clean.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/retry-improve-action.png",
+      "to": "public/assets/captures/focus-preflight/retry-improve-action.png",
+      "basename": "retry-improve-action.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/retry-adopted-state.png",
+      "to": "public/assets/captures/focus-preflight/retry-adopted-state.png",
+      "basename": "retry-adopted-state.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/video-start-frame.png",
+      "to": "public/assets/captures/focus-preflight/video-start-frame.png",
+      "basename": "video-start-frame.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/video-end-frame.png",
+      "to": "public/assets/captures/focus-preflight/video-end-frame.png",
+      "basename": "video-end-frame.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/vidu-submitted-prompt-field.png",
+      "to": "public/assets/captures/focus-preflight/vidu-submitted-prompt-field.png",
+      "basename": "vidu-submitted-prompt-field.png"
+    },
+    {
+      "from": "04-captures/real-screen-v6/focus-preflight/vidu-create-submit-button.png",
+      "to": "public/assets/captures/focus-preflight/vidu-create-submit-button.png",
+      "basename": "vidu-create-submit-button.png"
+    },
+    {
+      "from": "03-assets/images/presenter-v6/aichan-v6-part-point-left.png",
+      "to": "public/assets/presenter/aichan-v6-part-point-left.png",
+      "basename": "aichan-v6-part-point-left.png"
+    },
+    {
+      "from": "03-assets/images/presenter-v6/aichan-v6-part-point-right.png",
+      "to": "public/assets/presenter/aichan-v6-part-point-right.png",
+      "basename": "aichan-v6-part-point-right.png"
+    },
+    {
+      "from": "03-assets/images/presenter-v6/aichan-v6-point-prompt.png",
+      "to": "public/assets/presenter/aichan-v6-point-prompt.png",
+      "basename": "aichan-v6-point-prompt.png"
+    },
+    {
+      "from": "03-assets/images/presenter-v6/aichan-v6-point-url-field.png",
+      "to": "public/assets/presenter/aichan-v6-point-url-field.png",
+      "basename": "aichan-v6-point-url-field.png"
+    },
+    {
+      "from": "03-assets/images/presenter-v6/aichan-v6-pull-returned-result.png",
+      "to": "public/assets/presenter/aichan-v6-pull-returned-result.png",
+      "basename": "aichan-v6-pull-returned-result.png"
+    },
+    {
+      "from": "03-assets/images/presenter-v6/aichan-v6-retry-reaction.png",
+      "to": "public/assets/presenter/aichan-v6-retry-reaction.png",
+      "basename": "aichan-v6-retry-reaction.png"
+    },
+    {
+      "from": "03-assets/images/presenter-v6/aichan-v6-retry-success-point.png",
+      "to": "public/assets/presenter/aichan-v6-retry-success-point.png",
+      "basename": "aichan-v6-retry-success-point.png"
+    },
+    {
+      "from": "03-assets/images/presenter-v6/aichan-v6-video-frame-point.png",
+      "to": "public/assets/presenter/aichan-v6-video-frame-point.png",
+      "basename": "aichan-v6-video-frame-point.png"
+    },
+    {
+      "from": "03-assets/images/presenter-v6/aichan-v6-wave-cta.png",
+      "to": "public/assets/presenter/aichan-v6-wave-cta.png",
+      "basename": "aichan-v6-wave-cta.png"
+    },
+    {
+      "from": "03-assets/images/presenter-v6/aichan-v6-x-peek-pull.png",
+      "to": "public/assets/presenter/aichan-v6-x-peek-pull.png",
+      "basename": "aichan-v6-x-peek-pull.png"
+    },
+    {
+      "from": "05-edit/audio/v6-narration-timed.wav",
+      "to": "public/assets/audio/v6-narration-timed.wav",
+      "basename": "v6-narration-timed.wav"
+    },
+    {
+      "from": "05-edit/audio/hero-2min-narration-timed.wav",
+      "to": "public/assets/audio/hero-2min-narration-timed.wav",
+      "basename": "hero-2min-narration-timed.wav"
+    },
+    {
+      "from": "05-edit/audio/continuity-bed.wav",
+      "to": "public/assets/audio/continuity-bed.wav",
+      "basename": "continuity-bed.wav"
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "video": {
+    "id": "ImageArrangerIntro",
+    "name": "image-arranger intro v6 rough",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "durationSec": 251,
+    "roughOutput": "../../06-final/remotion-v6/image-arranger-intro-remotion-v6-rough.mp4"
+  },
+  "sourceLocks": {
+    "productUrl": "http://127.0.0.1:4217/",
+    "externalReferenceUrl": "https://x.com/fishing_kiyogon/status/2065218662689349934?s=20",
+    "repo": "aiarranger/image-arranger"
+  },
+  "copyLock": {
+    "source": "../../04-captures/real-screen-v6/gate3-review-package/caption-mojibake-proof-copy.md",
+    "publicCaptions": {
+      "s01-source": ["参考投稿から、制作を始める。"],
+      "s02-url-queue": ["URLを入れる。キューに入る。"],
+      "s03-prompt": ["投稿を読み取り、プロンプト化。"],
+      "s04-return": ["画像とプロンプトが、戻ってくる。"],
+      "s05-base": ["顔・服・表情・パーツをまとめる。"],
+      "s06-retry": ["失敗しても、作り直しやすい。"],
+      "s07-video": ["動画も、同じ流れで管理。"],
+      "s08-speedrun": ["URL → プロンプト → 生成 → 登録 → 採用"],
+      "s09-cta": [
+        "GitHubからダウンロード。",
+        "Codex / Claude Codeに頼むだけ。",
+        "aiarranger/image-arranger"
+      ]
+    },
+    "bannedPublicPatterns": [
+      "URLから、依頼が動き出す。",
+      "プロンプト化して、画像生成へ。",
+      "実画面で、一つずつ追える。",
+      "ギットハブで公開中。",
+      "コーデックスやクロードコードに頼むだけ。",
+      "aiarranger / イメージアレンジャー"
+    ]
+  },
+  "scenes": [
+    { "id": "s01-source", "startSec": 0, "endSec": 12, "placement": "bottom" },
+    { "id": "s02-url-queue", "startSec": 12, "endSec": 34, "placement": "top" },
+    { "id": "s03-prompt", "startSec": 34, "endSec": 70, "placement": "top" },
+    { "id": "s04-return", "startSec": 70, "endSec": 102, "placement": "bottom" },
+    { "id": "s05-base", "startSec": 102, "endSec": 134, "placement": "top" },
+    { "id": "s06-retry", "startSec": 134, "endSec": 165, "placement": "top" },
+    { "id": "s07-video", "startSec": 165, "endSec": 204, "placement": "top" },
+    { "id": "s08-speedrun", "startSec": 204, "endSec": 235, "placement": "bottom" },
+    { "id": "s09-cta", "startSec": 235, "endSec": 251, "placement": "cta" }
+  ],
+  "reviewTargets": {
+    "operationSeconds": [
+      ["op01-source", 204.8],
+      ["op02-url-confirm", 207.0],
+      ["op03-link-copy", 209.0],
+      ["op04-create-open", 210.9],
+      ["op05a-url-input-start", 211.9],
+      ["op05b-url-input-tail", 213.4],
+      ["op06-queue-row", 214.5],
+      ["op07-agent-work", 216.4],
+      ["op08-prompt", 218.4],
+      ["op09-chatgpt-request", 220.5],
+      ["op10-chatgpt-result", 222.6],
+      ["op11a-registration-url-start", 223.8],
+      ["op11b-registration-url-tail", 225.4],
+      ["op12-adoption", 226.3],
+      ["op13-video-start", 227.9],
+      ["op14-video-end", 228.8],
+      ["op15-vidu-submit", 230.0],
+      ["op16-vidu-result", 231.2],
+      ["op17-returned-player", 232.8],
+      ["op18-managed-detail", 234.3]
+    ],
+    "aichanNoCoverSeconds": [
+      ["nc01-source-pull-start", 1.0],
+      ["nc02-source-pull-mid", 3.6],
+      ["nc03-source-pull-end", 6.2],
+      ["nc04-url-point-start", 12.9],
+      ["nc05-url-point-mid", 14.8],
+      ["nc06-url-point-end", 16.3],
+      ["nc07-return-pull-start", 79.0],
+      ["nc08-return-pull-mid", 81.0],
+      ["nc09-return-pull-end", 83.2],
+      ["nc10-video-frame-point-mid", 169.2],
+      ["nc11-cta-wave-mid", 245.4]
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "image-arranger-intro-remotion-real-screen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare-assets": "node scripts/prepare-assets.mjs",
+    "validate-copy-lock": "node scripts/validate-public-copy-lock.mjs",
+    "review-stills": "node scripts/render-review-stills.mjs",
+    "qc-preview": "node scripts/run-preview-qc.mjs",
+    "qc-asr": ".venv-asr/bin/python scripts/run-encoded-asr-qc.py",
+    "validate-hero-copy-lock": "node scripts/validate-hero-public-copy-lock.mjs",
+    "hero-review-stills": "node scripts/render-hero-review-stills.mjs",
+    "qc-hero": "node scripts/run-hero-qc.mjs",
+    "qc-hero-asr": ".venv-asr/bin/python scripts/run-hero-encoded-asr-qc.py",
+    "studio": "remotion studio src/index.ts",
+    "still": "remotion still src/index.ts ImageArrangerIntro --frame=0 --output=../../06-final/remotion-v6/still.png",
+    "render": "remotion render src/index.ts ImageArrangerIntro ../../06-final/remotion-v6/image-arranger-intro-remotion-v6-rough.mp4 --codec=h264 --crf=18 --timeout=1200000 --concurrency=2",
+    "render-preview": "remotion render src/index.ts ImageArrangerIntro ../../06-final/remotion-v6/image-arranger-intro-remotion-v6-preview.mp4 --codec=h264 --crf=20 --timeout=1200000 --concurrency=2",
+    "generate-hero-audio": "/Users/macstudio/Developer/Style-Bert-VITS2-Mac/.venv/bin/python ../audio/generate_hero_2min_downer_audio.py",
+    "render-hero": "remotion render src/index.ts ImageArrangerHero2Min ../../06-final/hero-2min/image-arranger-hero-2min-v1.mp4 --codec=h264 --crf=18 --timeout=1200000 --concurrency=2"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.478",
+    "@remotion/media": "4.0.478",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.478"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3"
+  }
+}
