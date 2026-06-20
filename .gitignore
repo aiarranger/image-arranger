@@ -1,6 +1,7 @@
 workspace/*
 !workspace/.gitkeep
 agent-logs/
+review-sets/
 config.json
 .DS_Store
 *.log

@@ -1,5 +1,22 @@
 # Processing image-arranger Requests
 
+## ABSOLUTE OVERRIDE: Reviews must never rewrite the user's intent
+
+AI review feedback, sub-agent feedback, automated review results, or the agent's own
+"better idea" must **never** be treated as permission to change the operator's explicit
+intent, approved plan, storyboard, timing, copy, source requirements, or deliverable shape.
+
+If a reviewer suggests a change that would alter what the operator asked for, the agent
+must stop and ask the operator before implementing it. This applies especially to public
+demo/video work: do not shorten or lengthen the video, reorder scenes, rewrite captions,
+change the CTA, swap real screens for other screens, replace approved assets, change
+`http://127.0.0.1:4190/`, or reinterpret the goal just because an AI review recommends it.
+
+Reviewer comments are only bug reports inside the already-approved specification. When
+review feedback conflicts with the operator's stated intent, the operator's intent wins.
+Any unapproved intent-changing edit is a failed result, even if a review agent says it is
+"better" or returns PASS.
+
 This guide is for a human operator or a coding agent (Claude Code, Codex, etc.) that processes the `requests/*.json` files written by image-arranger.
 
 image-arranger never operates ChatGPT, Vidu, or any generation service directly. The processor reads a request file, performs the work in the generation service's normal UI (or via its own tooling), saves the results, and reports completion back.
@@ -260,3 +277,27 @@ Fallback — edit the request JSON directly: set the target `status` to `complet
 - Exception: if the generation service reports a terms-of-service, policy, moderation, refusal, or safety violation, retry in a fresh chat up to 3 attempts total before marking the target `error`. Keep the same deliverable intent and required references, but reword the prompt conservatively to remove likely trigger wording; record each attempt in the run log.
 - Set the target `status` to `error` with an `errorMessage` explaining what failed in the normal procedure.
 - Report what user action or prompt change is needed next.
+
+## FINAL OVERRIDE: User intent cannot be changed by AI review
+
+Before reporting completion, re-check that no AI review, sub-agent review, automated QA
+result, or agent preference caused an unapproved change to the operator's intent.
+
+Strictly forbidden without explicit operator approval:
+
+- changing the requested goal or audience;
+- changing an approved storyboard or `http://127.0.0.1:4190/`;
+- shortening, lengthening, or otherwise changing the requested video duration;
+- adding, deleting, reordering, or merging scenes;
+- rewriting captions, telops, CTA text, or public copy;
+- replacing required real `http://127.0.0.1:4217/` product screens with other screens;
+- using mock UI, generated fake UI, old rejected footage, empty queues, or low-value screens
+  because a reviewer suggested a different presentation;
+- changing approved character/video/image assets or composition rules;
+- accepting a reviewer's "better" suggestion when it conflicts with the operator's
+  explicit request.
+
+If any review feedback requires one of the changes above, mark it as **requires operator
+approval** and ask the operator. Do not implement it first. A deliverable that follows AI
+review advice but drifts from the user's explicit intent is not complete; it is a failure
+that must be reverted or explicitly re-approved by the operator.

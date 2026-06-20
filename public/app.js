@@ -179,7 +179,7 @@ const I18N = {
     start: "始まり画像",
     end: "終わり画像",
     output: "出力予定",
-    requestFile: "依頼ID",
+    requestFile: "依頼",
     requestedAt: "登録日時",
     target: "対象",
     action: "種類",
@@ -495,7 +495,7 @@ const I18N = {
     start: "Start frame",
     end: "End frame",
     output: "Output draft",
-    requestFile: "Request ID",
+    requestFile: "Request",
     requestedAt: "Queued at",
     target: "Target",
     action: "Action",
@@ -927,6 +927,36 @@ function escapeHtml(value) {
   }[char]));
 }
 
+function fileLeaf(value) {
+  const cleaned = String(value ?? "").split(/[?#]/)[0];
+  return cleaned.split(/[\\/]/).filter(Boolean).pop() || cleaned || "-";
+}
+
+function entriesForCharacter(ch) {
+  return [...allBaseEntries(ch), ...(ch?.images ?? []), ...(ch?.videos ?? [])];
+}
+
+function allDeckAssetRows() {
+  return (state.deck?.characters ?? []).flatMap((ch) =>
+    entriesForCharacter(ch).flatMap((entry) =>
+      (entry.assets ?? []).map((asset) => ({ ch, entry, asset })),
+    ),
+  );
+}
+
+function publicFileLabel(file) {
+  const raw = String(file ?? "").trim();
+  if (!raw) return "-";
+  const leaf = fileLeaf(raw);
+  const found = allDeckAssetRows().find(({ asset }) => asset.file === raw || fileLeaf(asset.file) === leaf);
+  return found ? (found.entry.overview || found.asset.name || leaf) : leaf;
+}
+
+function publicFileList(files) {
+  const rows = (Array.isArray(files) ? files : [files]).filter(Boolean).map(publicFileLabel);
+  return rows.length ? rows.join("\n") : "-";
+}
+
 function slug(value, fallback = "item") {
   return String(value ?? "")
     .trim()
@@ -1225,6 +1255,22 @@ function allImageAssets() {
   const baseAssets = allBaseEntries(ch)
     .flatMap((entry) => adoptedAssets(entry).map((asset) => ({ ...asset, entry })));
   return [...baseAssets, ...imageAssets];
+}
+
+function allFrameAssets() {
+  const rows = [...allImageAssets()];
+  const ch = character();
+  for (const entry of ch.videos ?? []) {
+    for (const asset of entry.assets ?? []) {
+      if (asset.file && asset.kind !== "video") rows.push({ ...asset, entry });
+    }
+  }
+  const seen = new Set();
+  return rows.filter((asset) => {
+    if (!asset.id || seen.has(asset.id)) return false;
+    seen.add(asset.id);
+    return true;
+  });
 }
 
 function adoptedImagePool(ch = character()) {
@@ -2151,11 +2197,14 @@ function frameAssetPool() {
     .map((asset) => ({ asset, entry })));
   const baseAssets = allBaseEntries(ch)
     .flatMap((entry) => adoptedAssets(entry).map((asset) => ({ asset, entry })));
-  return [...sceneAssets, ...baseAssets];
+  const videoFrameAssets = (ch.videos ?? []).flatMap((entry) => (entry.assets ?? [])
+    .filter((asset) => asset.file && asset.kind !== "video")
+    .map((asset) => ({ asset, entry })));
+  return [...sceneAssets, ...baseAssets, ...videoFrameAssets];
 }
 
 function frameCard(label, assetId, entryId, field) {
-  const found = allImageAssets().find((asset) => asset.id === assetId);
+  const found = allFrameAssets().find((asset) => asset.id === assetId);
   const image = found?.file
     ? `<img src="${assetUrl(found.file)}" alt="${escapeHtml(found.name)}" loading="lazy">`
     : `<span>${escapeHtml(assetId ? t("missingLabel") : t("unset"))}</span>`;
@@ -2555,6 +2604,7 @@ function renderQueue() {
         const refImages = item.inputs?.refImages ?? [];
         const qualityGate = item.qualityGate?.enabled ? item.qualityGate : null;
         const qualityParts = qualityGate?.requiredParts ?? [];
+        const queueLabel = t("requestFile");
         return `
           <div class="queue-card ${item.existsInDeck ? "" : "missing-target"}">
             <div class="queue-row">
@@ -2567,7 +2617,7 @@ function renderQueue() {
                 <span class="chip">${t(item.action === "improve" ? "improve" : item.action === "analyze" ? "analyze" : item.action === "draft-prompt" ? "draftPrompt" : "generate")}</span>
                 ${qualityGate ? `<span class="chip">${escapeHtml(t("qualityGateMeta")(qualityParts.length, qualityGate.maxAttempts ?? DEFAULT_QUALITY_ATTEMPTS))}</span>` : ""}
                 <span class="chip">${t("requestedAt")}: ${escapeHtml(formatDateTime(item.requestedAt))}</span>
-                <span class="queue-file" title="${escapeHtml(`${t("requestFile")}: ${item.requestId} / ${t("target")}: ${item.targetIndex}`)}">${escapeHtml(item.requestId)}</span>
+                <span class="queue-file" title="${escapeHtml(`${item.overview || item.entryId} / ${t("target")}: ${item.targetIndex + 1}`)}">${escapeHtml(queueLabel)}</span>
               </div>
               <div class="queue-actions">
                 <button class="ghost small" data-copy-agent="${escapeHtml(item.requestId)}" data-target-index="${item.targetIndex}">${icon("robot")} ${t("copyAgentPrompt")}</button>
@@ -2601,12 +2651,12 @@ function renderQueue() {
                 ` : ""}
                 <label>
                   ${t("refImages")}
-                  <textarea readonly rows="3">${escapeHtml(refImages.length ? refImages.join("\n") : "-")}</textarea>
+                  <textarea readonly rows="3">${escapeHtml(publicFileList(refImages))}</textarea>
                 </label>
                 ${qualityGate ? `
                   <label>
                     ${t("qualityGate")}
-                    <textarea readonly rows="3">${escapeHtml(qualityParts.length ? qualityParts.map((part) => `${part.overview || part.entryId} (${part.category || "-"}) -> ${part.file || "-"}`).join("\n") : t("qualityGateNoParts"))}</textarea>
+                    <textarea readonly rows="3">${escapeHtml(qualityParts.length ? qualityParts.map((part) => `${part.overview || part.entryId} (${part.category || "-"}) -> ${publicFileLabel(part.file)}`).join("\n") : t("qualityGateNoParts"))}</textarea>
                   </label>
                 ` : ""}
                 <div class="queue-detail-actions">
@@ -3911,8 +3961,8 @@ function draftTitleFromUrl(referenceUrl) {
 
 function requestTarget(entry, action) {
   if (state.mode === "video") {
-    const start = allImageAssets().find((assetItem) => assetItem.id === entry.startFrame);
-    const end = allImageAssets().find((assetItem) => assetItem.id === entry.endFrame);
+    const start = allFrameAssets().find((assetItem) => assetItem.id === entry.startFrame);
+    const end = allFrameAssets().find((assetItem) => assetItem.id === entry.endFrame);
     return {
       action: "generate",
       entryId: entry.id,

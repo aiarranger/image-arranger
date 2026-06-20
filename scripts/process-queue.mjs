@@ -106,15 +106,17 @@ async function main() {
   runLog.log(`run log: ${runLog.dir}`);
 
   const all = queue.requests ?? [];
+  const isChatGptImageTarget = (row) => ["generate", "improve"].includes(row.action)
+    && (row.service === "chatgpt" || !row.service);
   const wanted = all
     .filter((row) => option("--request") ? row.requestId === option("--request") : true)
-    .filter((row) => row.action === "generate" && (row.service === "chatgpt" || !row.service))
+    .filter(isChatGptImageTarget)
     .slice(0, MAX_TARGETS);
   const skipped = all.filter((row) => !wanted.includes(row));
   for (const row of skipped) {
     runLog.log(`skipping ${row.requestId}[${row.targetIndex}] (action=${row.action}, service=${row.service}) — handled by an agent, not this script`, "warn");
   }
-  runLog.log(`${wanted.length} chatgpt generate target(s) to process`);
+  runLog.log(`${wanted.length} chatgpt image target(s) to process`);
   if (flag("--dry-run")) {
     runLog.attachJson("dry-run targets", wanted);
     console.log(JSON.stringify(wanted.map((row) => ({ requestId: row.requestId, targetIndex: row.targetIndex, entryId: row.entryId, overview: row.overview })), null, 2));

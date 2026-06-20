@@ -451,7 +451,7 @@ const FIRE_POINTER_SEQUENCE = `(el) => {
 }`;
 
 const MODEL_BUTTON = `(document.querySelector(${JSON.stringify("[data-testid=\"model-switcher-dropdown-button\"]")})
-  ?? [...document.querySelectorAll('header button[aria-haspopup="menu"], main button[aria-haspopup="menu"], form button[aria-haspopup="menu"]')]
+  ?? [...document.querySelectorAll('header button[aria-haspopup="menu"], main button[aria-haspopup="menu"], form button[aria-haspopup="menu"], button[aria-haspopup="menu"]')]
     .find((b) => /gpt|model|thinking|pro|auto|instant|最速|標準|最高|^高$/i.test(b.innerText.replace(/\\s+/g, ""))))`;
 
 export async function ensureModel(page, pattern, { timeoutMs = 12000 } = {}) {
@@ -461,7 +461,12 @@ export async function ensureModel(page, pattern, { timeoutMs = 12000 } = {}) {
     return btn ? { found: true, text: btn.innerText.replace(/\s+/g, " ").trim() } : { found: false };
   })()`);
 
-  const current = await readButton();
+  let current = await readButton();
+  const modelButtonDeadline = Date.now() + Math.min(6000, timeoutMs);
+  while (!current?.found && Date.now() < modelButtonDeadline) {
+    await sleep(500);
+    current = await readButton();
+  }
   if (!current?.found) return { status: "unavailable", reason: "model switcher button not found (see SELECTORS.md: modelSwitcher)" };
   const want = new RegExp(wantSource, "i");
   if (want.test(current.text)) return { status: "ok", model: current.text, changed: false };

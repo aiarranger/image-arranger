@@ -139,13 +139,22 @@ async function uploadFrames(page, files) {
   const { nodeId } = await page.send("DOM.querySelector", { nodeId: root.nodeId, selector: 'input[type=file]' });
   if (!nodeId) throw new Error("Vidu file input was not found");
   await page.send("DOM.setFileInputFiles", { nodeId, files });
+  await evaluate(page, `(() => {
+    const input = document.querySelector('input[type=file]');
+    if (!input) return false;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  })()`);
   await waitFor(
     page,
     `(() => {
       const body = document.body?.innerText ?? "";
+      const submit = document.querySelector('[data-testid="form-submit-button"]');
+      const submitReady = submit && !submit.disabled && submit.getAttribute("aria-disabled") !== "true";
       const previews = document.querySelectorAll('img[alt="upload preview"]').length;
       const framePairReady = previews >= 2 || /フレーム\\s*1\\s*-\\s*フレーム\\s*2|Frame\\s*1\\s*-\\s*Frame\\s*2/i.test(body);
-      return framePairReady && !/アップロード中|Uploading/i.test(body);
+      return framePairReady && (submitReady || !/アップロード中|Uploading/i.test(body));
     })()`,
     { timeoutMs: 180000, intervalMs: 1000, label: "Vidu start/end frame upload completion" },
   );
