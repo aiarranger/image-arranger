@@ -187,9 +187,15 @@ Common target actions:
    `qualityGate.requiredParts` before completion. Compare only visible matching
    parts; do not fail missing, hidden, cropped-out, or occluded parts.
 6. Save the passing result into the target `outputDir`.
-7. Register the file as an asset candidate on the matching entry, marking it
+7. For ordinary image creation, including "basic image" requests and generated
+   character sheets, route the target to the character's `images` entries. Use
+   `base.*` entries only when the operator explicitly says the asset should be a
+   base/reference/master asset. If a queued target points at `base.*` without
+   that explicit instruction, create or use an appropriate `images` entry before
+   completing the target so the result does not appear under Base.
+8. Register the file as an asset candidate on the matching entry, marking it
    adopted only if the user asked for auto-adoption.
-8. Mark the target completed, including `qualityReport` when a quality gate was
+9. Mark the target completed, including `qualityReport` when a quality gate was
    evaluated.
 
 If a queued target was accidentally generated with any non-ChatGPT path, treat
