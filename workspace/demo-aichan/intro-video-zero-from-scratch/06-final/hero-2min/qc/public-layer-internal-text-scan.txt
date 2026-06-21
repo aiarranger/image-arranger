@@ -1,6 +1,0 @@
-Hero public layer internal-text scan
-Generated: 2026-06-20T12:36:21.860Z
-Banned pattern: 4190|requestId|/Users|workspace|agent-logs|review|Gate|JSON|debug|public-demo-chaos|which URL did I use
-Result: PASS - no banned public-layer terms found
-
-Matches: none

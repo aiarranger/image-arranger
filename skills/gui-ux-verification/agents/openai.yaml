@@ -1,0 +1,7 @@
+interface:
+  display_name: "GUI UX Verification"
+  short_description: "Verify UI flows by real user-visible paths"
+  default_prompt: "Use $gui-ux-verification to verify this UI behavior from the user's visible path."
+
+policy:
+  allow_implicit_invocation: true

@@ -23,6 +23,17 @@ image-arranger never operates ChatGPT, Vidu, or any generation service directly.
 
 The stable, supported interface is the request-file contract — see [docs/request-spec.md](docs/request-spec.md) for every field, the completion-API payload shapes, the compatibility promise, and how to write a driver for another service. A non-agent operator can also process a request entirely by hand: see [Process a request by hand](README.md#process-a-request-by-hand-no-agent-needed) in the README. Scripted processing is **macOS-tested** (cross-platform by design); the keystroke fallback is **macOS-only**.
 
+## Bundled Codex skills
+
+This repository includes the Codex skill that is directly useful for maintaining the OSS
+app under `skills/`, so public contributors are not dependent on the maintainer's global
+`~/.codex/skills` directory:
+
+- `gui-ux-verification` — real UI verification rules for frontend fixes and scroll/click operability bugs.
+
+If your agent runtime does not auto-discover repository-local skills, install or copy these
+folders into the runtime's skill search path before doing GUI QA on image-arranger.
+
 ## Quick bootstrap
 
 ```bash

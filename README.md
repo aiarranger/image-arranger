@@ -107,6 +107,10 @@ node scripts/process-queue.mjs            # process every queued chatgpt generat
 - Requires **Node 22+** (the server itself runs on Node 20+) and a Chrome/Chromium install; tested on macOS, expected to work on Windows/Linux (CDP-based, no OS-level permissions).
 - **Disclaimer**: it drives *your* browser with *your* account at *your* responsibility, and may conflict with the generation service's terms of service — review them before use. The stable interface is the [request-file contract](docs/request-spec.md); the driver is a replaceable convenience, and you can always process requests by hand or with your own tooling.
 
+### Bundled Codex skill
+
+For agents that support repository-local skills, image-arranger ships its GUI/UX verification skill in `skills/`. If your agent runtime only reads global skills, copy or install that folder into its skill search path before running frontend GUI QA.
+
 ## Alternatives / is this for you?
 
 | If you use... | What's missing | What image-arranger adds |
