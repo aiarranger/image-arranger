@@ -1,173 +1,145 @@
 # Processing image-arranger Requests
 
-## ABSOLUTE OVERRIDE: Reviews must never rewrite the user's intent
+This guide is for a human operator or coding agent that processes the
+`requests/*.json` files written by image-arranger.
 
-AI review feedback, sub-agent feedback, automated review results, or the agent's own
-"better idea" must **never** be treated as permission to change the operator's explicit
-intent, approved plan, storyboard, timing, copy, source requirements, or deliverable shape.
+image-arranger itself never calls a generation API. It writes request files. A
+processor reads those files, uses the user's chosen generation service in its
+normal UI or with its own tooling, saves the result, registers it back with
+image-arranger, and reports completion.
 
-If a reviewer suggests a change that would alter what the operator asked for, the agent
-must stop and ask the operator before implementing it. This applies especially to public
-demo/video work: do not shorten or lengthen the video, reorder scenes, rewrite captions,
-change the CTA, swap real screens for other screens, replace approved assets, change
-`http://127.0.0.1:4190/`, or reinterpret the goal just because an AI review recommends it.
+The stable interface is the request-file contract in
+[docs/request-spec.md](docs/request-spec.md). A non-agent operator can also
+process a request entirely by hand; see
+[Process a request by hand](README.md#process-a-request-by-hand-no-agent-needed)
+in the README.
 
-Reviewer comments are only bug reports inside the already-approved specification. When
-review feedback conflicts with the operator's stated intent, the operator's intent wins.
-Any unapproved intent-changing edit is a failed result, even if a review agent says it is
-"better" or returns PASS.
+## User Intent
 
-This guide is for a human operator or a coding agent (Claude Code, Codex, etc.) that processes the `requests/*.json` files written by image-arranger.
+Review feedback, automated QA, or an agent's preferred approach must not rewrite
+the operator's explicit request. If a suggested change would alter the requested
+goal, audience, storyboard, timing, copy, source requirements, assets, or
+deliverable shape, stop and ask the operator before implementing it.
 
-image-arranger never operates ChatGPT, Vidu, or any generation service directly. The processor reads a request file, performs the work in the generation service's normal UI (or via its own tooling), saves the results, and reports completion back.
+Reviewer comments are bug reports inside the approved specification. When review
+feedback conflicts with the operator's stated intent, the operator's intent wins.
 
-The stable, supported interface is the request-file contract — see [docs/request-spec.md](docs/request-spec.md) for every field, the completion-API payload shapes, the compatibility promise, and how to write a driver for another service. A non-agent operator can also process a request entirely by hand: see [Process a request by hand](README.md#process-a-request-by-hand-no-agent-needed) in the README. Scripted processing is **macOS-tested** (cross-platform by design); the keystroke fallback is **macOS-only**.
+## Bundled Codex Skills
 
-## Bundled Codex skills
+This repository includes the repository-local Codex skill that is directly useful
+for maintaining the OSS app:
 
-This repository includes the Codex skill that is directly useful for maintaining the OSS
-app under `skills/`, so public contributors are not dependent on the maintainer's global
-`~/.codex/skills` directory:
+- `skills/gui-ux-verification` - real UI verification rules for frontend fixes
+  and scroll/click operability bugs.
 
-- `gui-ux-verification` — real UI verification rules for frontend fixes and scroll/click operability bugs.
+If your agent runtime does not auto-discover repository-local skills, install or
+copy that folder into the runtime's skill search path before doing GUI QA on
+image-arranger.
 
-If your agent runtime does not auto-discover repository-local skills, install or copy these
-folders into the runtime's skill search path before doing GUI QA on image-arranger.
-
-## Quick bootstrap
+## Quick Bootstrap
 
 ```bash
 node --version          # Node 20+ for the app; scripted ChatGPT driver needs Node 22+
 npm start              # terminal 1: http://127.0.0.1:4217 with ./workspace/demo
 open http://127.0.0.1:4217/
-npm run demo-agent     # terminal 2, optional: processes image/analyze/draft demo requests
+npm run demo-agent     # terminal 2, optional local placeholder processor
 npm test
 ```
 
-`npm run demo-agent` is a local placeholder processor for trying the queue loop. It handles image, analyze, draft-prompt, and improve targets; the sample workspace's pre-seeded pending video request is intentionally skipped because video requires a real driver.
+`npm run demo-agent` is a local placeholder processor for trying the queue loop.
+It handles image, analyze, draft-prompt, and improve targets. The sample
+workspace's pre-seeded pending video request is intentionally skipped because
+video requires a real driver.
 
-## Workspace & test-data safety (agents MUST follow)
-
-- **Operator override for this machine (2026-06-13): GUI/UX verification MUST use
-  `http://127.0.0.1:4217/`.** The operator explicitly authorized this live
-  image-arranger server as the verification target, including saves and data
-  changes when they are needed to verify or fix the issue. Do not substitute a
-  `/tmp` workspace or a 49xx verification port for UI checks unless the operator
-  gives a newer explicit URL.
-- Treat any workspace under `workspace/` that you did not create yourself as **production
-  data**: never read it for tests, never modify it, never serve it. The only exception is
-  `workspace/demo`, which `npm start` and CI regenerate from the bundled Aoi sample deck,
-  plus the operator-authorized `http://127.0.0.1:4217/` GUI verification target above.
-- For non-GUI automated tests that do not need the operator's live UI, prefer **throwaway
-  workspaces under `/tmp`** on **ports 4901-4999**. When you finish: kill the server,
-  delete the `/tmp` workspace, and **close every browser tab you opened** — a leftover
-  tab against a dead server looks like data corruption to the operator.
-- The Aoi sample deck is fictional demo content. Never present it as the operator's own data.
-- If `workspace/_LOCAL_RULES.md` exists, it defines operator-specific data-safety rules for
-  this machine. **Read it first; it overrides the defaults above.**
-
-For a different port or workspace, run the underlying commands directly instead of appending extra arguments to `npm start`:
+For a different port or workspace, run the underlying commands directly:
 
 ```bash
 node server.mjs --workspace ./workspace/demo --init sample --port 4321
 node scripts/demo-agent.mjs --workspace ./workspace/demo --server http://127.0.0.1:4321
 ```
 
-## Mandatory GUI/UX verification (agents MUST follow)
+## Workspace and Test-Data Safety
 
-For any frontend change or user-reported UI bug, verify the actual screen as a user. DOM metrics, source reading, or a developer shortcut are supporting evidence only; they are never enough to mark the issue fixed.
+- Treat any workspace under `workspace/` that you did not create yourself as
+  production data. Do not read, modify, serve, or test with it unless the
+  operator explicitly authorizes that workspace for the task.
+- `workspace/demo` is the bundled public-safe sample deck. `npm start` and CI can
+  regenerate it.
+- For automated tests that do not need an operator-provided live workspace, use a
+  throwaway workspace under `/tmp` and clean it up when finished.
+- If `workspace/_LOCAL_RULES.md` exists, read it first. It is gitignored and may
+  contain local operator-specific rules that override the generic rules above.
 
-- In this repository, always start GUI/UX verification from `http://127.0.0.1:4217/`.
-  This URL is the operator-approved source of truth for UI behavior; saves and
-  data changes are allowed when the task requires them. Record any mutation you
-  perform in the final report.
-- Use the Browser/in-app browser or equivalent real UI automation. If the operator explicitly gives a URL or data set for verification, use that exact URL/data set and keep checks read-only unless mutation is required by the task.
-- The main agent must also launch a **context-less sub-agent** for UI QA (`fork_context: false` or equivalent). Give it only the running URL, the user-visible task, any user screenshot, and whether mutation is allowed for that check. Do not give implementation notes or source context. Treat its report as an independent user-path check.
-- Close every sub-agent immediately after its assigned QA task is complete, cancelled, no longer needed, or superseded by a newer user request. Sub-agents are per-task resources; never leave completed, failed, interrupted, or stale sub-agents open between tasks.
-- Test the user-visible path first. Do not click hidden route cards, alternate tabs, accordions, or developer-known controls unless the screen itself clearly tells the user to do so.
-- Check at least a normal desktop viewport and a short desktop viewport for screens touched by the change. For scroll-heavy flows, include the reported viewport when known.
-- A screen fails if the viewport bottom shows clipped text/cards/controls that imply more content but natural scrolling cannot reveal the next expected action.
-- A click fails if it changes DOM/state but no new content, focus, selection, toast, navigation, or enabled action becomes visible in the current viewport. Details/accordion/button content that appears only below the fold after the click is still a failure unless the UI automatically scrolls or focuses it into view.
-- For every button, details summary, tab, route selector, and accordion touched by the work, click it and record the visible result. Sample neighboring screens that use the same UI pattern, especially Base, Image, Queue, Gallery, and Material/Create kit.
-- Report exact evidence: URL, viewport size, starting tab/screen, actions in order, what was visible at the apparent stopping point, whether another natural scroll changed anything, and what remained unreachable or newly visible.
-- Do not report “confirmed fixed” until both the main-agent check and the context-less sub-agent check pass, or until remaining failures are explicitly documented as skipped because they require operator judgment.
+## GUI/UX Verification
 
-## Public demo / intro video production (agents MUST follow)
+For frontend changes or user-reported UI bugs, verify the actual screen as a user.
+DOM metrics, source reading, and shortcut API calls are supporting evidence only.
 
-These rules apply when producing an image-arranger intro, demo, tutorial, or public-facing
-video. They are hard gates learned from operator feedback on 2026-06-13.
+- Use the exact URL or workspace the operator gives you. If none is given, start a
+  local sample server and report the URL you verified.
+- Keep checks read-only unless mutation is required to verify or fix the issue.
+- Test the user-visible path first. Do not rely on hidden controls or developer
+  knowledge unless the screen itself points the user there.
+- Check at least a normal desktop viewport and a short or narrow viewport for
+  screens touched by the change.
+- For scroll-heavy flows, confirm that natural scrolling reaches the expected
+  action and that controls are not clipped at the apparent stopping point.
+- For buttons, details summaries, tabs, route selectors, and accordions touched by
+  the work, click them and record the visible result.
+- Report concrete evidence: URL, viewport size, starting screen, actions, what was
+  visible, what changed, and any remaining skipped checks.
 
-- Treat the latest user-specified URLs as hard sources of truth. For this machine,
-  `http://127.0.0.1:4217/` is the real image-arranger product screen source unless
-  the operator gives a newer URL. If the operator says to use real screens only, every
-  product UI pixel in the video must be freshly captured from that real app URL.
-- A planning/review page such as `http://127.0.0.1:4190/` may define the storyboard,
-  timeline, copy, and allowed claims, but it is not product proof. Do not show that
-  reviewer/planning UI in the public video unless the operator explicitly asks for it.
-- Do not use mock UI, recreated HTML/canvas screens, synthetic dashboards, old composite
-  videos, screenshots of rejected attempts, or Vidu-generated fake product screens when
-  real product screens are required.
-- Before generating or compositing, write a shot-source map: scene/time range, exact
-  on-screen text, allowed source for that text, visual layer, and the file/URL that will
-  supply the layer. Do not proceed while any scene has an unapproved source.
-- Public video text is whitelist-only. Use only the copy and claims in the approved
-  storyboard/plan or in the live product UI being recorded. Do not add internal labels,
-  version names, attempt numbers, queue counts as status, request IDs, file paths,
-  review checklist text, debug data, JSON, logs, hidden prompts, account names, or
-  private URLs unless the approved storyboard explicitly requires them.
-- If old or wrong videos/assets appear inside the live product UI, fix the data selection
-  or recapture the correct screen. Do not cover it with cards, crop it away, or call the
-  result final.
-- Generated presenter or character assets may support the video, but cannot replace the
-  product proof. Reject assets with accidental readable labels, text stuck to the
-  character, white-background remnants, visible watermarks/logos, or material character
-  drift.
-- Review the final video by sampling every scene boundary and midpoint, then watch the
-  transitions that carry the main proof. Fail the attempt if any unapproved text,
-  internal information, fake UI, rejected/old asset, broken Japanese/English, character
-  drift, low-quality cutout, or unreadable screen appears.
-- If a prerequisite screen or high-quality asset is missing, stop and fix the source
-  first. Do not spend generation credits on a composition that cannot pass the real-screen
-  and content-whitelist gates.
+## Scripted Processing (optional)
 
-## Scripted Processing (preferred)
+> Disclaimer: the bundled automation driver operates your browser with your
+> account at your responsibility, and may conflict with a generation service's
+> terms of service. Review those terms before use. The stable interface is the
+> request-file contract; the driver is an optional, replaceable convenience.
 
-> **Disclaimer**: the bundled automation driver operates **your** browser with **your** account at **your** responsibility, and may conflict with a generation service's terms of service — review them before use. The stable, supported interface is the request-file contract described in this document; the driver is an optional, replaceable convenience.
-
-Do not drive the generation service's browser UI by hand. The repository ships a deterministic processor that carries every queued ChatGPT image-generation target through the whole pipeline — fresh chat, attach references, insert and verify the prompt, send, wait, save into `outputDir`, register the result as an asset candidate, report completion — and records everything it does (steps + screenshots) into `agent-logs/run-*/` for the operator to review.
+The scripted ChatGPT image processor carries queued `generate` targets through a
+dedicated automation Chrome profile: fresh chat, attach references, insert and
+verify the prompt, send, wait, save into `outputDir`, register the result as an
+asset candidate, report completion, and write a reviewable log under
+`agent-logs/run-*/`.
 
 ```bash
-# one-time setup / health check: launches a dedicated automation Chrome
-# (its own profile + CDP port; it never touches the user's main browser).
-# Sign in to ChatGPT once in the window it opens.
+# one-time setup / health check: opens a dedicated automation Chrome profile
 node scripts/process-queue.mjs --check --server http://127.0.0.1:4217
 
-# process every queued chatgpt generate target end to end
+# process queued ChatGPT image targets
 node scripts/process-queue.mjs --server http://127.0.0.1:4217
 
-# process every queued Vidu start/end video target end to end
+# useful variants
+node scripts/process-queue.mjs --dry-run
+node scripts/process-queue.mjs --request <id>
+node scripts/process-queue.mjs --parallel 3
+node scripts/process-queue.mjs --keep-tabs
+```
+
+Vidu/image-to-video targets can be processed with the optional Vidu driver when
+you have a suitable account and the service UI is available:
+
+```bash
 node scripts/process-vidu-queue.mjs --check --server http://127.0.0.1:4217
 node scripts/process-vidu-queue.mjs --server http://127.0.0.1:4217
-
-# useful variants
-node scripts/process-queue.mjs --dry-run            # list what would run
-node scripts/process-queue.mjs --request <id>       # one request only
-node scripts/process-queue.mjs --parallel 3         # N targets at once, each in its own chat tab (default 1)
-node scripts/process-queue.mjs --keep-tabs          # leave chats open to inspect
-node scripts/process-queue.mjs --image-model 高        # select the thinking tier matching the pattern before
-                                                       # each generation (JP labels: 最速/標準/高/最高/Pro 拡張;
-                                                       # workaround: "Pro 拡張" can fail image generation)
 ```
 
 Division of labour:
 
-- **The script handles** `generate` targets for images (service `chatgpt`). It retries a refused/failed generation in a fresh chat up to 3 attempts total, then reports `error` via the complete API and moves on.
-- If a `generate` target has `qualityGate.enabled`, the script treats it as an important generation: after each generated candidate it asks ChatGPT to compare the candidate with the listed base/part references, retrying up to `qualityGate.maxAttempts`. This is a **compare-if-visible** check: hidden, absent, cropped-out, or too-small parts are not failures; a failure means a visible matching part is materially different from the canonical reference.
-- **Vidu video targets** are handled by `scripts/process-vidu-queue.mjs`: it uploads `inputs.startFrame` and `inputs.endFrame` to Vidu's normal web UI, inserts the target prompt, waits for the new MP4 result, saves it into `outputDir`, registers it as a video asset candidate, and reports completion.
-- **You handle** `draft-prompt` (read the reference URL, write the prompt — see below) and `analyze` (image analysis JSON). Both are reported via the complete API with `curl`; no browser automation needed. After completing a `draft-prompt`, rerun the script to process the auto-queued generation.
-- Video targets (Vidu) can also be processed by hand per the Video section below if the scripted Vidu processor cannot be repaired.
-- **Reference driver**: [`scripts/demo-agent.mjs`](scripts/demo-agent.mjs) (`npm run demo-agent`) is the smallest complete processor of this contract — it polls `GET /api/requests`, "generates" locally rendered placeholder PNGs, registers them via `POST /api/assets`, and reports `POST /api/requests/complete` with the same payload shapes as the real driver. Read it before writing your own.
-- If the script exits with an error, read `agent-logs/run-*/log.md` first; fix the cause (for example reword a refused prompt via `POST /api/requests/update`) and rerun. Fall back to the manual browser procedure at the bottom of this file only when the script itself cannot be repaired, and when you do, write your own steps and screenshots into an `agent-logs/run-*/` folder so the operator gets the same record.
+- The ChatGPT script handles image `generate` targets whose `service` is
+  `chatgpt` or omitted.
+- The Vidu script handles video `generate` targets with `inputs.startFrame` and
+  `inputs.endFrame`.
+- You handle `draft-prompt` and `analyze` targets. Both are reported via
+  `POST /api/requests/complete`; no browser automation is required.
+- `scripts/demo-agent.mjs` is the smallest complete reference processor for the
+  request contract. It polls `/api/requests`, creates local placeholder outputs,
+  registers candidates via `POST /api/assets`, and completes targets with the
+  same payload shapes as a real driver.
+
+If a script exits with an error, read `agent-logs/run-*/log.md` first. Fix the
+cause when possible, then rerun. Fall back to manual processing when the script
+itself cannot be repaired or when the target service is unsupported.
 
 ## Request Files
 
@@ -182,34 +154,44 @@ Process a target when:
 - the request `status` is `requested`, and
 - the target `status` is `requested`.
 
-Target actions:
+Never process requests or targets whose `status` is `cancelled`.
 
-- `action` missing or `generate` — create a new image or video.
-- `action: "improve"` — regenerate based on an existing asset.
-- `action: "analyze"` — image analysis for the base kit. **No image is generated.**
+Common target actions:
 
-Never process targets or requests whose `status` is `cancelled`.
+- missing `action` or `action: "generate"` - create a new image or video.
+- `action: "improve"` - regenerate based on an existing asset.
+- `action: "analyze"` - return JSON analysis for the base kit. No image is
+  generated.
+- `action: "draft-prompt"` - write a generation prompt from a reference URL.
 
 ## Image Generation (`generate`)
 
-Prefer the scripted processor above — the steps below define the contract it implements (and the manual fallback).
-
 1. Use the target `prompt` as-is.
-2. If `inputs.refImages` is present, attach only those files. They contain assets the user explicitly adopted (or the improvement source). Do not add other candidates on your own.
-3. Treat **1 queue target = 1 deliverable**. Do not produce grids, contact sheets, A/B comparisons, or multiple candidates for a single target.
-4. If `qualityGate.enabled` is present, check the candidate against `qualityGate.requiredParts` before completion. Compare only parts/features that are actually visible in the candidate; do not fail missing/hidden/occluded parts. If a visible part differs, regenerate with the correct part reference plus the previous attempt as composition reference, up to `qualityGate.maxAttempts`.
+2. If `inputs.refImages` is present, attach only those files. They contain assets
+   the user explicitly adopted or the source asset for an improvement.
+3. Treat one queue target as one deliverable. Do not produce grids, contact
+   sheets, A/B comparisons, or multiple candidates for a single target.
+4. If `qualityGate.enabled` is present, compare the candidate against
+   `qualityGate.requiredParts` before completion. Compare only visible matching
+   parts; do not fail missing, hidden, cropped-out, or occluded parts.
 5. Save the passing result into the target `outputDir`.
-6. Register the file as an asset candidate on the matching entry (via the UI or `POST /api/assets`), marking `adopted` only if the user asked for auto-adoption.
-7. Mark the target completed (see Reporting below), including `qualityReport` when a quality gate was evaluated.
+6. Register the file as an asset candidate on the matching entry, marking it
+   adopted only if the user asked for auto-adoption.
+7. Mark the target completed, including `qualityReport` when a quality gate was
+   evaluated.
 
 ## Prompt Drafting (`draft-prompt`)
 
-The user supplies only a reference URL (an X post, an article, a gallery page) and delegates prompt writing to you. This is the most common flow: URL in, finished image out.
+The operator supplies a reference URL and delegates prompt writing.
 
-1. Open the target's `referenceUrl` and study what makes the referenced content appealing: composition, pose, art style, palette, props, mood.
-2. Review the identity references in `inputs.refImages` — they are the ground truth for the character's face, hair, colors, and attached parts. The reference URL must never override identity.
-3. Write ONE English generation prompt that recreates the appeal of the referenced content with this character: be concrete about scene, composition, and lighting; require exactly one image; no text, no logo, no watermark. Also write a short descriptive title in the deck's display language.
-4. Report both back (escape them as JSON strings):
+1. Open the target's `referenceUrl` and study the appeal of the reference:
+   composition, pose, style, palette, props, and mood.
+2. Review `inputs.refImages`. They are the ground truth for the character's
+   identity and parts; the reference URL must not override identity.
+3. Write one English generation prompt that recreates the appeal of the reference
+   with this character. Require exactly one image, no text, no logo, no watermark.
+   Also write a short display title.
+4. Report the draft:
 
    ```bash
    curl -X POST http://127.0.0.1:4217/api/requests/complete \
@@ -217,62 +199,61 @@ The user supplies only a reference URL (an X post, an article, a gallery page) a
      -d '{"requestId": "<requestId>", "targetIndex": 0, "overview": "<short title>", "prompt": "<your prompt>"}'
    ```
 
-   The server imports the title and prompt into the entry and automatically queues a normal generation request for it (the response lists the new request id in `draftQueued`).
-5. Re-fetch `/api/requests` and process the auto-queued generation request as a regular Image Generation task.
+The server imports the title and prompt into the entry and queues a normal
+generation request.
 
 ## Image Improvement (`improve`)
 
-Same as generation, but treat `inputs.sourceAsset` / `assetFile` as the primary reference and follow `improvementPrompt` as the improvement intent.
+Treat `inputs.sourceAsset` / `assetFile` as the primary reference and follow
+`improvementPrompt` as the improvement intent. Otherwise, use the same contract as
+image generation.
 
 ## Video Generation (`generate` with frames)
 
 1. Pass `inputs.startFrame` and `inputs.endFrame` to the image-to-video service.
-2. Use the target `prompt` as the motion prompt, and `inputs.durationSec` as the clip length when the service lets you choose one. Long clips need the motion choreographed second-by-second in the prompt; if the prompt has no timeline, prefer the shortest duration that fits the action.
-3. Generate one video first; check frame fidelity, locked camera, single action, and no extra objects before retrying.
-4. Save into `outputDir` and register the asset.
+2. Use the target `prompt` as the motion prompt, and use `inputs.durationSec` when
+   the service lets you choose duration.
+3. Generate one video first. Check frame fidelity, locked camera, single action,
+   and no unexpected objects before retrying.
+4. Save into `outputDir`, register the asset, and complete the target.
 
-## Manual Browser Fallback (only when the script cannot be repaired)
+## Manual Browser Fallback
 
-Use this only when the scripted processor itself cannot be repaired and you must drive the generation service's web UI by hand. The keystroke techniques below are **macOS-only**. The deep, field-tested browser steps live in [docs/manual-fallback.md](docs/manual-fallback.md) to keep this file scannable; this section covers only the one-time setup.
+Use this only when the scripted processor cannot be repaired or when no scripted
+processor exists for the target service.
 
-### One-time macOS Setup for Real-OS Keystrokes
+1. Read the request JSON.
+2. Generate exactly one deliverable in the generation service's normal UI.
+3. Save the output somewhere accessible.
+4. Register the output in image-arranger as a candidate asset, or report it with
+   `POST /api/requests/complete`.
+5. Record enough notes for the operator to understand what was done and why.
 
-Agents whose browser tools use a *virtual* clipboard (paste fails with "virtual clipboard has no data") must fall back to real-OS automation, which needs two macOS permissions for the agent's host app (Cursor, Terminal, ...):
-
-1. **Automation**: approve the "wants to control Google Chrome / use AppleScript" dialog on first run.
-2. **Accessibility**: System Settings → Privacy & Security → Accessibility → enable the host app (otherwise keystrokes fail with error 1002).
-
-Windows / Linux equivalents are not established yet.
-
-### Field-Tested Browser Techniques
-
-The detailed attach/prompt/wait/collect procedure (real clipboard + real keystroke, prompt-insertion tiers, JSON collection) has moved to **[docs/manual-fallback.md](docs/manual-fallback.md)**. Follow it when you fall back here, and write your own steps and screenshots into an `agent-logs/run-*/` folder so the operator gets the same record.
+Detailed attach/prompt/wait/collect guidance for macOS keystroke fallback lives in
+[docs/manual-fallback.md](docs/manual-fallback.md).
 
 ## Base Kit Analysis (`analyze`)
 
-1. The deliverable is JSON, not an image.
-2. Attach the single image in `inputs.refImages` and send the target `prompt` to the analysis service.
-3. Extract the JSON code block from the reply. Shape:
+The deliverable is JSON, not an image. Shape:
 
-   ```json
-   { "character": "...", "parts": [{ "key": "...", "label": "...", "category": "...", "prompt": "..." }] }
-   ```
+```json
+{ "character": "...", "parts": [{ "key": "...", "label": "...", "category": "...", "prompt": "..." }] }
+```
 
-4. Return it to the running server:
+Return it to the running server:
 
-   ```bash
-   curl -X POST http://127.0.0.1:4217/api/requests/complete \
-     -H "Content-Type: application/json" \
-     -d '{"requestId": "<requestId>", "targetIndex": 0, "parts": <the JSON>}'
-   ```
+```bash
+curl -X POST http://127.0.0.1:4217/api/requests/complete \
+  -H "Content-Type: application/json" \
+  -d '{"requestId": "<requestId>", "targetIndex": 0, "parts": <the JSON>}'
+```
 
-   The server marks the target completed and materializes one base entry per part, with the source image attached as an adopted `source-reference`.
-5. If you cannot reach the server, report the JSON verbatim; the user can paste it into the "Create kit" tab.
-6. If a part `prompt` is missing the single-deliverable / no-redesign / isolated-part rules, fix the JSON before returning it.
+If a part prompt is missing the single-deliverable, no-redesign, or isolated-part
+rules, fix the JSON before returning it.
 
 ## Reporting Completion
 
-Preferred — call the API while the server is running:
+Preferred:
 
 ```bash
 curl -X POST http://127.0.0.1:4217/api/requests/complete \
@@ -280,35 +261,16 @@ curl -X POST http://127.0.0.1:4217/api/requests/complete \
   -d '{"requestId": "<requestId>", "targetIndex": 0, "results": [{"file": "<saved path>"}]}'
 ```
 
-Fallback — edit the request JSON directly: set the target `status` to `completed` (the same value the complete API writes), fill `results`, and update the request `status` when no `requested` targets remain.
+Fallback: edit the request JSON directly, set the target `status` to `completed`,
+fill `results`, and update the request status when no `requested` targets remain.
 
 ## On Failure
 
-- Do not silently retry the same request, and do not substitute screenshots, cached files, or internal blob URLs for a real export.
-- Exception: if the generation service reports a terms-of-service, policy, moderation, refusal, or safety violation, retry in a fresh chat up to 3 attempts total before marking the target `error`. Keep the same deliverable intent and required references, but reword the prompt conservatively to remove likely trigger wording; record each attempt in the run log.
-- Set the target `status` to `error` with an `errorMessage` explaining what failed in the normal procedure.
+- Do not silently retry the same request.
+- Do not substitute screenshots, cached files, or internal blob URLs for a real
+  export.
+- For terms-of-service, moderation, refusal, or safety failures, retry in a fresh
+  chat up to three attempts total. Keep the deliverable intent and required
+  references, but conservatively reword likely trigger wording.
+- Set the target `status` to `error` with an `errorMessage` explaining what failed.
 - Report what user action or prompt change is needed next.
-
-## FINAL OVERRIDE: User intent cannot be changed by AI review
-
-Before reporting completion, re-check that no AI review, sub-agent review, automated QA
-result, or agent preference caused an unapproved change to the operator's intent.
-
-Strictly forbidden without explicit operator approval:
-
-- changing the requested goal or audience;
-- changing an approved storyboard or `http://127.0.0.1:4190/`;
-- shortening, lengthening, or otherwise changing the requested video duration;
-- adding, deleting, reordering, or merging scenes;
-- rewriting captions, telops, CTA text, or public copy;
-- replacing required real `http://127.0.0.1:4217/` product screens with other screens;
-- using mock UI, generated fake UI, old rejected footage, empty queues, or low-value screens
-  because a reviewer suggested a different presentation;
-- changing approved character/video/image assets or composition rules;
-- accepting a reviewer's "better" suggestion when it conflicts with the operator's
-  explicit request.
-
-If any review feedback requires one of the changes above, mark it as **requires operator
-approval** and ask the operator. Do not implement it first. A deliverable that follows AI
-review advice but drifts from the user's explicit intent is not complete; it is a failure
-that must be reverted or explicitly re-approved by the operator.

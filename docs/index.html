@@ -3,20 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>image-arranger — the missing management layer for AI image generation</title>
+<title>Image-Arrangrer — the missing management layer for AI image generation</title>
 <meta name="description" content="Local-first prompt &amp; asset request manager for AI image/video generation. It doesn't generate — it keeps your workflow organized: canonical references, adopted candidates, queued requests.">
-<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;rect width='100' height='100' rx='20' fill='%233d3550'/&gt;&lt;text x='50' y='68' font-size='52' text-anchor='middle' fill='%239b7dff' font-family='monospace'&gt;ia&lt;/text&gt;&lt;/svg&gt;">
+<link rel="icon" href="assets/brand/image-arrangrer-icon.svg">
 <meta property="og:type" content="website">
-<meta property="og:title" content="image-arranger — the missing management layer for AI image generation">
+<meta property="og:title" content="Image-Arrangrer — the missing management layer for AI image generation">
 <meta property="og:description" content="Local-first prompt &amp; asset request manager for AI image/video generation. It doesn't generate — it keeps your workflow organized.">
 <meta property="og:url" content="https://aiarranger.github.io/image-arranger/">
 <meta property="og:image" content="https://aiarranger.github.io/image-arranger/ogp.png">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="stylesheet" href="lp.css">
-<link rel="stylesheet" href="aichan-scroll.css">
+<link rel="stylesheet" href="lp.css?v=lang-switch-20260621">
+<link rel="stylesheet" href="aichan-scroll.css?v=lang-switch-20260621">
+<style>
+@media (max-width: 760px) {
+  .ia-aichan-scroll { display: none !important; }
+}
+</style>
 <script>document.documentElement.classList.replace("no-js", "js");</script>
-<script src="aichan-scroll.js" defer></script>
-<script src="lp.js" defer></script>
+<script src="aichan-scroll.js?v=lang-switch-20260621" defer></script>
+<script src="lp.js?v=lang-switch-20260621" defer></script>
 </head>
 <body>
 
@@ -24,97 +29,97 @@
   <div class="blobs" aria-hidden="true"><div class="blob pink"></div><div class="blob blue"></div></div>
   <div class="wrap">
     <div class="brand">
-      <span class="chip">IMAGE ARRANGER</span>
-      <span class="ver">MIT License · Node.js 20+ · zero dependencies</span>
+      <img class="brand-logo" src="assets/brand/image-arrangrer-primary.svg" alt="Image-Arrangrer" width="360" height="108">
+      <span class="ver" data-i18n="hero_ver">MIT License · Node.js 20+ · zero dependencies</span>
+      <div class="lang-switch" aria-label="Language switch">
+        <span class="lang-switch-label" data-i18n="language_label">Language</span>
+        <button class="lang-btn is-active" type="button" data-lang-choice="en" aria-pressed="true">EN</button>
+        <button class="lang-btn" type="button" data-lang-choice="ja" aria-pressed="false">日本語</button>
+      </div>
     </div>
-    <h1>Generators create.<br><span class="em">Nothing keeps track.</span></h1>
-    <p class="lede">
+    <h1 data-i18n="hero_title">Generators create.<br><span class="em">Nothing keeps track.</span></h1>
+    <p class="lede" data-i18n="hero_lede">
       Character-consistent generation is a reference-image game — and today the bookkeeping is
       a spreadsheet and a folder of PNGs. image-arranger is the <strong>local-first layer that remembers</strong>:
       canonical references, adopted candidates, the prompt behind every image, and what's still queued.
       It <strong>doesn't generate</strong> — by design. It works with any generation service.
     </p>
     <div class="cta">
-      <a class="btn primary" href="#quickstart">Run it locally — 30 seconds</a>
-      <a class="btn ghost" href="https://github.com/aiarranger/image-arranger">★ Star on GitHub<span class="starcount" id="starCount" hidden></span></a>
+      <a class="btn primary" href="#quickstart" data-i18n="cta_run">Run it locally — 30 seconds</a>
+      <a class="btn ghost" href="#overview-gif" data-i18n="cta_watch">Watch the EN/JA GIF</a>
+      <a class="btn ghost" href="https://github.com/aiarranger/image-arranger" data-i18n="cta_star">★ Star on GitHub<span class="starcount" id="starCount" hidden></span></a>
     </div>
     <div class="cmd">
       <code><span class="dollar">$</span> git clone https://github.com/aiarranger/image-arranger &amp;&amp; cd image-arranger &amp;&amp; node server.mjs --init sample</code>
       <button class="copy" data-copy="git clone https://github.com/aiarranger/image-arranger && cd image-arranger && node server.mjs --init sample">copy</button>
     </div>
     <div class="meta-pills">
-      <span>🏠 runs on 127.0.0.1 only</span>
-      <span>📄 all data = plain JSON + files</span>
-      <span>🤖 agent-ready request queue</span>
+      <span data-i18n="pill_local">🏠 runs on 127.0.0.1 only</span>
+      <span data-i18n="pill_files">📄 all data = plain JSON + files</span>
+      <span data-i18n="pill_agent">🤖 agent-ready request queue</span>
     </div>
 
-    <!-- Self-playing demo loop. data-step="1" is the static (reduced-motion / no-JS) frame.
-         DEMO-VIDEO-SWAP: when the real recording exists, replace .mock-body below with
-         <video autoplay muted loop playsinline poster="hero-poster.png" src="hero-demo.mp4">
-         and KEEP the .bar browser chrome above it. -->
-    <div class="mock" id="demoMock" data-step="1" aria-hidden="true">
-      <div class="bar"><i></i><i></i><i></i><span class="url">127.0.0.1:4217 — your machine, your data</span></div>
-      <div class="mock-body" id="demoBody">
-        <div class="tabs">
-          <span class="tab-pill" id="demoPill"></span>
-          <span class="t">Create kit</span>
-          <span class="t on is-base" id="demoTabBase">Base</span>
-          <span class="t is-image" id="demoTabImage">Image</span>
-          <span class="t">Video</span>
-          <span class="t is-queue" id="demoTabQueue">Queue <span class="qcount"><span class="qroll"><b>2</b><b>3</b></span></span></span>
-        </div>
-        <div class="grid">
-          <div class="card c1"><div class="ph"><span class="badge cand">candidate</span><span class="badge adopted">✓ adopted</span></div><div class="cap">face / canonical</div></div>
-          <div class="card c2"><div class="ph"><span class="badge cand">candidate</span></div><div class="cap">retry #2</div></div>
-          <div class="card c3"><div class="ph"><span class="badge cand">candidate</span><span class="badge queued">⧖ queued</span><span class="badge done">✓ done</span></div><div class="cap">red dress, full body</div></div>
-          <div class="card c4"><div class="ph"><span class="badge cand">candidate</span></div><div class="cap">paper-craft style</div></div>
-        </div>
-        <div class="json">{ <span class="k">"prompt"</span>: <span class="s">"<span id="demoTyped">full body, red dress, soft studio light</span><span class="caret"></span>"</span>, <span class="k">"refImages"</span>: [<span class="s">"assets/face-canonical.png"</span>], <span class="k">"service"</span>: <span class="s">"chatgpt"</span> }</div>
-        <div class="demo-cursor" id="demoCursor"></div>
+    <div class="product-hero" data-reveal>
+      <div class="screen-frame hero-screen">
+        <div class="bar"><i></i><i></i><i></i><span class="url" data-i18n="hero_screen_url">127.0.0.1:4217 — real sample workspace screen</span></div>
+        <img src="assets/screenshots/app-image.jpg" alt="Real image-arranger Image tab showing adopted Aichan image candidates in the local app" width="1440" height="920">
+        <span class="screen-tag" data-i18n="real_app_screen">Real app screen</span>
       </div>
+      <aside class="walkthrough-card" id="overview-gif" aria-label="Image-Arrangrer 2-minute overview GIF">
+        <p class="eyebrow" data-i18n="overview_eyebrow">2-minute overview</p>
+        <a class="hero-gif-link" href="assets/marketing/image-arranger-overview-en.gif" aria-label="Open the two-minute English overview GIF">
+          <img src="assets/marketing/image-arranger-overview-en-poster.png" alt="Poster for a two-minute English overview showing Image-Arrangrer organizing image, prompt, source, and video generation assets" width="480" height="270">
+          <span class="play-label" data-i18n="overview_open">Open English GIF</span>
+        </a>
+        <div class="overview-links" aria-label="Overview GIF language links">
+          <a href="assets/marketing/image-arranger-overview-en.gif" data-i18n="overview_en">English GIF</a>
+          <a href="assets/marketing/image-arranger-overview-ja.gif" lang="ja" data-i18n="overview_ja">日本語 GIF</a>
+        </div>
+        <p class="overview-caption" data-i18n="overview_caption">
+          A visual walkthrough of the same prompt, source, image, and video organization flow.
+          <span lang="ja">日本語版GIFもあります。</span>
+        </p>
+      </aside>
     </div>
 
     <div class="strip" aria-label="Works with any generation service">
       <div class="row" id="stripRow">
         <span>ChatGPT</span><span>Midjourney</span><span>Vidu</span><span>Sora</span><span>NanoBanana</span>
-        <span class="hot">…any service with a UI</span><span class="hot">🤖 any coding agent</span>
+        <span class="hot" data-i18n="strip_any_service">…any service with a UI</span><span class="hot" data-i18n="strip_agent">🤖 any coding agent</span>
       </div>
     </div>
   </div>
 </header>
 
-<section class="wrap" id="beforeafter">
-  <h2 data-reveal>From “final_v2_FIXED.png” to a board that remembers</h2>
-  <p class="sec-sub" data-reveal style="--d:60ms">Same images, same prompts — the only thing that changes is that nothing gets lost anymore.</p>
-  <div class="ba">
-    <div class="ba-panel before" data-reveal>
-      <div class="ba-title">BEFORE — a folder and a prayer</div>
-      <div class="finder">
-        <div class="f-file" style="--r:-1.2deg"><span class="fico"></span>final_v2_FIXED.png</div>
-        <div class="f-file" style="--r:.8deg"><span class="fico"></span>use-this-one(2).png</div>
-        <div class="f-file" style="--r:-.6deg"><span class="fico"></span>IMG_8841.png</div>
-        <div class="f-file" style="--r:1.4deg"><span class="fico txt"></span>prompts.txt — which one was it?</div>
-      </div>
-    </div>
-    <div class="ba-panel after" data-reveal style="--d:120ms">
-      <div class="ba-title">AFTER — image-arranger</div>
-      <div class="ba-grid">
-        <div class="ba-card" style="--d:0ms"><span class="fico a"></span><div class="meta">face / canonical<div class="pr">"studio portrait, soft light…"</div></div><span class="ba-badge adopted">✓ adopted</span></div>
-        <div class="ba-card" style="--d:80ms"><span class="fico b"></span><div class="meta">retry #2<div class="pr">"studio portrait, warmer…"</div></div><span class="ba-badge cand">candidate</span></div>
-        <div class="ba-card" style="--d:160ms"><span class="fico c"></span><div class="meta">red dress, full body<div class="pr">"full body, red dress…"</div></div><span class="ba-badge queued">⧖ queued</span></div>
-        <div class="ba-card" style="--d:240ms"><span class="fico d"></span><div class="meta">paper-craft style<div class="pr">"paper-craft diorama…"</div></div><span class="ba-badge cand">candidate</span></div>
-      </div>
+<section class="wrap" id="real-screens">
+  <h2 data-reveal data-i18n="screens_title">Actual screens from the local app</h2>
+  <p class="sec-sub" data-reveal style="--d:60ms" data-i18n="screens_sub">These are captured from the sample workspace running at <code>127.0.0.1:4217</code>: the real tabs, real candidate cards, real adopted state, and the real gallery.</p>
+  <div class="screen-showcase">
+    <figure class="screen-frame showcase-main" data-reveal>
+      <div class="bar"><i></i><i></i><i></i><span class="url" data-i18n="screens_base_bar">Base — adopted canonical references</span></div>
+      <img src="assets/screenshots/app-base.jpg" alt="Real Base tab with Aichan canonical reference cards marked adopted" width="1440" height="920">
+      <figcaption data-i18n="screens_base_caption">Base keeps canonical character references organized by part.</figcaption>
+    </figure>
+    <div class="screen-stack">
+      <figure class="screen-frame" data-reveal style="--d:80ms">
+        <img src="assets/screenshots/app-create-kit.jpg" alt="Real Create kit tab showing selected master images and sheet creation controls" width="1440" height="920">
+        <figcaption data-i18n="screens_kit_caption">Create kit starts from selected real references.</figcaption>
+      </figure>
+      <figure class="screen-frame" data-reveal style="--d:140ms">
+        <img src="assets/screenshots/app-gallery.jpg" alt="Real Gallery view showing adopted Aichan images in a visual wall" width="1440" height="920">
+        <figcaption data-i18n="screens_gallery_caption">Gallery shows the adopted image set.</figcaption>
+      </figure>
     </div>
   </div>
 </section>
 
 <section class="wrap" id="workflow">
-  <h2 data-reveal>The tab order <em>is</em> the workflow</h2>
-  <p class="sec-sub" data-reveal style="--d:60ms">From one key visual to a consistent character across stills and video — every step feeds the next.</p>
+  <h2 data-reveal data-i18n="workflow_title">The tab order <em>is</em> the workflow</h2>
+  <p class="sec-sub" data-reveal style="--d:60ms" data-i18n="workflow_sub">From one key visual to a consistent character across stills and video — every step feeds the next.</p>
   <div class="wf">
     <nav class="wf-nav" aria-label="Workflow steps">
       <div class="wf-track"><i id="wfProgress"></i></div>
-      <button class="wf-label on" data-wf="0" type="button"><span class="num">01</span>Create kit</button>
+      <button class="wf-label on" data-wf="0" type="button"><span class="num">01</span><span data-i18n="wf_nav_kit">Create kit</span></button>
       <button class="wf-label" data-wf="1" type="button"><span class="num">02</span>Base</button>
       <button class="wf-label" data-wf="2" type="button"><span class="num">03</span>Image</button>
       <button class="wf-label" data-wf="3" type="button"><span class="num">04</span>Video</button>
@@ -122,64 +127,62 @@
     </nav>
     <div class="wf-steps">
       <article class="wf-step" data-reveal>
-        <div class="n">01 · CREATE KIT</div>
-        <h3>Identity sheet</h3>
-        <p>One-shot generate the character's canonical sheet from a reusable prompt template. Fix one part without rerolling everything: decompose into per-part references.</p>
-        <div class="mini"><div class="mini-grid">
-          <div class="mini-ph g1"><span class="mb">face</span></div>
-          <div class="mini-ph g2"><span class="mb">expression</span></div>
-          <div class="mini-ph g3"><span class="mb">outfit</span></div>
-        </div><div class="mini-json">"template": "identity-sheet-v2" → one prompt, one sheet</div></div>
+        <div class="n" data-i18n="wf_kit_label">01 · CREATE KIT</div>
+        <h3 data-i18n="wf_kit_title">Identity sheet</h3>
+        <p data-i18n="wf_kit_body">One-shot generate the character's canonical sheet from a reusable prompt template. Fix one part without rerolling everything: decompose into per-part references.</p>
+        <figure class="wf-shot">
+          <img src="assets/screenshots/app-create-kit.jpg" alt="Real Create kit tab with source images and setup sheet controls" width="1440" height="920">
+          <figcaption data-i18n="wf_kit_caption">Actual Create kit tab</figcaption>
+        </figure>
       </article>
       <article class="wf-step" data-reveal>
-        <div class="n">02 · BASE</div>
-        <h3>Part references</h3>
-        <p>Manage per-part reference entries (face, expression, outfit…) with candidates. Only approved ones get adopted.</p>
-        <div class="mini"><div class="mini-grid">
-          <div class="mini-ph g1"><span class="mb ok">✓ adopted</span></div>
-          <div class="mini-ph g2"><span class="mb">candidate</span></div>
-          <div class="mini-ph g4"><span class="mb">candidate</span></div>
-        </div></div>
+        <div class="n" data-i18n="wf_base_label">02 · BASE</div>
+        <h3 data-i18n="wf_base_title">Part references</h3>
+        <p data-i18n="wf_base_body">Manage per-part reference entries (face, expression, outfit…) with candidates. Only approved ones get adopted.</p>
+        <figure class="wf-shot">
+          <img src="assets/screenshots/app-base.jpg" alt="Real Base tab with adopted reference candidates" width="1440" height="920">
+          <figcaption data-i18n="wf_base_caption">Actual Base tab</figcaption>
+        </figure>
       </article>
       <article class="wf-step" data-reveal>
-        <div class="n">03 · IMAGE</div>
-        <h3>One prompt, one output</h3>
-        <p>Compose prompts that attach adopted images as source inputs. Improve or retry; adoption stays exclusive.</p>
-        <div class="mini"><div class="mini-grid">
-          <div class="mini-ph g3"><span class="mb ok">✓ adopted</span></div>
-        </div><div class="mini-json">"refImages": ["assets/face-canonical.png"]  ← always the <em>current</em> canonical</div></div>
+        <div class="n" data-i18n="wf_image_label">03 · IMAGE</div>
+        <h3 data-i18n="wf_image_title">One prompt, one output</h3>
+        <p data-i18n="wf_image_body">Compose prompts that attach adopted images as source inputs. Improve or retry; adoption stays exclusive.</p>
+        <figure class="wf-shot">
+          <img src="assets/screenshots/app-image.jpg" alt="Real Image tab with generated image candidates and adopted badges" width="1440" height="920">
+          <figcaption data-i18n="wf_image_caption">Actual Image tab</figcaption>
+        </figure>
       </article>
       <article class="wf-step" data-reveal>
-        <div class="n">04 · VIDEO</div>
-        <h3>Frames for i2v</h3>
-        <p>Point start/end frames at adopted images for image-to-video services like Vidu.</p>
-        <div class="mini"><div class="mini-frames">
-          <div class="mini-ph g1"><span class="mb">start</span></div>
-          <span class="arr">→</span>
-          <div class="mini-ph g2"><span class="mb">end</span></div>
-        </div></div>
+        <div class="n" data-i18n="wf_video_label">04 · VIDEO</div>
+        <h3 data-i18n="wf_video_title">Frames for i2v</h3>
+        <p data-i18n="wf_video_body">Point start/end frames at adopted images for image-to-video services like Vidu.</p>
+        <figure class="wf-shot">
+          <img src="assets/screenshots/app-video.jpg" alt="Real Video tab with start and end frame assets" width="1440" height="920">
+          <figcaption data-i18n="wf_video_caption">Actual Video tab</figcaption>
+        </figure>
       </article>
       <article class="wf-step" data-reveal>
-        <div class="n">05 · QUEUE</div>
-        <h3>Requests as files</h3>
-        <p>Each request is a JSON file with prompt, references and output dir. Edit, cancel or complete from the UI — or hand the folder to an agent.</p>
-        <div class="mini"><div class="mini-rows">
-          <div class="mini-row">requests/req-0041.json<span class="st done">✓ done</span></div>
-          <div class="mini-row">requests/req-0042.json<span class="st req">requested</span></div>
-        </div></div>
+        <div class="n" data-i18n="wf_queue_label">05 · QUEUE</div>
+        <h3 data-i18n="wf_queue_title">Requests as files</h3>
+        <p data-i18n="wf_queue_body">Each request is a JSON file with prompt, references and output dir. Edit, cancel or complete from the UI — or hand the folder to an agent.</p>
+        <figure class="wf-shot">
+          <img src="assets/screenshots/app-queue.jpg" alt="Real Queue tab showing the request outbox state" width="1440" height="920">
+          <figcaption data-i18n="wf_queue_caption">Actual Queue tab</figcaption>
+        </figure>
       </article>
     </div>
   </div>
 </section>
 
 <section class="wrap" id="features">
-  <h2 data-reveal>Why image-arranger?</h2>
-  <p class="sec-sub" data-reveal style="--d:60ms">The generators are great — the bookkeeping around them is not. This fixes the bookkeeping.</p>
+  <h2 data-reveal data-i18n="features_title">Why image-arranger?</h2>
+  <p class="sec-sub" data-reveal style="--d:60ms" data-i18n="features_sub">The generators are great — the bookkeeping around them is not. This fixes the bookkeeping.</p>
   <div class="bento">
     <div class="cell big" data-reveal>
       <div class="ico"><svg viewBox="0 0 24 24"><path d="M3 11 12 4l9 7"/><path d="M5 10v9h14v-9"/><path d="M10 19v-5h4v5"/></svg></div>
-      <h3>Local-first, zero dependencies</h3>
-      <p>One Node.js file, no build step, no accounts. Your prompts and assets never leave your machine — everything lives in a workspace folder you choose, as plain JSON and files you can read, grep and version.</p>
+      <h3 data-i18n="feature_local_title">Local-first, zero dependencies</h3>
+      <p data-i18n="feature_local_body">One Node.js file, no build step, no accounts. Your prompts and assets never leave your machine — everything lives in a workspace folder you choose, as plain JSON and files you can read, grep and version.</p>
       <div class="tree">
         <span style="--d:0ms"><b>workspace/</b></span>
         <span style="--d:90ms">├ deck.json</span>
@@ -190,39 +193,37 @@
     </div>
     <div class="cell big" data-reveal style="--d:60ms">
       <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg></div>
-      <h3>Adoption, not chaos</h3>
-      <p>Every output is a candidate; you adopt the good ones. Adopted images become the canonical references for the next round — per part, per character — and source links always resolve to the <em>current</em> canonical at queue time.</p>
-      <div class="adopt-demo">
-        <div class="mini-ph g1"><span class="mb ok">✓ adopted</span></div>
-        <div class="mini-ph g2"><span class="mb">candidate</span></div>
-        <div class="mini-ph g4"><span class="mb">candidate</span></div>
-      </div>
+      <h3 data-i18n="feature_adoption_title">Adoption, not chaos</h3>
+      <p data-i18n="feature_adoption_body">Every output is a candidate; you adopt the good ones. Adopted images become the canonical references for the next round — per part, per character — and source links always resolve to the <em>current</em> canonical at queue time.</p>
+      <figure class="feature-shot">
+        <img src="assets/screenshots/app-image.jpg" alt="Real Image tab showing adopted candidate images" width="1440" height="920">
+      </figure>
     </div>
     <div class="cell" data-reveal>
       <div class="ico"><svg viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="12" rx="2"/><path d="M12 7V4"/><circle cx="9.5" cy="12" r="1"/><circle cx="14.5" cy="12" r="1"/><path d="M9 16h6"/></svg></div>
-      <h3>Agent-ready queue</h3>
-      <p>Requests are JSON files, not API calls. Any coding agent can process them — and you review what comes back.</p>
+      <h3 data-i18n="feature_agent_title">Agent-ready queue</h3>
+      <p data-i18n="feature_agent_body">Requests are JSON files, not API calls. Any coding agent can process them — and you review what comes back.</p>
     </div>
     <div class="cell" data-reveal style="--d:60ms">
       <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg></div>
-      <h3><code>--doctor</code> pre-publish scan</h3>
-      <p>Run it before sharing a workspace.</p>
+      <h3 data-i18n="feature_doctor_title"><code>--doctor</code> pre-publish scan</h3>
+      <p data-i18n="feature_doctor_body">Run it before sharing a workspace.</p>
       <div class="checks">
-        <span style="--d:0ms">no secret-like strings</span>
-        <span style="--d:120ms">no local absolute paths</span>
-        <span style="--d:240ms">provenance fields present</span>
+        <span style="--d:0ms" data-i18n="check_secrets">no secret-like strings</span>
+        <span style="--d:120ms" data-i18n="check_paths">no local absolute paths</span>
+        <span style="--d:240ms" data-i18n="check_provenance">provenance fields present</span>
       </div>
     </div>
     <div class="cell" data-reveal style="--d:120ms">
       <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c3 3.5 3 14.5 0 18"/><path d="M12 3c-3 3.5-3 14.5 0 18"/></svg></div>
-      <h3>EN/JA built-in</h3>
-      <p>Full bilingual UI, one click.</p>
+      <h3 data-i18n="feature_lang_title">EN/JA built-in</h3>
+      <p data-i18n="feature_lang_body">Full bilingual UI, one click.</p>
       <span class="langflip"><i>Language</i><i>言語</i></span>
     </div>
     <div class="cell" data-reveal style="--d:180ms">
       <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="m3 17 5-5 4 4 3-3 6 6"/></svg></div>
-      <h3>Gallery &amp; gates</h3>
-      <p>A dark showcase wall of everything you adopted — gated so only reviewed work ships.</p>
+      <h3 data-i18n="feature_gallery_title">Gallery &amp; gates</h3>
+      <p data-i18n="feature_gallery_body">A dark showcase wall of everything you adopted — gated so only reviewed work ships.</p>
       <div class="gates"><b style="--d:0ms">G1</b><span class="bar"></span><b style="--d:120ms">G2</b><span class="bar"></span><b style="--d:240ms">G3</b></div>
     </div>
   </div>
@@ -231,9 +232,9 @@
 <section class="wrap" id="agents">
   <div class="dark-panel agent" data-reveal>
     <div class="agent-copy">
-      <h2>Requests are files,<br>not API calls.</h2>
-      <p class="sec-sub" style="margin-bottom:14px">Hand the queue to a coding agent. It reads the JSON, generates with whatever it has, drops the results back — and you adopt only what passes review.</p>
-      <a href="https://github.com/aiarranger/image-arranger/blob/main/AGENTS.md">Read AGENTS.md →</a>
+      <h2 data-i18n="agents_title">Requests are files,<br>not API calls.</h2>
+      <p class="sec-sub" style="margin-bottom:14px" data-i18n="agents_body">Hand the queue to a coding agent. It reads the JSON, generates with whatever it has, drops the results back — and you adopt only what passes review.</p>
+      <a href="https://github.com/aiarranger/image-arranger/blob/main/AGENTS.md" data-i18n="agents_link">Read AGENTS.md →</a>
     </div>
     <div class="agent-code">
       <pre><span class="c">// requests/req-0042.json</span>
@@ -251,54 +252,54 @@
 
 <section class="wrap" id="quickstart">
   <div class="dark-panel qs" data-reveal>
-    <h2>Quick Start</h2>
-    <p class="sec-sub">Requires Node.js 20+. No dependencies, no build step.</p>
+    <h2 data-i18n="quickstart_title">Quick Start</h2>
+    <p class="sec-sub" data-i18n="quickstart_sub">Requires Node.js 20+. No dependencies, no build step.</p>
     <pre><button class="copy" data-copy="git clone https://github.com/aiarranger/image-arranger.git
 cd image-arranger
 node server.mjs --workspace ./workspace/demo --init sample --port 4217">copy</button><span class="c"># clone &amp; run</span>
 git clone https://github.com/aiarranger/image-arranger.git
 cd image-arranger
 node server.mjs --workspace ./workspace/demo --init sample --port 4217</pre>
-    <p class="outcome">→ open http://127.0.0.1:4217 — sample workspace, no accounts, nothing leaves your machine</p>
+    <p class="outcome" data-i18n="quickstart_outcome">→ open http://127.0.0.1:4217 — sample workspace, no accounts, nothing leaves your machine</p>
     <pre><button class="copy" data-copy="node server.mjs --doctor">copy</button><span class="c"># before publishing a workspace</span>
 node server.mjs --doctor</pre>
-    <p class="req">The <code>--doctor</code> scan looks for secret-like strings, local paths and missing provenance fields. Every asset records license, AI-generated and human-reviewed flags.</p>
+    <p class="req" data-i18n="quickstart_doctor">The <code>--doctor</code> scan looks for secret-like strings, local paths and missing provenance fields. Every asset records license, AI-generated and human-reviewed flags.</p>
   </div>
 </section>
 
 <section class="wrap" id="faq">
-  <h2 data-reveal>FAQ</h2>
+  <h2 data-reveal data-i18n="faq_title">FAQ</h2>
   <div class="faq" data-reveal style="--d:60ms">
     <details>
-      <summary>Does it generate images?</summary>
-      <p>No — by design. image-arranger is the management layer <em>around</em> generation: it remembers references, prompts, candidates and queued requests. You (or your agent) generate wherever you already generate.</p>
+      <summary data-i18n="faq_generate_q">Does it generate images?</summary>
+      <p data-i18n="faq_generate_a">No — by design. image-arranger is the management layer <em>around</em> generation: it remembers references, prompts, candidates and queued requests. You (or your agent) generate wherever you already generate.</p>
     </details>
     <details>
-      <summary>Where is my data?</summary>
-      <p>In a workspace folder you chose, as plain JSON and image files. No database, no cloud, no accounts. Delete the folder and it's gone; copy it and it's backed up; <code>git init</code> it and it's versioned.</p>
+      <summary data-i18n="faq_data_q">Where is my data?</summary>
+      <p data-i18n="faq_data_a">In a workspace folder you chose, as plain JSON and image files. No database, no cloud, no accounts. Delete the folder and it's gone; copy it and it's backed up; <code>git init</code> it and it's versioned.</p>
     </details>
     <details>
-      <summary>Do I need an API key?</summary>
-      <p>No. The tool makes zero network calls to generation services. It runs on 127.0.0.1 and works fully offline.</p>
+      <summary data-i18n="faq_api_q">Do I need an API key?</summary>
+      <p data-i18n="faq_api_a">No. The tool makes zero network calls to generation services. It runs on 127.0.0.1 and works fully offline.</p>
     </details>
     <details>
-      <summary>Can my agent break things?</summary>
-      <p>The queue is a folder of reviewable JSON files — not live API access. The agent reads requests and drops results back; nothing becomes canonical until you adopt it. <code>--doctor</code> scans a workspace before you publish it.</p>
+      <summary data-i18n="faq_agent_q">Can my agent break things?</summary>
+      <p data-i18n="faq_agent_a">The queue is a folder of reviewable JSON files — not live API access. The agent reads requests and drops results back; nothing becomes canonical until you adopt it. <code>--doctor</code> scans a workspace before you publish it.</p>
     </details>
     <details>
-      <summary>日本語は使えますか？</summary>
-      <p>はい。UIは日英完全対応で、ワンクリックで切り替えられます（プロンプト本文はどの言語でも扱えます）。</p>
+      <summary data-i18n="faq_lang_q">日本語は使えますか？</summary>
+      <p data-i18n="faq_lang_a">はい。UIは日英完全対応で、ワンクリックで切り替えられます（プロンプト本文はどの言語でも扱えます）。</p>
     </details>
   </div>
 </section>
 
 <div class="cta-band">
   <div class="wrap">
-    <h2 data-reveal>Your generations deserve <span class="em" style="background:var(--accent-grad);-webkit-background-clip:text;background-clip:text;color:transparent">a memory.</span></h2>
-    <p data-reveal style="--d:60ms">Local-first. Zero dependencies. Thirty seconds to running.</p>
+    <h2 data-reveal data-i18n="final_title">Your generations deserve <span class="em" style="background:var(--accent-grad);-webkit-background-clip:text;background-clip:text;color:transparent">a memory.</span></h2>
+    <p data-reveal style="--d:60ms" data-i18n="final_sub">Local-first. Zero dependencies. Thirty seconds to running.</p>
     <div class="cta" data-reveal style="--d:120ms">
-      <a class="btn primary" href="#quickstart">Run it locally — 30 seconds</a>
-      <a class="btn ghost" href="https://github.com/aiarranger/image-arranger">★ Star on GitHub</a>
+      <a class="btn primary" href="#quickstart" data-i18n="cta_run">Run it locally — 30 seconds</a>
+      <a class="btn ghost" href="https://github.com/aiarranger/image-arranger" data-i18n="cta_star_plain">★ Star on GitHub</a>
     </div>
     <div data-reveal style="--d:180ms">
       <div class="cmd">
@@ -309,9 +310,9 @@ node server.mjs --doctor</pre>
   </div>
 </div>
 
-<section class="wrap" id="japanese">
+<section class="wrap" id="japanese" lang="ja">
   <div class="ja" data-reveal>
-    <h2>🇯🇵 日本語</h2>
+    <h2>日本語</h2>
     <p class="sec-sub" style="margin-bottom:0">
       <strong>image-arranger は「生成しない」画像・動画生成ワークフロー管理ツールです。</strong>
       どのリファレンスを正とするか、どの候補を採用したか、何を依頼中か——生成サービス側が持っていない管理層をローカルで完結させます。
@@ -330,6 +331,7 @@ node server.mjs --doctor</pre>
   <p>
     <a href="https://github.com/aiarranger/image-arranger">GitHub</a> ·
     <a href="https://github.com/aiarranger/image-arranger/blob/main/README.md">README</a> ·
+    <a href="https://github.com/aiarranger/image-arranger/blob/main/README.ja.md" lang="ja">日本語 README</a> ·
     <a href="https://github.com/aiarranger/image-arranger/blob/main/AGENTS.md">AGENTS.md</a> ·
     <a href="https://github.com/aiarranger/image-arranger/blob/main/SECURITY.md">Security</a>
   </p>

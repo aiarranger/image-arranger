@@ -16,6 +16,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+      - name: Public data hygiene
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '^(docs/(04_impl|review)/|docs/OSS_READINESS_REVIEW\.md$)'; then
+            echo "Internal planning/review docs must not be committed."
+            exit 1
+          fi
+          if git grep -nI -E '(/Users/macstudio|workspace/demo-aichan|workspace/archive|workspace/fishing-fitness|http://127\.0\.0\.1:4190)' -- . ':!.github/workflows/ci.yml'; then
+            echo "Private local paths or internal review URLs found in tracked files."
+            exit 1
+          fi
       - name: Syntax check
         run: npm run check
       - name: Tests

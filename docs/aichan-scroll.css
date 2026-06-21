@@ -18,6 +18,7 @@
   z-index: var(--ia-aichan-z);
   opacity: 0;
   transition: opacity 180ms ease;
+  overflow: clip;
   contain: layout paint;
 }
 
@@ -109,10 +110,7 @@
 }
 
 @media (max-width: 560px) {
-  :root {
-    --ia-aichan-track-right: max(6px, env(safe-area-inset-right));
-    --ia-aichan-asset-width: 88px;
-  }
+  .ia-aichan-scroll { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

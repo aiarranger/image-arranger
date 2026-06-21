@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/brand/image-arrangrer-primary.svg" alt="Image-Arrangrer" width="360">
+
 # image-arranger
 
 **AI 画像／動画生成のための、ローカルファーストなプロンプト・素材依頼マネージャー。<br>生成はしません——生成ワークフローを整理し続けるツールです。**
@@ -9,7 +11,11 @@
 [![Node 20+](https://img.shields.io/badge/node-%3E%3D%2020-339933?logo=node.js&logoColor=white)](#クイックスタート)
 [![Runtime dependencies](https://img.shields.io/badge/runtime%20deps-0-6c5ce7)](#クイックスタート)
 
-[ランディングページ](https://aiarranger.github.io/image-arranger/) · [クイックスタート](#クイックスタート) · [依頼の流れ](#依頼の流れhow-requests-flow) · [English README](README.md)
+[ランディングページ](https://aiarranger.github.io/image-arranger/) · [2分の説明GIF](https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-ja.gif) · [クイックスタート](#クイックスタート) · [依頼の流れ](#依頼の流れhow-requests-flow) · [English README](README.md)
+
+<p><strong>2分のサービス説明（日本語）</strong></p>
+<a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-ja.gif"><img src="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-ja-poster.png" alt="Image-Arrangrer が画像・プロンプト・参照元・動画素材を整理する流れを示す2分の日本語説明GIFへのポスター画像リンク" width="480"></a>
+<p><em>概要：Image-Arrangrer は、AI画像・動画生成の試行、プロンプト、参照元、生成物、採用状態をまとめて管理します。<a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-ja.gif">GIFを開く</a>。</em></p>
 
 <!-- DEMO_GIF: docs/assets/readme/demo.gif — デモを録画してこのパスに置くだけで下の <img> が拾います。README の編集は不要です。 -->
 <img src="docs/assets/readme/demo.gif" alt="デモ：image-arranger でキャラクターキットを作成し、生成依頼をキューに入れ、結果を採用リファレンスとして登録するまで" width="800">
@@ -37,7 +43,7 @@ npm start              # ターミナル 1 — サーバ＋サンプルデッキ
 npm run demo-agent     # ターミナル 2 — キューの依頼を完了させる小さなエージェント
 ```
 
-アプリで何かをキューに入れる（またはプリセットの依頼中ターゲットをエージェントに拾わせる）と、数秒後に結果が候補素材として届きます。すべてローカル生成——プレースホルダーアートにアカウント・サービス・ネットワークは不要です。フラグは `node scripts/demo-agent.mjs --help` を参照。
+アプリで画像依頼をキューに入れると、数秒後に結果が候補素材として届きます。すべてローカル生成——プレースホルダーアートにアカウント・サービス・ネットワークは不要です。サンプルワークスペースに最初から入っている依頼中ターゲットは動画依頼なので、demo agent は意図的にスキップします。既定以外のポートで起動した場合の `--server` など、フラグは `node scripts/demo-agent.mjs --help` を参照。
 
 <details>
 <summary>ヘルスチェック（構文・テスト・ワークスペース doctor）</summary>
@@ -69,6 +75,10 @@ node server.mjs --workspace ./workspace/demo --init sample --doctor
 
 生成メタデータが残った PNG（A1111 / NovelAI / ComfyUI）をアップロードすると、取り込み時にプロンプト欄が自動入力されます——来歴はファイルと一緒に移動します。
 
+PNG 候補のカードまたは詳細画面から **背景を透過** を押すと、非破壊の透明 PNG 候補を追加します。`engine: auto` では緑クロマキー背景は従来の YUV 距離ベースのソフトマットで高速処理し、白/薄灰背景や通常背景は `rembg` が使える環境なら `isnet-anime` の AI マットへ切り替えます。後処理として孤立した透過失敗片の除去、不要な細線除去、緑/黄緑スピル補正、白/薄灰の境界汚染補正、アルファエッジ平滑化、透明ピクセルの RGB 埋め戻しを行い、元画像・アプリ背景・暗背景・青背景・チェッカー背景で確認できるレビュー画像も同時に保存します。
+
+高精度 AI マットを使う場合は任意で `rembg` をローカルに用意します。例: `python3 -m venv .venv-rembg && .venv-rembg/bin/pip install "rembg[cpu,cli]" onnxruntime`。別の場所に入れる場合は `IMAGE_ARRANGER_REMBG_BIN=/path/to/rembg`、モデルを変える場合は `IMAGE_ARRANGER_REMBG_MODEL=birefnet-general-lite` を指定できます。
+
 ## なぜ（Why）
 
 2026 年のキャラクター一貫生成はリファレンス画像の勝負です。顔・表情・衣装・付属パーツといったパーツ別リファレンスを厳選して与えるほど良い結果が得られます。しかし、そのリファレンス集合（バージョン・候補・採用判断・依頼中の状態）を*管理*する道具は、たいていスプレッドシートか PNG が詰まったフォルダのままです。
@@ -80,7 +90,7 @@ image-arranger はそのワークフローに構造を与えます。
 1. 行（または改善したい素材）を選んで **Queue** をクリック。
 2. image-arranger が `workspace/<name>/requests/<id>.json` を書き出します。成果物ごとに 1 ターゲット（プロンプト・参照画像・出力先ディレクトリ・サービス）を含みます。
 3. 人間またはコーディングエージェントが生成サービスでターゲットを処理し（[AGENTS.md](AGENTS.md) 参照）、`POST /api/requests/complete` で完了を報告します（または JSON を直接編集）。
-4. 結果は候補素材として登録され、良いものを採用すると次のラウンドのリファレンスになります。
+4. 結果は候補素材として登録され、PNG の場合は元画像に加えて透過・不要線除去済みの候補も自動で追加されます。良いものを採用すると次のラウンドのリファレンスになります。
 
 解析依頼（`action: "analyze"`）も同じ流れですが、成果物は画像ではなく JSON（パーツ別の生成プロンプト）で、image-arranger が自動でベースエントリ化します。
 

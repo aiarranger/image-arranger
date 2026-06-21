@@ -6,3 +6,9 @@ config.json
 .DS_Store
 *.log
 *.tmp
+.venv-rembg/
+
+# Local planning/review notes that may mention private workspaces or machine paths.
+docs/04_impl/
+docs/review/
+docs/OSS_READINESS_REVIEW.md

@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/brand/image-arrangrer-primary.svg" alt="Image-Arrangrer" width="360">
+
 # image-arranger
 
 **A local-first prompt & asset request manager for AI image / video generation —<br>it doesn't generate, it keeps your generation workflow organized.**
@@ -9,7 +11,11 @@
 [![Node 20+](https://img.shields.io/badge/node-%3E%3D%2020-339933?logo=node.js&logoColor=white)](#quick-start)
 [![Runtime dependencies](https://img.shields.io/badge/runtime%20deps-0-6c5ce7)](#quick-start)
 
-[Landing page](https://aiarranger.github.io/image-arranger/) · [Quick Start](#quick-start) · [How requests flow](#how-requests-flow) · [日本語 README](README.ja.md)
+[Landing page](https://aiarranger.github.io/image-arranger/) · [2-minute overview GIF](https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en.gif) · [Quick Start](#quick-start) · [How requests flow](#how-requests-flow) · [日本語 README](README.ja.md)
+
+<p><strong>2-minute service overview (English)</strong></p>
+<a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en.gif"><img src="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en-poster.png" alt="Poster linking to a two-minute English GIF overview of Image-Arrangrer organizing image, prompt, source, and video generation assets" width="480"></a>
+<p><em>Summary: Image-Arrangrer keeps AI image and video iterations organized by tracking prompts, source references, generated assets, and adoption state. <a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en.gif">Open the GIF</a>.</em></p>
 
 <!-- DEMO_GIF: docs/assets/readme/demo.gif — record the demo and drop it at that path; the <img> below picks it up with zero README edits. -->
 <img src="docs/assets/readme/demo.gif" alt="Demo: building a character kit, queueing a generation request, and registering the result as an adopted reference in image-arranger" width="800">
@@ -69,6 +75,10 @@ A separate **Gallery** view (the *Gallery* button in the header) shows the adopt
 
 Uploading a PNG that still carries its generation metadata (A1111 / NovelAI / ComfyUI) auto-fills the prompt fields on import — provenance travels with the file.
 
+Click **Remove background** on a PNG candidate card or asset detail to create a new non-destructive transparent PNG candidate. With `engine: auto`, image-arranger keeps the fast YUV-distance soft matte for green chroma-key sheets and switches white/light-gray or natural backgrounds to an `isnet-anime` AI matte when `rembg` is available. The shared cleanup pass removes detached failure fragments and thin line artifacts, suppresses green/yellow-green spill and white/light-gray edge contamination, smooths the alpha edge, fills transparent RGB from nearby foreground colors, and writes a review composite over the original, app, dark, blue, and checker backgrounds.
+
+To enable high-quality AI matting, install `rembg` locally, for example: `python3 -m venv .venv-rembg && .venv-rembg/bin/pip install "rembg[cpu,cli]" onnxruntime`. If it lives elsewhere, set `IMAGE_ARRANGER_REMBG_BIN=/path/to/rembg`; use `IMAGE_ARRANGER_REMBG_MODEL=birefnet-general-lite` to try a different model.
+
 ## Why
 
 Character-consistent generation in 2026 is a reference-image game: you get the best results by giving the model a curated set of part references (face, expressions, outfit, attached parts). But the tooling for *managing* that reference set — versions, candidates, adoption decisions, pending requests — is usually a spreadsheet or a folder full of PNGs.
@@ -80,7 +90,7 @@ image-arranger gives that workflow structure.
 1. Select rows (or assets to improve) and click **Queue**.
 2. image-arranger writes `workspace/<name>/requests/<id>.json` with one target per deliverable: prompt, reference images, output directory, service.
 3. A human or a coding agent processes the targets in the generation service (see [AGENTS.md](AGENTS.md)) and reports completion via `POST /api/requests/complete` — or by editing the JSON.
-4. Results are registered as candidate assets; you adopt the good ones, and they become references for the next round.
+4. Results are registered as candidate assets. For PNG results, image-arranger also adds a transparent, artifact-cleaned derivative beside the original. You adopt the good ones, and they become references for the next round.
 
 Analysis requests (`action: "analyze"`) work the same way, except the deliverable is JSON: per-part generation prompts that image-arranger turns into base entries automatically.
 
