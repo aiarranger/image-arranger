@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createServer } from "node:http";
+import { execFileSync } from "node:child_process";
 import {
   copyFileSync,
   createWriteStream,
@@ -16,6 +17,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { deflateSync, inflateSync } from "node:zlib";
 
 import {
   BASE_KIT_PARTS,
@@ -38,6 +40,7 @@ import {
   mix,
   mulberry32,
   paintBackdrop,
+  pngChunk,
   sanitizeText,
   textWidth,
   wrapLines,
@@ -57,6 +60,7 @@ export {
   composeAnalyzePrompt,
   composeQualityCheckPrompt,
   composeQualityRepairPrompt,
+  removeBackgroundFromPng,
   parseKitParts,
   parseQualityCheckResult,
 };
@@ -69,6 +73,7 @@ const DEFAULT_REQUEST_DIR = join(DEFAULT_WORKSPACE, "requests");
 const DEFAULT_OUTPUT_DIR = join(DEFAULT_WORKSPACE, "outputs");
 const DEFAULT_ASSET_DIR = join(DEFAULT_WORKSPACE, "assets");
 const DEFAULT_SAMPLE_DECK = join(TOOL_ROOT, "examples", "sample-deck.json");
+const DEFAULT_REMBG_MODEL = "isnet-anime";
 const SCHEMA_VERSION = "image-arranger.v1";
 const LEGACY_SCHEMA_VERSION = "prompt-deck.v1";
 // Ordered list of every schema this server understands, oldest first. The
@@ -697,7 +702,7 @@ function completeRequestFiles(context, selectors) {
         if (selector.qualityReport) target.qualityReport = selector.qualityReport;
         target.erroredAt = nowIso();
         changed = true;
-        completedTargets.push({ requestPayload, target, selector });
+        completedTargets.push({ requestPath, requestPayload, target, selector });
         continue;
       }
       target.status = "completed";
@@ -726,7 +731,7 @@ function completeRequestFiles(context, selectors) {
       }
       changed = true;
       completed += 1;
-      completedTargets.push({ requestPayload, target, selector });
+      completedTargets.push({ requestPath, requestPayload, target, selector });
     }
     if (!changed) continue;
     const active = (requestPayload.targets ?? []).some((target) => target.status === "requested");
@@ -1020,6 +1025,1216 @@ function applyPngMetadata(asset, filePath) {
   }
 }
 
+function paethPredictor(a, b, c) {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  if (pa <= pb && pa <= pc) return a;
+  return pb <= pc ? b : c;
+}
+
+function decodePngRgba(buffer) {
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (!Buffer.isBuffer(buffer) || buffer.length < 33 || !buffer.subarray(0, 8).equals(signature)) {
+    throw new HttpError(400, "Background removal currently supports PNG assets only");
+  }
+
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  let interlace = 0;
+  const idat = [];
+
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString("ascii", offset + 4, offset + 8);
+    const start = offset + 8;
+    const end = start + length;
+    if (end + 4 > buffer.length) throw new HttpError(400, "PNG is truncated");
+    const data = buffer.subarray(start, end);
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data[8];
+      colorType = data[9];
+      interlace = data[12];
+    } else if (type === "IDAT") {
+      idat.push(data);
+    } else if (type === "IEND") {
+      break;
+    }
+    offset = end + 4;
+  }
+
+  if (!width || !height || bitDepth !== 8 || interlace !== 0 || ![2, 6].includes(colorType)) {
+    throw new HttpError(400, "Background removal supports non-interlaced 8-bit RGB/RGBA PNG assets");
+  }
+  if (!idat.length) throw new HttpError(400, "PNG has no image data");
+
+  const channels = colorType === 6 ? 4 : 3;
+  const stride = width * channels;
+  const inflated = inflateSync(Buffer.concat(idat));
+  const expected = height * (stride + 1);
+  if (inflated.length < expected) throw new HttpError(400, "PNG image data is incomplete");
+  const rows = Buffer.alloc(height * stride);
+
+  for (let y = 0; y < height; y += 1) {
+    const filter = inflated[y * (stride + 1)];
+    const src = y * (stride + 1) + 1;
+    const dst = y * stride;
+    for (let x = 0; x < stride; x += 1) {
+      const raw = inflated[src + x];
+      const left = x >= channels ? rows[dst + x - channels] : 0;
+      const up = y > 0 ? rows[dst + x - stride] : 0;
+      const upLeft = y > 0 && x >= channels ? rows[dst + x - stride - channels] : 0;
+      let value = raw;
+      if (filter === 1) value = raw + left;
+      else if (filter === 2) value = raw + up;
+      else if (filter === 3) value = raw + Math.floor((left + up) / 2);
+      else if (filter === 4) value = raw + paethPredictor(left, up, upLeft);
+      else if (filter !== 0) throw new HttpError(400, "PNG uses an unsupported filter");
+      rows[dst + x] = value & 0xff;
+    }
+  }
+
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let pixel = 0; pixel < width * height; pixel += 1) {
+    const src = pixel * channels;
+    const dst = pixel * 4;
+    rgba[dst] = rows[src];
+    rgba[dst + 1] = rows[src + 1];
+    rgba[dst + 2] = rows[src + 2];
+    rgba[dst + 3] = colorType === 6 ? rows[src + 3] : 255;
+  }
+  return { width, height, data: rgba };
+}
+
+function encodeRgbaPng(image) {
+  const raw = Buffer.alloc(image.height * (1 + image.width * 4));
+  for (let y = 0; y < image.height; y += 1) {
+    image.data.copy(raw, y * (1 + image.width * 4) + 1, y * image.width * 4, (y + 1) * image.width * 4);
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(image.width, 0);
+  ihdr.writeUInt32BE(image.height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw, { level: 9 })),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function pixelOffset(image, x, y) {
+  return (y * image.width + x) * 4;
+}
+
+function colorDistanceSq(data, index, key) {
+  const dr = data[index] - key[0];
+  const dg = data[index + 1] - key[1];
+  const db = data[index + 2] - key[2];
+  return dr * dr + dg * dg + db * db;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function smoothstep(edge0, edge1, value) {
+  if (edge0 === edge1) return value >= edge1 ? 1 : 0;
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+function colorLuminance(r, g, b) {
+  return r * 0.299 + g * 0.587 + b * 0.114;
+}
+
+function colorSaturation(r, g, b) {
+  return Math.max(r, g, b) - Math.min(r, g, b);
+}
+
+function rgbToYuv(r, g, b) {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  return [
+    rn * 0.2126 + gn * 0.7152 + bn * 0.0722,
+    rn * -0.1146 + gn * -0.3854 + bn * 0.5,
+    rn * 0.5 + gn * -0.4542 + bn * -0.0458,
+  ];
+}
+
+function chromaDistance(data, index, keyYuv) {
+  const pixelYuv = rgbToYuv(data[index], data[index + 1], data[index + 2]);
+  return Math.hypot(pixelYuv[1] - keyYuv[1], pixelYuv[2] - keyYuv[2]);
+}
+
+function isChromaGreen(data, index) {
+  const r = data[index];
+  const g = data[index + 1];
+  const b = data[index + 2];
+  return (
+    (g >= 145 && r <= 145 && b <= 155 && g - r >= 45 && g - b >= 35)
+    || (g >= 92 && g - r >= 26 && g - b >= 22)
+  );
+}
+
+function edgeBackgroundColor(image) {
+  const samples = [];
+  const { width, height, data } = image;
+  const add = (x, y) => {
+    const index = pixelOffset(image, x, y);
+    if (data[index + 3] < 16) return;
+    samples.push([data[index], data[index + 1], data[index + 2]]);
+  };
+  for (let x = 0; x < width; x += Math.max(1, Math.floor(width / 180))) {
+    add(x, 0);
+    add(x, height - 1);
+  }
+  for (let y = 0; y < height; y += Math.max(1, Math.floor(height / 180))) {
+    add(0, y);
+    add(width - 1, y);
+  }
+  if (!samples.length) return [255, 255, 255];
+  samples.sort((a, b) => (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]));
+  const mid = samples.slice(Math.floor(samples.length * 0.25), Math.ceil(samples.length * 0.75));
+  return [0, 1, 2].map((channel) =>
+    Math.round(mid.reduce((sum, item) => sum + item[channel], 0) / Math.max(1, mid.length)));
+}
+
+function chromaKeyColor(image) {
+  const samples = [];
+  const { width, height, data } = image;
+  const add = (x, y) => {
+    const index = pixelOffset(image, x, y);
+    if (data[index + 3] >= 16 && isChromaGreen(data, index)) {
+      samples.push([data[index], data[index + 1], data[index + 2]]);
+    }
+  };
+  for (let x = 0; x < width; x += Math.max(1, Math.floor(width / 240))) {
+    add(x, 0);
+    add(x, height - 1);
+  }
+  for (let y = 0; y < height; y += Math.max(1, Math.floor(height / 240))) {
+    add(0, y);
+    add(width - 1, y);
+  }
+  if (!samples.length) return [0, 255, 0];
+  return [0, 1, 2].map((channel) => {
+    const values = samples.map((item) => item[channel]).sort((a, b) => a - b);
+    return values[Math.floor(values.length / 2)];
+  });
+}
+
+function floodBackgroundMask(image, keyColor, tolerance, seedBottom) {
+  const { width, height, data } = image;
+  const mask = new Uint8Array(width * height);
+  const seen = new Uint8Array(width * height);
+  const queue = [];
+  const toleranceSq = tolerance * tolerance;
+
+  const push = (x, y) => {
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
+    const pos = y * width + x;
+    if (seen[pos]) return;
+    const index = pos * 4;
+    const alpha = data[index + 3];
+    const keyLike = colorDistanceSq(data, index, keyColor) <= toleranceSq;
+    const transparent = alpha < 16;
+    if (!transparent && !keyLike) return;
+    seen[pos] = 1;
+    mask[pos] = 255;
+    queue.push(pos);
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    push(x, 0);
+    if (seedBottom) push(x, height - 1);
+  }
+  for (let y = 0; y < height; y += 1) {
+    push(0, y);
+    push(width - 1, y);
+  }
+
+  for (let head = 0; head < queue.length; head += 1) {
+    const pos = queue[head];
+    const x = pos % width;
+    const y = Math.floor(pos / width);
+    push(x - 1, y);
+    push(x + 1, y);
+    push(x, y - 1);
+    push(x, y + 1);
+  }
+  return mask;
+}
+
+function chromaMask(image) {
+  const mask = new Uint8Array(image.width * image.height);
+  for (let pos = 0; pos < mask.length; pos += 1) {
+    if (isChromaGreen(image.data, pos * 4)) mask[pos] = 255;
+  }
+  return mask;
+}
+
+function chromaForegroundAlpha(image, keyColor, options = {}) {
+  const alpha = new Uint8Array(image.width * image.height);
+  const keyYuv = rgbToYuv(keyColor[0], keyColor[1], keyColor[2]);
+  const tolerance = Number.isFinite(Number(options.chromaTolerance))
+    ? clamp(Number(options.chromaTolerance), 0.01, 0.24)
+    : 0.075;
+  const smoothness = Number.isFinite(Number(options.chromaSmoothness))
+    ? clamp(Number(options.chromaSmoothness), 0.02, 0.36)
+    : 0.19;
+  const dominanceStart = Number.isFinite(Number(options.greenDominanceStart))
+    ? clamp(Number(options.greenDominanceStart), 0, 160)
+    : 18;
+  const dominanceEnd = Number.isFinite(Number(options.greenDominanceEnd))
+    ? clamp(Number(options.greenDominanceEnd), dominanceStart + 1, 240)
+    : 118;
+
+  for (let pos = 0; pos < alpha.length; pos += 1) {
+    const index = pos * 4;
+    if (image.data[index + 3] <= 0) {
+      alpha[pos] = 0;
+      continue;
+    }
+    const r = image.data[index];
+    const g = image.data[index + 1];
+    const b = image.data[index + 2];
+    const dist = chromaDistance(image.data, index, keyYuv);
+    const distanceAlpha = Math.pow(smoothstep(tolerance, tolerance + smoothness, dist), 1.35);
+    const greenDominance = g - Math.max(r, b);
+    const dominanceAlpha = 1 - smoothstep(dominanceStart, dominanceEnd, greenDominance);
+    alpha[pos] = Math.round(clamp(Math.min(distanceAlpha, dominanceAlpha), 0, 1) * 255);
+  }
+  return { alpha, tolerance, smoothness, dominanceStart, dominanceEnd };
+}
+
+function countMask(mask) {
+  let count = 0;
+  for (const value of mask) if (value) count += 1;
+  return count;
+}
+
+function buildBackgroundMask(image, options = {}) {
+  const { width, height } = image;
+  const edgeTotal = Math.max(1, width * 2 + height * 2 - 4);
+  let edgeGreen = 0;
+  for (let x = 0; x < width; x += 1) {
+    if (isChromaGreen(image.data, pixelOffset(image, x, 0))) edgeGreen += 1;
+    if (isChromaGreen(image.data, pixelOffset(image, x, height - 1))) edgeGreen += 1;
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    if (isChromaGreen(image.data, pixelOffset(image, 0, y))) edgeGreen += 1;
+    if (isChromaGreen(image.data, pixelOffset(image, width - 1, y))) edgeGreen += 1;
+  }
+  const greenRatio = edgeGreen / edgeTotal;
+  if (options.mode === "chroma" || greenRatio >= 0.25) {
+    const keyColor = chromaKeyColor(image);
+    const matte = chromaForegroundAlpha(image, keyColor, options);
+    return {
+      mask: chromaMask(image),
+      foregroundAlpha: matte.alpha,
+      mode: "chroma-green",
+      keyColor,
+      edgeGreenRatio: greenRatio,
+      matte: {
+        tolerance: matte.tolerance,
+        smoothness: matte.smoothness,
+        greenDominanceStart: matte.dominanceStart,
+        greenDominanceEnd: matte.dominanceEnd,
+      },
+    };
+  }
+  const keyColor = edgeBackgroundColor(image);
+  const seedBottom = options.seedBottom === true;
+  const tolerance = Math.max(12, Math.min(96, Number(options.tolerance) || 34));
+  return {
+    mask: floodBackgroundMask(image, keyColor, tolerance, seedBottom),
+    mode: "edge-flood",
+    keyColor,
+    edgeGreenRatio: greenRatio,
+  };
+}
+
+function applyMaskToAlpha(image, mask) {
+  let removed = 0;
+  for (let pos = 0; pos < mask.length; pos += 1) {
+    if (!mask[pos]) continue;
+    const index = pos * 4 + 3;
+    if (image.data[index]) removed += 1;
+    image.data[index] = 0;
+  }
+  return removed;
+}
+
+function applyForegroundAlpha(image, foregroundAlpha) {
+  let removedPixels = 0;
+  let softenedPixels = 0;
+  let changedPixels = 0;
+  for (let pos = 0; pos < foregroundAlpha.length; pos += 1) {
+    const index = pos * 4 + 3;
+    const originalAlpha = image.data[index];
+    const nextAlpha = Math.round((originalAlpha * foregroundAlpha[pos]) / 255);
+    if (nextAlpha !== originalAlpha) changedPixels += 1;
+    if (originalAlpha > 0 && nextAlpha <= 0) removedPixels += 1;
+    if (nextAlpha > 0 && nextAlpha < originalAlpha) softenedPixels += 1;
+    image.data[index] = nextAlpha;
+  }
+  return { removedPixels, softenedPixels, changedPixels };
+}
+
+function despillChromaKey(image, keyColor) {
+  let adjusted = 0;
+  for (let pos = 0; pos < image.width * image.height; pos += 1) {
+    const index = pos * 4;
+    const alpha = image.data[index + 3];
+    if (alpha <= 0) continue;
+    const r = image.data[index];
+    const g = image.data[index + 1];
+    const b = image.data[index + 2];
+    const alphaRatio = alpha / 255;
+    if (alphaRatio > 0 && alphaRatio < 0.995) {
+      image.data[index] = Math.round(clamp((r - keyColor[0] * (1 - alphaRatio)) / alphaRatio, 0, 255));
+      image.data[index + 1] = Math.round(clamp((g - keyColor[1] * (1 - alphaRatio)) / alphaRatio, 0, 255));
+      image.data[index + 2] = Math.round(clamp((b - keyColor[2] * (1 - alphaRatio)) / alphaRatio, 0, 255));
+      adjusted += 1;
+      continue;
+    }
+    const rb = Math.max(r, b);
+    if (g > rb + 12 && g >= 70) {
+      image.data[index + 1] = Math.min(g, rb + 8);
+      adjusted += 1;
+    }
+  }
+  return adjusted;
+}
+
+function isGreenYellowResidue(r, g, b) {
+  return (
+    (g > b + 16 && g >= r - 24 && r < 190)
+    || (g > b + 12 && r > b + 10 && g >= 45 && r < 215 && g >= r - 70)
+    || (g > b + 7 && g >= r - 10 && r < 135 && b < 125 && g >= 50)
+    || (g > Math.min(r, b) + 8 && r < 180 && b < 150 && g >= 42 && b < r * 0.9)
+  );
+}
+
+function isPurpleMagentaPaletteColor(r, g, b) {
+  const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+  return (
+    saturation >= 30
+    && r >= 35
+    && b >= 40
+    && b >= r * 0.45
+    && g <= Math.min(r, b) + 14
+    && (r >= g + 22 || b >= g + 20)
+    && !(r > 220 && g > 185 && b > 185)
+  );
+}
+
+function hasTransparentNeighbor(image, pos, radius = 2, threshold = 8) {
+  const x = pos % image.width;
+  const y = Math.floor(pos / image.width);
+  for (let dy = -radius; dy <= radius; dy += 1) {
+    const ny = y + dy;
+    if (ny < 0 || ny >= image.height) continue;
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = x + dx;
+      if (nx < 0 || nx >= image.width) continue;
+      if (image.data[(ny * image.width + nx) * 4 + 3] <= threshold) return true;
+    }
+  }
+  return false;
+}
+
+function dominantPurpleMagentaColor(image) {
+  let totalWeight = 0;
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  for (let pos = 0; pos < image.width * image.height; pos += 1) {
+    const index = pos * 4;
+    const alpha = image.data[index + 3];
+    if (alpha < 180) continue;
+    const r = image.data[index];
+    const g = image.data[index + 1];
+    const b = image.data[index + 2];
+    if (!isPurpleMagentaPaletteColor(r, g, b)) continue;
+    const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+    const weight = (alpha / 255) * Math.max(1, saturation);
+    sumR += r * weight;
+    sumG += g * weight;
+    sumB += b * weight;
+    totalWeight += weight;
+  }
+  if (!totalWeight) return null;
+  return [sumR / totalWeight, sumG / totalWeight, sumB / totalWeight];
+}
+
+function matchLuminance(color, reference) {
+  const colorLuma = Math.max(1, colorLuminance(color[0], color[1], color[2]));
+  const referenceLuma = Math.max(1, colorLuminance(reference[0], reference[1], reference[2]));
+  const scale = clamp(referenceLuma / colorLuma, 0.35, 1.8);
+  return color.map((channel) => clamp(Math.round(channel * scale), 0, 255));
+}
+
+function nearbyCleanEdgeColor(image, pos, radius = 5) {
+  const x = pos % image.width;
+  const y = Math.floor(pos / image.width);
+  let totalWeight = 0;
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  for (let dy = -radius; dy <= radius; dy += 1) {
+    const ny = y + dy;
+    if (ny < 0 || ny >= image.height) continue;
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      const nx = x + dx;
+      if (nx < 0 || nx >= image.width || (dx === 0 && dy === 0)) continue;
+      const index = (ny * image.width + nx) * 4;
+      const alpha = image.data[index + 3];
+      if (alpha < 160) continue;
+      const r = image.data[index];
+      const g = image.data[index + 1];
+      const b = image.data[index + 2];
+      if (isGreenYellowResidue(r, g, b) || (g > Math.min(r, b) + 8 && r < 185 && b < 170)) continue;
+      const distance = Math.hypot(dx, dy);
+      const weight = (alpha / 255) / Math.max(1, distance);
+      sumR += r * weight;
+      sumG += g * weight;
+      sumB += b * weight;
+      totalWeight += weight;
+    }
+  }
+  if (!totalWeight) return null;
+  return [sumR / totalWeight, sumG / totalWeight, sumB / totalWeight];
+}
+
+function suppressChromaEdgeResidue(image, options = {}) {
+  const neighborRadius = Number.isFinite(Number(options.neighborRadius))
+    ? clamp(Math.round(Number(options.neighborRadius)), 1, 12)
+    : 2;
+  const neighborThreshold = Number.isFinite(Number(options.neighborThreshold))
+    ? clamp(Math.round(Number(options.neighborThreshold)), 0, 255)
+    : 8;
+  const cleanRadius = Number.isFinite(Number(options.cleanRadius))
+    ? clamp(Math.round(Number(options.cleanRadius)), 2, 12)
+    : 5;
+  const paletteColor = dominantPurpleMagentaColor(image);
+  let adjusted = 0;
+  for (let pos = 0; pos < image.width * image.height; pos += 1) {
+    const index = pos * 4;
+    const alpha = image.data[index + 3];
+    if (alpha <= 8 || !hasTransparentNeighbor(image, pos, neighborRadius, neighborThreshold)) continue;
+    const r = image.data[index];
+    const g = image.data[index + 1];
+    const b = image.data[index + 2];
+    if (!isGreenYellowResidue(r, g, b)) continue;
+    const clean = paletteColor ? matchLuminance(paletteColor, [r, g, b]) : nearbyCleanEdgeColor(image, pos, cleanRadius);
+    if (clean) {
+      const strength = paletteColor ? (alpha < 245 ? 0.98 : 0.94) : (alpha < 250 ? 0.86 : 0.68);
+      const rr = Math.round(r * (1 - strength) + clean[0] * strength);
+      let gg = Math.round(g * (1 - strength) + clean[1] * strength);
+      let bb = Math.round(b * (1 - strength) + clean[2] * strength);
+      if (paletteColor) {
+        gg = Math.min(gg, Math.max(6, Math.round(Math.min(rr, bb) * 0.52)));
+        if (bb < rr * 0.58 && rr < 190) bb = Math.max(bb, Math.round(rr * 0.78));
+      }
+      image.data[index] = rr;
+      image.data[index + 1] = gg;
+      image.data[index + 2] = bb;
+    } else {
+      image.data[index + 1] = Math.min(g, Math.max(b + 10, Math.round(r * 0.72)));
+      image.data[index + 2] = Math.max(b, Math.min(180, Math.round((r + b) / 2)));
+    }
+    adjusted += 1;
+  }
+  return adjusted;
+}
+
+function isLightNeutralResidue(r, g, b) {
+  const luma = colorLuminance(r, g, b);
+  const saturation = colorSaturation(r, g, b);
+  return (
+    (luma >= 224 && saturation <= 118)
+    || (luma >= 198 && saturation <= 46)
+    || (luma >= 178 && saturation <= 24)
+  );
+}
+
+function nearbyForegroundColor(image, pos, radius = 8) {
+  const x = pos % image.width;
+  const y = Math.floor(pos / image.width);
+  let totalWeight = 0;
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  for (let dy = -radius; dy <= radius; dy += 1) {
+    const ny = y + dy;
+    if (ny < 0 || ny >= image.height) continue;
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      const nx = x + dx;
+      if (nx < 0 || nx >= image.width || (dx === 0 && dy === 0)) continue;
+      const index = (ny * image.width + nx) * 4;
+      const alpha = image.data[index + 3];
+      if (alpha < 220) continue;
+      const r = image.data[index];
+      const g = image.data[index + 1];
+      const b = image.data[index + 2];
+      if (isLightNeutralResidue(r, g, b) || isGreenYellowResidue(r, g, b)) continue;
+      const saturation = colorSaturation(r, g, b);
+      const luma = colorLuminance(r, g, b);
+      const distance = Math.hypot(dx, dy);
+      const colorWeight = 1 + saturation / 48 + Math.max(0, 185 - luma) / 110;
+      const weight = (alpha / 255) * colorWeight / Math.max(1, distance);
+      sumR += r * weight;
+      sumG += g * weight;
+      sumB += b * weight;
+      totalWeight += weight;
+    }
+  }
+  if (!totalWeight) return null;
+  return [sumR / totalWeight, sumG / totalWeight, sumB / totalWeight];
+}
+
+function suppressLightEdgeResidue(image, options = {}) {
+  const neighborRadius = Number.isFinite(Number(options.neighborRadius))
+    ? clamp(Math.round(Number(options.neighborRadius)), 1, 12)
+    : 4;
+  const neighborThreshold = Number.isFinite(Number(options.neighborThreshold))
+    ? clamp(Math.round(Number(options.neighborThreshold)), 0, 255)
+    : 16;
+  const cleanRadius = Number.isFinite(Number(options.cleanRadius))
+    ? clamp(Math.round(Number(options.cleanRadius)), 2, 16)
+    : 9;
+  let adjustedPixels = 0;
+  let removedPixels = 0;
+  for (let pos = 0; pos < image.width * image.height; pos += 1) {
+    const index = pos * 4;
+    const alpha = image.data[index + 3];
+    if (alpha <= 0 || !hasTransparentNeighbor(image, pos, neighborRadius, neighborThreshold)) continue;
+    const r = image.data[index];
+    const g = image.data[index + 1];
+    const b = image.data[index + 2];
+    if (!isLightNeutralResidue(r, g, b)) continue;
+    const luma = colorLuminance(r, g, b);
+    const saturation = colorSaturation(r, g, b);
+    const clean = nearbyForegroundColor(image, pos, cleanRadius);
+    if (!clean) {
+      if (alpha <= 56 && luma >= 198 && saturation <= 52) {
+        image.data[index + 3] = 0;
+        removedPixels += 1;
+      }
+      continue;
+    }
+    const cleanLuma = colorLuminance(clean[0], clean[1], clean[2]);
+    const cleanSaturation = colorSaturation(clean[0], clean[1], clean[2]);
+    const likelyContaminated = cleanLuma <= luma - 10 || cleanSaturation >= saturation + 16;
+    if (!likelyContaminated && !(alpha <= 72 && luma >= 205)) continue;
+    if (alpha <= 42 && luma >= 205 && saturation <= 58) {
+      image.data[index + 3] = 0;
+      removedPixels += 1;
+      continue;
+    }
+    const strength = alpha < 96 ? 0.98 : alpha < 224 ? 0.9 : 0.72;
+    const lumaKeep = alpha < 96 ? 0.16 : alpha < 240 ? 0.24 : 0.32;
+    const targetLuma = cleanLuma + Math.max(0, luma - cleanLuma) * lumaKeep;
+    const matched = matchLuminance(clean, [targetLuma, targetLuma, targetLuma]);
+    image.data[index] = Math.round(r * (1 - strength) + matched[0] * strength);
+    image.data[index + 1] = Math.round(g * (1 - strength) + matched[1] * strength);
+    image.data[index + 2] = Math.round(b * (1 - strength) + matched[2] * strength);
+    if (alpha < 224 && cleanLuma <= luma - 28) {
+      image.data[index + 3] = Math.max(32, Math.round(alpha * 0.86));
+    }
+    adjustedPixels += 1;
+  }
+  return { adjustedPixels, removedPixels };
+}
+
+function bleedTransparentRgb(image, alphaThreshold = 0) {
+  const total = image.width * image.height;
+  const seen = new Uint8Array(total);
+  const queue = new Int32Array(total);
+  let head = 0;
+  let tail = 0;
+  let filled = 0;
+
+  for (let pos = 0; pos < total; pos += 1) {
+    if (image.data[pos * 4 + 3] > alphaThreshold) {
+      seen[pos] = 1;
+      queue[tail] = pos;
+      tail += 1;
+    }
+  }
+  if (!tail) return 0;
+
+  const copyTo = (from, to) => {
+    const src = from * 4;
+    const dst = to * 4;
+    image.data[dst] = image.data[src];
+    image.data[dst + 1] = image.data[src + 1];
+    image.data[dst + 2] = image.data[src + 2];
+    seen[to] = 1;
+    queue[tail] = to;
+    tail += 1;
+    filled += 1;
+  };
+
+  while (head < tail) {
+    const pos = queue[head];
+    head += 1;
+    const x = pos % image.width;
+    const y = Math.floor(pos / image.width);
+    if (x > 0 && !seen[pos - 1]) copyTo(pos, pos - 1);
+    if (x + 1 < image.width && !seen[pos + 1]) copyTo(pos, pos + 1);
+    if (y > 0 && !seen[pos - image.width]) copyTo(pos, pos - image.width);
+    if (y + 1 < image.height && !seen[pos + image.width]) copyTo(pos, pos + image.width);
+  }
+  return filled;
+}
+
+function edgeAlphaSmoothing(image, options = {}) {
+  const strength = Number.isFinite(Number(options.edgeSmoothStrength))
+    ? clamp(Number(options.edgeSmoothStrength), 0, 0.85)
+    : 0.42;
+  if (strength <= 0) return { adjustedPixels: 0, expandedPixels: 0 };
+
+  const total = image.width * image.height;
+  const sourceAlpha = new Uint8Array(total);
+  for (let pos = 0; pos < total; pos += 1) sourceAlpha[pos] = image.data[pos * 4 + 3];
+
+  let adjustedPixels = 0;
+  let expandedPixels = 0;
+  const weights = [
+    [-1, -1, 1], [0, -1, 2], [1, -1, 1],
+    [-1, 0, 2], [0, 0, 4], [1, 0, 2],
+    [-1, 1, 1], [0, 1, 2], [1, 1, 1],
+  ];
+
+  for (let pos = 0; pos < total; pos += 1) {
+    const x = pos % image.width;
+    const y = Math.floor(pos / image.width);
+    let nearTransparent = false;
+    let nearForeground = false;
+    let sum = 0;
+    let weightTotal = 0;
+    for (const [dx, dy, weight] of weights) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || nx >= image.width || ny < 0 || ny >= image.height) continue;
+      const alpha = sourceAlpha[ny * image.width + nx];
+      if (alpha <= 4) nearTransparent = true;
+      if (alpha >= 96) nearForeground = true;
+      sum += alpha * weight;
+      weightTotal += weight;
+    }
+    if (!nearTransparent || !nearForeground) continue;
+    const originalAlpha = sourceAlpha[pos];
+    const blurredAlpha = sum / Math.max(1, weightTotal);
+    let nextAlpha = Math.round(originalAlpha * (1 - strength) + blurredAlpha * strength);
+    if (originalAlpha === 0 && nextAlpha < 10) nextAlpha = 0;
+    if (nextAlpha === originalAlpha) continue;
+    image.data[pos * 4 + 3] = nextAlpha;
+    adjustedPixels += 1;
+    if (originalAlpha === 0 && nextAlpha > 0) expandedPixels += 1;
+  }
+
+  return { adjustedPixels, expandedPixels, strength };
+}
+
+function alphaComponents(image, threshold = 32) {
+  const { width, height, data } = image;
+  const seen = new Uint8Array(width * height);
+  const components = [];
+  const stack = [];
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const start = y * width + x;
+      if (seen[start] || data[start * 4 + 3] <= threshold) continue;
+      seen[start] = 1;
+      stack.length = 0;
+      stack.push(start);
+      const pixels = [];
+      let minX = x;
+      let maxX = x;
+      let minY = y;
+      let maxY = y;
+      for (let head = 0; head < stack.length; head += 1) {
+        const pos = stack[head];
+        pixels.push(pos);
+        const px = pos % width;
+        const py = Math.floor(pos / width);
+        minX = Math.min(minX, px);
+        maxX = Math.max(maxX, px);
+        minY = Math.min(minY, py);
+        maxY = Math.max(maxY, py);
+        for (const next of [pos - 1, pos + 1, pos - width, pos + width]) {
+          if (next < 0 || next >= seen.length || seen[next]) continue;
+          const nx = next % width;
+          if ((next === pos - 1 && nx === width - 1) || (next === pos + 1 && nx === 0)) continue;
+          if (data[next * 4 + 3] <= threshold) continue;
+          seen[next] = 1;
+          stack.push(next);
+        }
+      }
+      components.push({ area: pixels.length, bbox: [minX, minY, maxX + 1, maxY + 1], pixels });
+    }
+  }
+  components.sort((a, b) => b.area - a.area);
+  return components;
+}
+
+function removeDetachedAlphaFragments(image, options = {}) {
+  const components = alphaComponents(image, Number(options.alphaThreshold) || 32);
+  if (!components.length) return { before: 0, after: 0, removedFragments: 0, removedPixels: 0, largestRemoved: 0 };
+  const largest = components[0].area;
+  const defaultMinKeepArea = Math.max(80, Math.min(1800, Math.round(largest * 0.003)));
+  const minKeepArea = Math.max(1, Math.round(Number(options.minKeepArea) || defaultMinKeepArea));
+  let removedFragments = 0;
+  let removedPixels = 0;
+  let largestRemoved = 0;
+  for (const component of components) {
+    if (component.area >= minKeepArea) continue;
+    removedFragments += 1;
+    removedPixels += component.area;
+    largestRemoved = Math.max(largestRemoved, component.area);
+    for (const pos of component.pixels) image.data[pos * 4 + 3] = 0;
+  }
+  return {
+    before: components.length,
+    after: components.length - removedFragments,
+    removedFragments,
+    removedPixels,
+    largestRemoved,
+    minKeepArea,
+  };
+}
+
+function removeAlphaLineArtifacts(image) {
+  const main = alphaComponents(image, 128)[0] ?? null;
+  const mainTop = main?.bbox?.[1] ?? 0;
+  const components = alphaComponents(image, 0);
+  let removedFragments = 0;
+  let removedPixels = 0;
+  let largestRemoved = 0;
+
+  for (const component of components) {
+    if (component === main || component.area > 20000) continue;
+    const [minX, minY, maxX, maxY] = component.bbox;
+    const boxW = maxX - minX;
+    const boxH = maxY - minY;
+    const aspect = boxW / Math.max(1, boxH);
+    let sumAlpha = 0;
+    let maxAlpha = 0;
+    for (const pos of component.pixels) {
+      const alpha = image.data[pos * 4 + 3];
+      sumAlpha += alpha;
+      maxAlpha = Math.max(maxAlpha, alpha);
+    }
+    const meanAlpha = sumAlpha / Math.max(1, component.area);
+    const horizontalLine = boxW >= 80 && boxH <= 8 && aspect >= 12 && meanAlpha <= 150;
+    const topLineFragment = (
+      main
+      && minY < mainTop
+      && maxY <= mainTop + 4
+      && boxW >= 10
+      && boxH <= 6
+      && meanAlpha <= 110
+      && maxAlpha <= 170
+    );
+    const softSpeck = component.area <= 72 && maxAlpha <= 72;
+    const softIsland = component.area <= 180 && maxAlpha <= 96 && boxW <= 32 && boxH <= 32;
+    if (!horizontalLine && !topLineFragment && !softSpeck && !softIsland) continue;
+    for (const pos of component.pixels) image.data[pos * 4 + 3] = 0;
+    removedFragments += 1;
+    removedPixels += component.area;
+    largestRemoved = Math.max(largestRemoved, component.area);
+  }
+
+  return { removedFragments, removedPixels, largestRemoved };
+}
+
+function hasTransparentPixelNearBox(image, bbox, radius = 24) {
+  const [minX, minY, maxX, maxY] = bbox;
+  const startX = Math.max(0, minX - radius);
+  const startY = Math.max(0, minY - radius);
+  const endX = Math.min(image.width, maxX + radius);
+  const endY = Math.min(image.height, maxY + radius);
+  for (let y = startY; y < endY; y += 1) {
+    for (let x = startX; x < endX; x += 1) {
+      if (x >= minX && x < maxX && y >= minY && y < maxY) continue;
+      if (image.data[(y * image.width + x) * 4 + 3] <= 8) return true;
+    }
+  }
+  return false;
+}
+
+function removeLightBackgroundComponents(image, options = {}) {
+  const alphaThreshold = Number.isFinite(Number(options.alphaThreshold))
+    ? clamp(Math.round(Number(options.alphaThreshold)), 0, 254)
+    : 8;
+  const minArea = Number.isFinite(Number(options.minArea))
+    ? Math.max(1, Math.round(Number(options.minArea)))
+    : 28;
+  const maxDistance = Number.isFinite(Number(options.maxDistance))
+    ? Math.max(1, Math.round(Number(options.maxDistance)))
+    : 32;
+  const maxPureDistance = Number.isFinite(Number(options.maxPureDistance))
+    ? Math.max(maxDistance, Math.round(Number(options.maxPureDistance)))
+    : 80;
+  const { width, height, data } = image;
+  const seen = new Uint8Array(width * height);
+  const stack = [];
+  let removedFragments = 0;
+  let removedPixels = 0;
+  let largestRemoved = 0;
+
+  const isCandidate = (pos) => {
+    const index = pos * 4;
+    if (data[index + 3] <= alphaThreshold) return false;
+    const r = data[index];
+    const g = data[index + 1];
+    const b = data[index + 2];
+    return colorLuminance(r, g, b) >= 232 && colorSaturation(r, g, b) <= 16;
+  };
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const start = y * width + x;
+      if (seen[start] || !isCandidate(start)) continue;
+      seen[start] = 1;
+      stack.length = 0;
+      stack.push(start);
+      const pixels = [];
+      let minX = x;
+      let maxX = x;
+      let minY = y;
+      let maxY = y;
+      let sumR = 0;
+      let sumG = 0;
+      let sumB = 0;
+      for (let head = 0; head < stack.length; head += 1) {
+        const pos = stack[head];
+        const px = pos % width;
+        const py = Math.floor(pos / width);
+        const index = pos * 4;
+        pixels.push(pos);
+        minX = Math.min(minX, px);
+        maxX = Math.max(maxX, px);
+        minY = Math.min(minY, py);
+        maxY = Math.max(maxY, py);
+        sumR += data[index];
+        sumG += data[index + 1];
+        sumB += data[index + 2];
+        for (const next of [pos - 1, pos + 1, pos - width, pos + width]) {
+          if (next < 0 || next >= seen.length || seen[next]) continue;
+          const nx = next % width;
+          if ((next === pos - 1 && nx === width - 1) || (next === pos + 1 && nx === 0)) continue;
+          if (!isCandidate(next)) continue;
+          seen[next] = 1;
+          stack.push(next);
+        }
+      }
+
+      if (pixels.length < minArea) continue;
+      const avg = [sumR / pixels.length, sumG / pixels.length, sumB / pixels.length];
+      const avgLuma = colorLuminance(avg[0], avg[1], avg[2]);
+      const avgSaturation = colorSaturation(avg[0], avg[1], avg[2]);
+      const bbox = [minX, minY, maxX + 1, maxY + 1];
+      const nearTransparent = hasTransparentPixelNearBox(image, bbox, maxDistance);
+      const pureDistantBackground = (
+        pixels.length >= 60
+        && avgLuma >= 246
+        && avgSaturation <= 4
+        && hasTransparentPixelNearBox(image, bbox, maxPureDistance)
+      );
+      if (avgLuma < 238 || avgSaturation > 12 || (!nearTransparent && !pureDistantBackground)) continue;
+      for (const pos of pixels) data[pos * 4 + 3] = 0;
+      removedFragments += 1;
+      removedPixels += pixels.length;
+      largestRemoved = Math.max(largestRemoved, pixels.length);
+    }
+  }
+
+  return { removedFragments, removedPixels, largestRemoved };
+}
+
+function composeOnColor(image, color) {
+  const out = { width: image.width, height: image.height, data: Buffer.alloc(image.width * image.height * 4) };
+  for (let pos = 0; pos < image.width * image.height; pos += 1) {
+    const index = pos * 4;
+    const alpha = image.data[index + 3] / 255;
+    out.data[index] = Math.round(image.data[index] * alpha + color[0] * (1 - alpha));
+    out.data[index + 1] = Math.round(image.data[index + 1] * alpha + color[1] * (1 - alpha));
+    out.data[index + 2] = Math.round(image.data[index + 2] * alpha + color[2] * (1 - alpha));
+    out.data[index + 3] = 255;
+  }
+  return out;
+}
+
+function resizeNearest(image, maxSize) {
+  const scale = Math.min(maxSize / image.width, maxSize / image.height, 1);
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const out = { width, height, data: Buffer.alloc(width * height * 4) };
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const sx = Math.min(image.width - 1, Math.floor(x / scale));
+      const sy = Math.min(image.height - 1, Math.floor(y / scale));
+      image.data.copy(out.data, (y * width + x) * 4, (sy * image.width + sx) * 4, (sy * image.width + sx) * 4 + 4);
+    }
+  }
+  return out;
+}
+
+function auditBackgroundPixel(panelName, x, y, tile = 32) {
+  if (panelName === "app") return [255, 248, 238];
+  if (panelName === "dark") return [18, 18, 18];
+  if (panelName === "blue") return [0, 120, 255];
+  return ((Math.floor(x / tile) + Math.floor(y / tile)) % 2) ? [210, 210, 210] : [255, 255, 255];
+}
+
+function writeBackgroundRemovalAudit(original, result, destination) {
+  const panels = [
+    { name: "original", image: resizeNearest(original, 260), flat: true },
+    { name: "app", image: resizeNearest(composeOnColor(result, [255, 248, 238]), 260) },
+    { name: "dark", image: resizeNearest(composeOnColor(result, [18, 18, 18]), 260) },
+    { name: "blue", image: resizeNearest(composeOnColor(result, [0, 120, 255]), 260) },
+    { name: "checker", image: resizeNearest(result, 260), checker: true },
+  ];
+  const cell = 280;
+  const labelHeight = 24;
+  const out = {
+    width: cell * panels.length,
+    height: cell + labelHeight,
+    data: Buffer.alloc(cell * panels.length * (cell + labelHeight) * 4, 255),
+  };
+  for (const [panelIndex, panel] of panels.entries()) {
+    const ox = panelIndex * cell + Math.floor((cell - panel.image.width) / 2);
+    const oy = Math.floor((cell - panel.image.height) / 2);
+    for (let y = 0; y < cell; y += 1) {
+      for (let x = 0; x < cell; x += 1) {
+        const dst = (y * out.width + panelIndex * cell + x) * 4;
+        const bg = auditBackgroundPixel(panel.checker ? "checker" : panel.name, x, y);
+        out.data[dst] = bg[0];
+        out.data[dst + 1] = bg[1];
+        out.data[dst + 2] = bg[2];
+        out.data[dst + 3] = 255;
+      }
+    }
+    for (let y = 0; y < panel.image.height; y += 1) {
+      for (let x = 0; x < panel.image.width; x += 1) {
+        const src = (y * panel.image.width + x) * 4;
+        const dst = ((oy + y) * out.width + ox + x) * 4;
+        const alpha = panel.flat ? 1 : panel.image.data[src + 3] / 255;
+        out.data[dst] = Math.round(panel.image.data[src] * alpha + out.data[dst] * (1 - alpha));
+        out.data[dst + 1] = Math.round(panel.image.data[src + 1] * alpha + out.data[dst + 1] * (1 - alpha));
+        out.data[dst + 2] = Math.round(panel.image.data[src + 2] * alpha + out.data[dst + 2] * (1 - alpha));
+        out.data[dst + 3] = 255;
+      }
+    }
+  }
+  writeFileSync(destination, encodeRgbaPng(out));
+}
+
+function normalizeBackgroundRemovalEngine(value) {
+  const engine = String(value ?? "").trim().toLowerCase();
+  if (["auto", "smart", "ai-auto", "auto-ai"].includes(engine)) return "auto";
+  if (["rembg", "ai", "ai-matting", "matting"].includes(engine)) return "rembg";
+  return "local";
+}
+
+function resolveRembgBinary(options = {}) {
+  const explicit = String(options.rembgBin ?? process.env.IMAGE_ARRANGER_REMBG_BIN ?? "").trim();
+  if (explicit) {
+    if (explicit.includes("/") || explicit.includes("\\")) {
+      const binary = isAbsolute(explicit) ? explicit : resolve(TOOL_ROOT, explicit);
+      return existsSync(binary) ? binary : "";
+    }
+    return explicit;
+  }
+
+  const bundled = join(TOOL_ROOT, ".venv-rembg", "bin", "rembg");
+  if (existsSync(bundled)) return bundled;
+  return "rembg";
+}
+
+function removeBackgroundWithRembg(sourcePath, outputPath, auditPath, options = {}, originalImage = null) {
+  const binary = resolveRembgBinary(options);
+  if (!binary) throw new Error("rembg binary was not found");
+
+  const model = String(options.rembgModel ?? process.env.IMAGE_ARRANGER_REMBG_MODEL ?? DEFAULT_REMBG_MODEL).trim() || DEFAULT_REMBG_MODEL;
+  const tempOutput = `${outputPath}.rembg-${randomUUID().slice(0, 8)}.png`;
+  const args = ["i", "-m", model];
+  if (options.alphaMatting !== false) args.push("-a");
+  if (options.postProcessMask === true) args.push("-ppm");
+  if (Number.isFinite(Number(options.alphaMattingForegroundThreshold))) {
+    args.push("-af", String(Math.round(Number(options.alphaMattingForegroundThreshold))));
+  }
+  if (Number.isFinite(Number(options.alphaMattingBackgroundThreshold))) {
+    args.push("-ab", String(Math.round(Number(options.alphaMattingBackgroundThreshold))));
+  }
+  if (Number.isFinite(Number(options.alphaMattingErodeSize))) {
+    args.push("-ae", String(Math.round(Number(options.alphaMattingErodeSize))));
+  }
+  args.push(sourcePath, tempOutput);
+
+  ensureDir(dirname(outputPath));
+  try {
+    execFileSync(binary, args, {
+      cwd: TOOL_ROOT,
+      stdio: "ignore",
+      timeout: Number.isFinite(Number(options.rembgTimeoutMs)) ? Number(options.rembgTimeoutMs) : 180000,
+    });
+    if (!existsSync(tempOutput)) throw new Error("rembg did not write an output file");
+    const original = originalImage ?? decodePngRgba(readFileSync(sourcePath));
+    const result = decodePngRgba(readFileSync(tempOutput));
+    const fragments = options.keepFragments === true
+      ? { before: 0, after: 0, removedFragments: 0, removedPixels: 0, largestRemoved: 0 }
+      : removeDetachedAlphaFragments(result, options);
+    const lineArtifacts = options.keepArtifacts === true
+      ? { removedFragments: 0, removedPixels: 0, largestRemoved: 0 }
+      : removeAlphaLineArtifacts(result);
+    const lightResidue = suppressLightEdgeResidue(result, { neighborRadius: 5, neighborThreshold: 48, cleanRadius: 10 });
+    const rgbBleedPixels = bleedTransparentRgb(result);
+    const edgeSmoothing = edgeAlphaSmoothing(result, {
+      ...options,
+      edgeSmoothStrength: Number.isFinite(Number(options.edgeSmoothStrength))
+        ? options.edgeSmoothStrength
+        : 0.24,
+    });
+    const postSmoothRgbBleedPixels = bleedTransparentRgb(result);
+    writeFileSync(outputPath, encodeRgbaPng(result));
+    if (auditPath) {
+      ensureDir(dirname(auditPath));
+      writeBackgroundRemovalAudit(original, result, auditPath);
+    }
+    return {
+      width: result.width,
+      height: result.height,
+      mode: `rembg:${model}`,
+      engine: "rembg",
+      model,
+      alphaMatting: options.alphaMatting !== false,
+      keyColor: null,
+      edgeGreenRatio: 0,
+      maskPixels: 0,
+      removedPixels: 0,
+      softenedPixels: 0,
+      changedPixels: 0,
+      decontaminatedPixels: 0,
+      residuePixels: 0,
+      rgbBleedPixels,
+      edgeSmoothing,
+      lightResidue,
+      postSmoothResiduePixels: 0,
+      postSmoothRgbBleedPixels,
+      fragments,
+      lineArtifacts,
+      lightComponents: { removedFragments: 0, removedPixels: 0, largestRemoved: 0 },
+      matte: { source: "rembg", model },
+    };
+  } finally {
+    if (existsSync(tempOutput)) rmSync(tempOutput, { force: true });
+  }
+}
+
+function removeBackgroundLocally(original, outputPath, auditPath, options = {}) {
+  const result = { width: original.width, height: original.height, data: Buffer.from(original.data) };
+  const background = buildBackgroundMask(result, options);
+  const matteResult = background.foregroundAlpha
+    ? applyForegroundAlpha(result, background.foregroundAlpha)
+    : { removedPixels: applyMaskToAlpha(result, background.mask), softenedPixels: 0, changedPixels: 0 };
+  const decontaminatedPixels = background.mode === "chroma-green" ? despillChromaKey(result, background.keyColor) : 0;
+  const fragments = options.keepFragments === true
+    ? { before: 0, after: 0, removedFragments: 0, removedPixels: 0, largestRemoved: 0 }
+    : removeDetachedAlphaFragments(result, options);
+  const lineArtifacts = options.keepArtifacts === true
+    ? { removedFragments: 0, removedPixels: 0, largestRemoved: 0 }
+    : removeAlphaLineArtifacts(result);
+  const lightComponents = background.mode === "edge-flood" && options.keepLightComponents !== true
+    ? removeLightBackgroundComponents(result, options)
+    : { removedFragments: 0, removedPixels: 0, largestRemoved: 0 };
+  const residuePixels = background.mode === "chroma-green"
+    ? suppressChromaEdgeResidue(result, { neighborRadius: 5, neighborThreshold: 64, cleanRadius: 8 })
+    : 0;
+  const rgbBleedPixels = bleedTransparentRgb(result);
+  const edgeSmoothing = edgeAlphaSmoothing(result, options);
+  const lightResidue = suppressLightEdgeResidue(result, { neighborRadius: 5, neighborThreshold: 48, cleanRadius: 10 });
+  const postSmoothResiduePixels = background.mode === "chroma-green"
+    ? suppressChromaEdgeResidue(result, { neighborRadius: 10, neighborThreshold: 220, cleanRadius: 8 })
+    : 0;
+  const postSmoothRgbBleedPixels = bleedTransparentRgb(result);
+  ensureDir(dirname(outputPath));
+  writeFileSync(outputPath, encodeRgbaPng(result));
+  if (auditPath) {
+    ensureDir(dirname(auditPath));
+    writeBackgroundRemovalAudit(original, result, auditPath);
+  }
+  return {
+    width: result.width,
+    height: result.height,
+    mode: background.mode,
+    keyColor: background.keyColor,
+    edgeGreenRatio: Number(background.edgeGreenRatio.toFixed(3)),
+    maskPixels: countMask(background.mask),
+    removedPixels: matteResult.removedPixels,
+    softenedPixels: matteResult.softenedPixels,
+    changedPixels: matteResult.changedPixels,
+    decontaminatedPixels,
+    residuePixels,
+    rgbBleedPixels,
+    edgeSmoothing,
+    lightResidue,
+    postSmoothResiduePixels,
+    postSmoothRgbBleedPixels,
+    fragments,
+    lineArtifacts,
+    lightComponents,
+    matte: background.matte,
+  };
+}
+
+function removeBackgroundFromPng(sourcePath, outputPath, auditPath, options = {}) {
+  const original = decodePngRgba(readFileSync(sourcePath));
+  const engine = normalizeBackgroundRemovalEngine(
+    options.engine ?? process.env.IMAGE_ARRANGER_BACKGROUND_REMOVAL_ENGINE,
+  );
+  if (engine === "rembg") {
+    try {
+      return removeBackgroundWithRembg(sourcePath, outputPath, auditPath, options, original);
+    } catch (error) {
+      if (options.fallbackToLocal === false) throw error;
+      const report = removeBackgroundLocally(original, outputPath, auditPath, options);
+      return { ...report, engine: "local", fallbackReason: error?.message ?? String(error) };
+    }
+  }
+
+  if (engine === "auto") {
+    const preview = { width: original.width, height: original.height, data: Buffer.from(original.data) };
+    const background = buildBackgroundMask(preview, options);
+    if (background.mode !== "chroma-green") {
+      try {
+        return removeBackgroundWithRembg(sourcePath, outputPath, auditPath, options, original);
+      } catch (error) {
+        const report = removeBackgroundLocally(original, outputPath, auditPath, options);
+        return { ...report, engine: "local", fallbackReason: error?.message ?? String(error) };
+      }
+    }
+  }
+
+  const report = removeBackgroundLocally(original, outputPath, auditPath, options);
+  return { ...report, engine: "local" };
+}
+
 function copyAssetIntoWorkspace(context, characterId, entryId, body) {
   const sourceFileRaw = String(body.sourceFile ?? "").trim();
   if (!sourceFileRaw) throw new HttpError(400, "Asset source file is required");
@@ -1063,6 +2278,193 @@ function copyAssetIntoWorkspace(context, characterId, entryId, body) {
   };
   applyPngMetadata(asset, destination);
   return asset;
+}
+
+function createBackgroundRemovedAsset(context, character, targetEntry, sourceAsset, options = {}) {
+  if (!sourceAsset?.file || sourceAsset.kind === "video" || !/\.png$/i.test(sourceAsset.file)) {
+    return { skipped: true, reason: "not-png" };
+  }
+  if (options.dedupe) {
+    const existing = (targetEntry.assets ?? []).find((assetItem) =>
+      assetItem.backgroundRemoval?.sourceAssetId === sourceAsset.id
+      && assetItem.file
+      && existsSync(safeResolve(context.projectRoot, assetItem.file)));
+    if (existing) return { skipped: true, reason: "already-exists", asset: existing };
+  }
+
+  const sourcePath = safeResolve(context.projectRoot, sourceAsset.file);
+  if (!existsSync(sourcePath) || statSync(sourcePath).isDirectory()) {
+    return { skipped: true, reason: "source-missing" };
+  }
+
+  const destinationDir = join(context.assetDir, safeSlug(character.id, "character"), safeSlug(targetEntry.id, "entry"));
+  ensureDir(destinationDir);
+  const stem = safeSlug(`${sourceAsset.name || basename(sourceAsset.file, extname(sourceAsset.file))}-transparent`, "transparent");
+  let destination = join(destinationDir, `${stem}.png`);
+  let auditDestination = join(destinationDir, `${stem}-review.png`);
+  let suffix = 1;
+  while (existsSync(destination) || existsSync(auditDestination)) {
+    suffix += 1;
+    destination = join(destinationDir, `${stem}-${suffix}.png`);
+    auditDestination = join(destinationDir, `${stem}-${suffix}-review.png`);
+  }
+
+  const report = removeBackgroundFromPng(sourcePath, destination, auditDestination, options.removeBackgroundOptions ?? {});
+  const reviewFile = toPosixPath(relative(context.projectRoot, auditDestination));
+  const newAsset = {
+    id: `asset-${safeSlug(targetEntry.id)}-${randomUUID().slice(0, 8)}`,
+    kind: "image",
+    file: toPosixPath(relative(context.projectRoot, destination)),
+    name: basename(destination, ".png"),
+    adopted: false,
+    prompt: sourceAsset.prompt ?? "",
+    sourceLicense: sourceAsset.sourceLicense ?? "",
+    aiGenerated: Boolean(sourceAsset.aiGenerated),
+    humanReviewed: false,
+    usageNotes: [
+      `Background removed from ${sourceAsset.name || sourceAsset.id}.`,
+      `Review composite: ${reviewFile}.`,
+      `mode=${report.mode}, removed=${report.removedPixels}px, fragments=${report.fragments.removedFragments}, lines=${report.lineArtifacts.removedFragments}.`,
+    ].join(" "),
+    tags: [...new Set([...(sourceAsset.tags ?? []).filter((tag) => tag !== "source-reference"), "background-removed"])],
+    backgroundRemoval: {
+      sourceAssetId: sourceAsset.id,
+      sourceFile: sourceAsset.file,
+      reviewFile,
+      report,
+      createdAt: nowIso(),
+    },
+  };
+  return { skipped: false, asset: newAsset, reviewFile, report };
+}
+
+function findRegisteredResultAsset(entryItem, result) {
+  const resultFile = String(result?.file ?? "").trim();
+  const resultAssetId = String(result?.assetId ?? "").trim();
+  if (resultAssetId) {
+    const byId = (entryItem.assets ?? []).find((assetItem) => assetItem.id === resultAssetId);
+    if (byId) return byId;
+  }
+  if (!resultFile) return null;
+  const resultLeaf = basename(resultFile);
+  const generated = (entryItem.assets ?? []).filter((assetItem) =>
+    assetItem.file
+    && !(assetItem.tags ?? []).includes("source-reference")
+    && !(assetItem.tags ?? []).includes("background-removed"));
+  return [...generated].reverse().find((assetItem) =>
+    assetItem.file === resultFile || basename(assetItem.file) === resultLeaf) ?? null;
+}
+
+function registerCompletionResultAssets(context, state, completedTargets) {
+  const rows = [];
+  let deckChanged = false;
+  const changedRequestPaths = new Set();
+
+  for (const { requestPath, requestPayload, target } of completedTargets) {
+    const action = target.action ?? (target.assetId ? "improve" : "generate");
+    if (target.status !== "completed" || !["generate", "improve"].includes(action)) continue;
+    const character = state.characters?.find((item) => item.id === requestPayload.character);
+    const targetEntry = character ? findEntryInCharacter(character, target.entryId) : null;
+    if (!character || !targetEntry) continue;
+
+    for (const result of target.results ?? []) {
+      const resultFile = String(result?.file ?? "").trim();
+      if (!resultFile || isAbsolute(resultFile)) {
+        rows.push({ entryId: target.entryId, file: resultFile, skipped: true, reason: resultFile ? "absolute-file" : "missing-file" });
+        continue;
+      }
+      let sourcePath;
+      try {
+        sourcePath = safeResolve(context.projectRoot, resultFile);
+      } catch {
+        rows.push({ entryId: target.entryId, file: resultFile, skipped: true, reason: "outside-project" });
+        continue;
+      }
+      if (!existsSync(sourcePath) || statSync(sourcePath).isDirectory()) {
+        rows.push({ entryId: target.entryId, file: resultFile, skipped: true, reason: "file-missing" });
+        continue;
+      }
+
+      let sourceAsset = findRegisteredResultAsset(targetEntry, result);
+      if (!sourceAsset) {
+        sourceAsset = copyAssetIntoWorkspace(context, character.id, targetEntry.id, {
+          sourceFile: resultFile,
+          name: result.name ?? result.assetName ?? basename(resultFile, extname(resultFile)),
+          prompt: result.prompt ?? target.prompt ?? target.basePrompt ?? "",
+          sourceLicense: result.sourceLicense ?? "",
+          aiGenerated: result.aiGenerated ?? true,
+          humanReviewed: result.humanReviewed ?? false,
+          usageNotes: result.usageNotes ?? "Registered automatically from request completion.",
+          adopted: false,
+        });
+        targetEntry.assets = [...(targetEntry.assets ?? []), sourceAsset];
+        result.assetId = sourceAsset.id;
+        result.registeredFile = sourceAsset.file;
+        deckChanged = true;
+        if (requestPath) changedRequestPaths.add(requestPath);
+      } else if (!result.assetId) {
+        result.assetId = sourceAsset.id;
+        if (requestPath) changedRequestPaths.add(requestPath);
+      }
+
+      const wantsTransparent = result.removeBackground !== false && target.autoRemoveBackground !== false;
+      let transparent = null;
+      if (wantsTransparent && sourceAsset.kind !== "video" && /\.png$/i.test(sourceAsset.file) && !(sourceAsset.tags ?? []).includes("background-removed")) {
+        try {
+          transparent = createBackgroundRemovedAsset(context, character, targetEntry, sourceAsset, {
+            dedupe: true,
+            removeBackgroundOptions: {
+              engine: "auto",
+              mode: "auto",
+              seedBottom: false,
+            },
+          });
+          if (!transparent.skipped && transparent.asset) {
+            targetEntry.assets = [...(targetEntry.assets ?? []), transparent.asset];
+            result.transparentAssetId = transparent.asset.id;
+            result.transparentFile = transparent.asset.file;
+            result.backgroundRemovalReviewFile = transparent.reviewFile;
+            deckChanged = true;
+            if (requestPath) changedRequestPaths.add(requestPath);
+          } else if (transparent.asset) {
+            result.transparentAssetId = transparent.asset.id;
+            result.transparentFile = transparent.asset.file;
+            result.backgroundRemovalReviewFile = transparent.asset.backgroundRemoval?.reviewFile;
+            if (requestPath) changedRequestPaths.add(requestPath);
+          }
+        } catch (error) {
+          transparent = { skipped: true, reason: "background-removal-failed", error: error?.message ?? String(error) };
+        }
+      }
+
+      rows.push({
+        entryId: target.entryId,
+        file: resultFile,
+        assetId: sourceAsset.id,
+        transparentAssetId: result.transparentAssetId ?? "",
+        transparentFile: result.transparentFile ?? "",
+        skipped: false,
+        backgroundRemoval: transparent
+          ? {
+            skipped: Boolean(transparent.skipped),
+            reason: transparent.reason ?? "",
+            reviewFile: transparent.reviewFile ?? transparent.asset?.backgroundRemoval?.reviewFile ?? "",
+            report: transparent.report ?? transparent.asset?.backgroundRemoval?.report ?? null,
+          }
+          : { skipped: true, reason: wantsTransparent ? "not-png" : "disabled" },
+      });
+    }
+  }
+
+  if (deckChanged) state.updatedAt = nowIso();
+  for (const requestPath of changedRequestPaths) {
+    const completed = completedTargets.find((item) => item.requestPath === requestPath);
+    if (completed?.requestPayload) {
+      completed.requestPayload.updatedAt = nowIso();
+      writeJson(requestPath, completed.requestPayload);
+    }
+  }
+  return { rows, deckChanged };
 }
 
 
@@ -1252,6 +2654,7 @@ async function handleApi(request, response, context, url) {
       writeJson(join(context.requestDir, `${generation.requestId}.json`), generation);
       draftQueued.push(generation.requestId);
     }
+    const postprocess = registerCompletionResultAssets(context, state, completedTargets);
     recomputeRequestedStatuses(state, context);
     writeState(context.stateFile, state);
     sendJson(response, 200, {
@@ -1260,6 +2663,7 @@ async function handleApi(request, response, context, url) {
       errored: erroredTargets.length,
       kitResultsStored,
       draftQueued,
+      postprocess: postprocess.rows,
       kitResults: listKitResults(context),
       requests: listRequestedTargets(context, state),
       state,
@@ -1507,6 +2911,28 @@ async function handleApi(request, response, context, url) {
     ensureDir(context.assetDir);
     writeState(context.stateFile, state);
     sendJson(response, 200, { ok: true, asset: newAsset, state });
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === "/api/assets/remove-background") {
+    const state = readState(context.stateFile, context.projectRoot, context.init);
+    const body = await readBody(request);
+    const character = findCharacter(state, body.characterId);
+    const targetEntry = findEntryInCharacter(character, body.entryId);
+    if (!targetEntry) throw new HttpError(404, "Prompt entry was not found");
+    const sourceAsset = targetEntry.assets?.find((item) => item.id === body.assetId);
+    if (!sourceAsset?.file) throw new HttpError(404, "Source asset was not found");
+    if (/\.(mp4|webm|gif|jpe?g|webp)$/i.test(sourceAsset.file)) {
+      throw new HttpError(400, "Background removal currently supports PNG assets");
+    }
+
+    const created = createBackgroundRemovedAsset(context, character, targetEntry, sourceAsset, {
+      removeBackgroundOptions: body.options ?? {},
+    });
+    if (created.skipped || !created.asset) throw new HttpError(400, `Background removal skipped: ${created.reason ?? "unknown"}`);
+    targetEntry.assets = [...(targetEntry.assets ?? []), created.asset];
+    state.updatedAt = nowIso();
+    writeState(context.stateFile, state);
+    sendJson(response, 200, { ok: true, asset: created.asset, reviewFile: created.reviewFile, report: created.report, state });
     return true;
   }
   if (request.method === "GET" && url.pathname === "/api/export") {

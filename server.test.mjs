@@ -1,7 +1,7 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { deflateSync } from "node:zlib";
+import { deflateSync, inflateSync } from "node:zlib";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -834,6 +834,72 @@ async function uploadPng(baseUrl, entryId, name, body) {
   ).then((response) => response.json());
 }
 
+function buildRgbaPng(width, height, paint) {
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const [r, g, b, a] = paint(x, y);
+      const i = (y * width + x) * 4;
+      rgba[i] = r;
+      rgba[i + 1] = g;
+      rgba[i + 2] = b;
+      rgba[i + 3] = a;
+    }
+  }
+  const raw = Buffer.alloc(height * (1 + width * 4));
+  for (let y = 0; y < height; y += 1) {
+    rgba.copy(raw, y * (1 + width * 4) + 1, y * width * 4, (y + 1) * width * 4);
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function decodeFlatRgbaPng(buffer) {
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  const idat = [];
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString("ascii", offset + 4, offset + 8);
+    const start = offset + 8;
+    const end = start + length;
+    const data = buffer.subarray(start, end);
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      assert.equal(data[8], 8);
+      assert.equal(data[9], 6);
+    } else if (type === "IDAT") {
+      idat.push(data);
+    } else if (type === "IEND") {
+      break;
+    }
+    offset = end + 4;
+  }
+  const inflated = inflateSync(Buffer.concat(idat));
+  const data = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    assert.equal(inflated[y * (width * 4 + 1)], 0);
+    inflated.copy(data, y * width * 4, y * (width * 4 + 1) + 1, (y + 1) * (width * 4 + 1));
+  }
+  return { width, height, data };
+}
+
+function rgbaAt(image, x, y) {
+  const index = (y * image.width + x) * 4;
+  return [...image.data.subarray(index, index + 4)];
+}
+
 test("PNG upload auto-extracts A1111 / NovelAI / ComfyUI metadata", async () => {
   await withServer(async ({ baseUrl }) => {
     const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
@@ -874,6 +940,176 @@ test("PNG upload auto-extracts A1111 / NovelAI / ComfyUI metadata", async () => 
     const persisted = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
     const entry = persisted.characters[0].images.find((item) => item.id === entryId);
     assert.ok(entry.assets.some((item) => item.promptSource === "png-metadata:a1111"));
+  });
+});
+
+test("asset background removal creates a transparent candidate and audit image", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const entryId = state.characters[0].images[0].id;
+    const png = buildRgbaPng(40, 40, (x, y) => {
+      if (x >= 10 && x < 30 && y >= 10 && y < 30) return [210, 40, 80, 255];
+      if (x === 9 && y >= 12 && y < 28) return [110, 170, 80, 255];
+      if (x >= 3 && x < 30 && y >= 4 && y < 7) return [130, 20, 180, 90];
+      if (x >= 34 && x < 39 && y >= 5 && y < 10) return [130, 20, 180, 255];
+      return [0, 255, 0, 255];
+    });
+    const uploaded = await uploadPng(baseUrl, entryId, "green-cutout-source", png);
+
+    const result = await fetch(`${baseUrl}/api/assets/remove-background`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: "sample-character",
+        entryId,
+        assetId: uploaded.asset.id,
+        options: { mode: "chroma" },
+      }),
+    }).then((response) => response.json());
+
+    assert.equal(result.ok, true);
+    assert.match(result.asset.file, /green-cutout-source-transparent.*\.png$/);
+    assert.equal(result.asset.adopted, false);
+    assert.equal(result.asset.humanReviewed, false);
+    assert.ok(result.asset.tags.includes("background-removed"));
+    assert.equal(result.report.mode, "chroma-green");
+    assert.ok(result.report.softenedPixels > 0);
+    assert.ok(result.report.decontaminatedPixels > 0);
+    assert.ok(result.report.rgbBleedPixels > 0);
+    assert.ok(result.report.edgeSmoothing.adjustedPixels > 0);
+    assert.ok(result.report.lightResidue.adjustedPixels >= 0);
+    assert.ok(result.report.postSmoothResiduePixels >= 0);
+    assert.ok(result.report.postSmoothRgbBleedPixels > 0);
+    assert.equal(result.report.fragments.removedFragments, 1);
+    assert.equal(result.report.fragments.removedPixels, 25);
+    assert.equal(result.report.lineArtifacts.removedFragments, 1);
+    assert.equal(result.report.lineArtifacts.removedPixels, 81);
+    assert.equal(result.report.lightComponents.removedFragments, 0);
+    assert.ok(existsSync(join(context.projectRoot, result.asset.file)));
+    assert.ok(existsSync(join(context.projectRoot, result.reviewFile)));
+
+    const output = decodeFlatRgbaPng(readFileSync(join(context.projectRoot, result.asset.file)));
+    const fringe = rgbaAt(output, 9, 14);
+    assert.ok(fringe[3] > 0 && fringe[3] < 255);
+    assert.ok(fringe[1] <= Math.max(fringe[0], fringe[2]) + 24);
+    const transparentBackground = rgbaAt(output, 0, 0);
+    assert.equal(transparentBackground[3], 0);
+    assert.ok(transparentBackground[1] < 230);
+    assert.equal(rgbaAt(output, 10, 5)[3], 0);
+
+    const entry = result.state.characters[0].images.find((item) => item.id === entryId);
+    assert.equal(entry.assets.at(-1).id, result.asset.id);
+    assert.equal(entry.assets.at(-2).id, uploaded.asset.id);
+  });
+});
+
+test("asset background removal suppresses baked white checkerboard edge residue", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const entryId = state.characters[0].images[0].id;
+    const png = buildRgbaPng(48, 36, (x, y) => {
+      const checker = ((Math.floor(x / 6) + Math.floor(y / 6)) % 2) ? [229, 230, 229] : [255, 255, 255];
+      if (x >= 14 && x < 35 && y >= 8 && y < 27) {
+        if (x === 14 || y === 8) return [212, 213, 230, 255];
+        if (x >= 16 && x < 21 && y >= 12 && y < 19) return [248, 248, 248, 255];
+        return [92, 24, 148, 255];
+      }
+      return [...checker, 255];
+    });
+    const uploaded = await uploadPng(baseUrl, entryId, "white-checker-residue-source", png);
+
+    const result = await fetch(`${baseUrl}/api/assets/remove-background`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: "sample-character",
+        entryId,
+        assetId: uploaded.asset.id,
+        options: { mode: "auto" },
+      }),
+    }).then((response) => response.json());
+
+    assert.equal(result.ok, true);
+    assert.equal(result.report.mode, "edge-flood");
+    assert.equal(result.report.lightComponents.removedFragments, 1);
+    assert.equal(result.report.lightComponents.removedPixels, 35);
+    assert.ok(result.report.lightResidue.adjustedPixels > 0);
+
+    const output = decodeFlatRgbaPng(readFileSync(join(context.projectRoot, result.asset.file)));
+    const edge = rgbaAt(output, 14, 14);
+    assert.ok(edge[3] > 0);
+    assert.ok(edge[0] < 190);
+    assert.ok(edge[1] < 120);
+    assert.ok(edge[2] > edge[1] + 30);
+    assert.equal(rgbaAt(output, 18, 15)[3], 0);
+    assert.equal(rgbaAt(output, 0, 0)[3], 0);
+  });
+});
+
+test("request completion registers original and transparent PNG result assets", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const entry = state.characters[0].images[0];
+    const created = await fetch(`${baseUrl}/api/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: "sample-character",
+        mode: "image",
+        targets: [{
+          entryId: entry.id,
+          overview: entry.overview,
+          prompt: "transparent result registration test",
+          inputs: { startFrame: null, endFrame: null, refImages: [] },
+        }],
+      }),
+    }).then((response) => response.json());
+
+    const resultDir = join(context.projectRoot, "outputs", "sample-character");
+    mkdirSync(resultDir, { recursive: true });
+    const resultFile = "outputs/sample-character/auto-green-result.png";
+    writeFileSync(join(context.projectRoot, resultFile), buildRgbaPng(32, 32, (x, y) => {
+      if (x >= 9 && x < 23 && y >= 9 && y < 24) return [210, 30, 185, 255];
+      if (x === 8 && y >= 11 && y < 22) return [95, 170, 72, 255];
+      return [0, 255, 0, 255];
+    }));
+
+    const completed = await fetch(`${baseUrl}/api/requests/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestId: created.request.requestId,
+        targetIndex: 0,
+        results: [{ file: resultFile, prompt: "transparent result registration test" }],
+      }),
+    }).then((response) => response.json());
+
+    assert.equal(completed.ok, true);
+    assert.equal(completed.completed, 1);
+    assert.equal(completed.postprocess.length, 1);
+    assert.match(completed.postprocess[0].transparentFile, /auto-green-result-transparent.*\.png$/);
+
+    const updatedEntry = completed.state.characters[0].images.find((item) => item.id === entry.id);
+    const original = updatedEntry.assets.find((asset) => asset.id === completed.postprocess[0].assetId);
+    const transparent = updatedEntry.assets.find((asset) => asset.id === completed.postprocess[0].transparentAssetId);
+    assert.ok(original);
+    assert.ok(transparent);
+    assert.match(original.file, /assets\/sample-character\/.+\/auto-green-result\.png$/);
+    assert.match(transparent.file, /assets\/sample-character\/.+\/auto-green-result-transparent.*\.png$/);
+    assert.equal(transparent.backgroundRemoval.sourceAssetId, original.id);
+    assert.ok(transparent.tags.includes("background-removed"));
+    assert.ok(existsSync(join(context.projectRoot, original.file)));
+    assert.ok(existsSync(join(context.projectRoot, transparent.file)));
+    assert.ok(existsSync(join(context.projectRoot, transparent.backgroundRemoval.reviewFile)));
+
+    const transparentPng = decodeFlatRgbaPng(readFileSync(join(context.projectRoot, transparent.file)));
+    assert.equal(rgbaAt(transparentPng, 0, 0)[3], 0);
+    const edge = rgbaAt(transparentPng, 8, 12);
+    assert.ok(edge[1] <= Math.max(edge[0], edge[2]) + 24);
+
+    const requestPayload = JSON.parse(readFileSync(join(context.requestDir, `${created.request.requestId}.json`), "utf8"));
+    assert.equal(requestPayload.targets[0].results[0].assetId, original.id);
+    assert.equal(requestPayload.targets[0].results[0].transparentAssetId, transparent.id);
   });
 });
 

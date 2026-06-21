@@ -295,12 +295,111 @@ Response shape:
 { "ok": true, "asset": { "id": "asset-...", "file": "workspace/demo/assets/..." }, "state": { /* deck */ } }
 ```
 
-The usual generate/improve flow is: save one file into `outputDir`, call
-`POST /api/assets` to register it as a candidate, then call
+The usual generate/improve flow is: save one file into `outputDir`, then call
 `POST /api/requests/complete` with `results: [{ "file": "<same relative path>" }]`.
-If a processor cannot register the asset because the file sits outside `projectRoot`,
-it may still report completion with `results`, but no candidate will be added to the
-deck.
+On completion, the server registers the original result as a candidate asset if it
+is not already registered. For PNG image results, it also creates a second
+transparent candidate tagged `background-removed`, stores a review composite, and
+adds `assetId`, `transparentAssetId`, `transparentFile`, and
+`backgroundRemovalReviewFile` back onto `results[]`.
+
+Processors may still call `POST /api/assets` first when they want immediate
+candidate registration or custom provenance. In that case, include the returned
+`asset.id` as `results[].assetId` when reporting completion; the completion API will
+reuse the existing original asset and only add the transparent derivative.
+
+## Asset background removal API — `POST /api/assets/remove-background`
+
+Creates a transparent PNG candidate from an existing PNG asset without modifying the
+source asset. The endpoint is intended for local quality-controlled cutouts: it writes
+both the transparent candidate and a review composite that places the result over
+multiple backgrounds for visual inspection before adoption.
+
+The same background-removal pipeline is also used automatically for PNG generation
+results reported through `POST /api/requests/complete`. With `engine: "auto"`,
+green chroma-key sheets use the built-in YUV soft matte, while white/light-gray or
+natural backgrounds switch to `rembg` (`isnet-anime` by default) when the optional
+CLI is available. All engines then remove detached speckles, thin line artifacts,
+green/yellow-green edge spill, and white/light-gray edge contamination, then
+lightly smooth alpha edges.
+
+```bash
+curl -X POST http://127.0.0.1:4217/api/assets/remove-background \
+  -H "Content-Type: application/json" \
+  -d '{
+    "characterId": "<character id>",
+    "entryId": "<entry id>",
+    "assetId": "<source PNG asset id>",
+    "options": { "engine": "auto", "mode": "auto" }
+  }'
+```
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `characterId` | string | Owning character id. |
+| `entryId` | string | Existing entry that owns the source asset. |
+| `assetId` | string | Existing PNG asset to process. JPEG, WebP, GIF, and video assets are rejected. |
+| `options.engine` | string | Optional; `local` uses the built-in color/flood pipeline, `rembg` forces the optional AI matte CLI, and `auto` uses chroma-key locally but tries `rembg` for non-chroma backgrounds. |
+| `options.mode` | string | Optional; `auto` detects chroma-key sheets and falls back to edge background removal. `chroma` forces chroma-key removal. |
+| `options.rembgModel` | string | Optional; rembg model name. Defaults to `isnet-anime`; `birefnet-general-lite` is a useful fallback for non-anime or mixed images. |
+
+Response shape:
+
+```jsonc
+{
+  "ok": true,
+  "asset": {
+    "id": "asset-...",
+    "file": "workspace/demo/assets/.../source-transparent.png",
+    "adopted": false,
+    "humanReviewed": false,
+    "tags": ["background-removed"],
+    "backgroundRemoval": {
+      "sourceAssetId": "<source asset id>",
+      "sourceFile": "workspace/demo/assets/.../source.png",
+      "reviewFile": "workspace/demo/assets/.../source-transparent-review.png",
+      "report": {
+        "mode": "chroma-green",
+        "engine": "local",
+        "removedPixels": 12345,
+        "softenedPixels": 234,
+        "decontaminatedPixels": 345,
+        "fragments": { "removedFragments": 1, "removedPixels": 25 },
+        "lineArtifacts": { "removedFragments": 1, "removedPixels": 81 },
+        "lightComponents": { "removedFragments": 1, "removedPixels": 35 },
+        "residuePixels": 45,
+        "rgbBleedPixels": 456,
+        "edgeSmoothing": { "adjustedPixels": 789, "expandedPixels": 123, "strength": 0.42 },
+        "lightResidue": { "adjustedPixels": 234, "removedPixels": 12 },
+        "postSmoothResiduePixels": 34,
+        "postSmoothRgbBleedPixels": 456
+      }
+    }
+  },
+  "reviewFile": "workspace/demo/assets/.../source-transparent-review.png",
+  "report": {
+    "mode": "chroma-green",
+    "engine": "local",
+    "removedPixels": 12345,
+    "softenedPixels": 234,
+    "decontaminatedPixels": 345,
+    "fragments": { "removedFragments": 1, "removedPixels": 25 },
+    "lineArtifacts": { "removedFragments": 1, "removedPixels": 81 },
+    "lightComponents": { "removedFragments": 1, "removedPixels": 35 },
+    "residuePixels": 45,
+    "rgbBleedPixels": 456,
+    "edgeSmoothing": { "adjustedPixels": 789, "expandedPixels": 123, "strength": 0.42 },
+    "lightResidue": { "adjustedPixels": 234, "removedPixels": 12 },
+    "postSmoothResiduePixels": 34,
+    "postSmoothRgbBleedPixels": 456
+  },
+  "state": { /* deck */ }
+}
+```
+
+Generated candidates are intentionally left unadopted and `humanReviewed: false`.
+Review the saved composite, then adopt the candidate only if the foreground details
+survived the transparency pass.
 
 ## Completion API — `POST /api/requests/complete`
 
@@ -326,8 +425,11 @@ Common envelope:
   ```
 
   Each result is `{ "file": "<path relative to projectRoot>", ... }`. Extra keys (e.g.
-  `assetId`) are preserved. A processor may also include `qualityReport` alongside
-  `results`; it is stored on the target.
+  `assetId`) are preserved. For generate/improve targets, the server registers the
+  original file as a candidate asset when needed and creates a transparent PNG
+  derivative for PNG image results. Set `results[].removeBackground` to `false` to
+  skip the transparent derivative for a specific result. A processor may also include
+  `qualityReport` alongside `results`; it is stored on the target.
 
 - **`parts`** — analysis result (analyze). `parts` is the analysis JSON (or its `parts`
   array):

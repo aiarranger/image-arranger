@@ -206,6 +206,8 @@ const I18N = {
     editImprovePrompt: "この画像を改善",
     saveImprovePrompt: "改善指示を保存",
     queueImprove: "改善を登録",
+    removeBg: "背景を透過",
+    removeBgDone: "透過・不要線除去済み候補を追加しました。レビュー画像も保存しています。",
     duplicate: "複製",
     delete: "削除",
     deleteAsset: "素材を削除",
@@ -522,6 +524,8 @@ const I18N = {
     editImprovePrompt: "Improve this image",
     saveImprovePrompt: "Save instructions",
     queueImprove: "Queue improvement",
+    removeBg: "Remove background",
+    removeBgDone: "Transparent, artifact-cleaned candidate added. A review composite was saved too.",
     duplicate: "Duplicate",
     delete: "Delete",
     deleteAsset: "Delete asset",
@@ -1012,6 +1016,27 @@ async function api(path, options = {}) {
     throw new Error(`${response.status} ${message}`);
   }
   return response.json();
+}
+
+async function removeBackgroundAsset(entry, asset) {
+  const result = await api("/api/assets/remove-background", {
+    method: "POST",
+    body: JSON.stringify({
+      characterId: state.characterId,
+      entryId: entry.id,
+      assetId: asset.id,
+      options: {
+        engine: "auto",
+        mode: "auto",
+        seedBottom: false,
+      },
+    }),
+  });
+  state.deck = result.state;
+  toast(t("removeBgDone"), { kind: "ok" });
+  render();
+  if (result.asset?.id) openAsset(result.asset.id, entry.id);
+  return result;
 }
 
 async function loadDeck() {
@@ -1771,6 +1796,7 @@ function mediaTag(file, alt = "", opts = {}) {
 function assetCard(asset, entry) {
   const adopted = asset.adopted ? " adopted" : "";
   const requested = asset.requestStatus === "requested";
+  const canRemoveBg = Boolean(asset.file && /\.png$/i.test(asset.file) && asset.kind !== "video");
   const image = asset.file
     ? mediaTag(asset.file, asset.name)
     : `<span>${escapeHtml(asset.kind === "video" ? t("videoLabel") : t("noFileLabel"))}</span>`;
@@ -1791,6 +1817,7 @@ function assetCard(asset, entry) {
           <input type="checkbox" data-improve-asset="${escapeHtml(asset.id)}" data-improve-entry="${escapeHtml(entry.id)}" ${asset.improveChecked ? "checked" : ""}>
           ${t("improveSelected")}
         </label>
+        ${canRemoveBg ? `<button class="asset-action secondary" data-remove-bg-asset="${escapeHtml(asset.id)}" data-remove-bg-entry="${escapeHtml(entry.id)}">${icon("images")} ${t("removeBg")}</button>` : ""}
         <button class="asset-action secondary" data-edit-improve-asset="${escapeHtml(asset.id)}" data-edit-improve-entry="${escapeHtml(entry.id)}">${t("editImprovePrompt")}</button>
       `}
     </div>
@@ -2844,7 +2871,7 @@ function render() {
           <button class="icon-button" id="addCharacterBtn" title="${t("addCharacter")}" aria-label="${t("addCharacter")}">${icon("plus")}</button>
           <button class="icon-button" id="editCharacterBtn" title="${t("editCharacter")}" aria-label="${t("editCharacter")}">${icon("pen-to-square")}</button>
           <button class="icon-button danger" id="deleteCharacterBtn" title="${t("deleteCharacter")}" aria-label="${t("deleteCharacter")}">${icon("trash")}</button>
-          <button class="ghost" id="langBtn">${state.lang === "ja" ? "English" : "日本語"}</button>
+          <button class="ghost" id="langBtn">${state.lang === "ja" ? "English" : "Japanese"}</button>
           <button class="icon-button" id="helpBtn" title="${t("helpTooltip")}" aria-label="${t("helpTooltip")}">?</button>
         </div>
       </header>
@@ -3890,6 +3917,16 @@ function bind() {
       openAsset(button.dataset.editImproveAsset, button.dataset.editImproveEntry);
     };
   });
+  document.querySelectorAll("[data-remove-bg-asset]").forEach((button) => {
+    button.onclick = (event) => {
+      event.stopPropagation();
+      const entry = findEntry(button.dataset.removeBgEntry);
+      const asset = (entry?.assets ?? []).find((item) => item.id === button.dataset.removeBgAsset);
+      if (!entry || !asset) return;
+      withBusy(button, () => removeBackgroundAsset(entry, asset))
+        .catch((error) => toast(error.message, { kind: "error" }));
+    };
+  });
   document.querySelectorAll("[data-cancel-queue]").forEach((button) => {
     button.onclick = () => cancelQueueTarget(button.dataset.cancelQueue, Number(button.dataset.targetIndex));
   });
@@ -4643,6 +4680,7 @@ function openAsset(assetId, entryId) {
   const asset = (entry.assets ?? []).find((item) => item.id === assetId) ?? allImageAssets().find((item) => item.id === assetId);
   if (!asset) return;
   const prompt = asset.prompt || (state.mode === "image" ? composedPrompt(entry) : entry.prompt) || "";
+  const canRemoveBg = Boolean(asset.file && /\.png$/i.test(asset.file) && asset.kind !== "video");
   $("#modal").innerHTML = `
     <button class="close" id="closeModal" title="${t("close")}" aria-label="${t("close")}">×</button>
     <div class="modal-card">
@@ -4663,6 +4701,7 @@ function openAsset(assetId, entryId) {
         </div>
         <div class="modal-actions">
           <button class="ghost danger" id="deleteAssetBtn" type="button">${icon("trash")} ${t("deleteAsset")}</button>
+          ${canRemoveBg ? `<button class="ghost" id="removeBgAsset" type="button">${icon("images")} ${t("removeBg")}</button>` : ""}
           <button class="ghost" id="saveImprovePrompt" type="button">${t("saveImprovePrompt")}</button>
           ${asset.requestStatus === "requested"
             ? `<button class="primary" id="cancelImproveAsset" type="button">${t("cancelRequest")}</button>`
@@ -4677,6 +4716,11 @@ function openAsset(assetId, entryId) {
   bindPromptChipButtons($("#modal"));
   $("#closeModal").onclick = () => $("#modal").classList.remove("open");
   $("#deleteAssetBtn").onclick = () => deleteAsset(entry, asset);
+  if ($("#removeBgAsset")) {
+    $("#removeBgAsset").onclick = (event) => withBusy(event.currentTarget, async () => {
+      await removeBackgroundAsset(entry, asset);
+    }).catch((error) => toast(error.message, { kind: "error" }));
+  }
   const readImproveMode = () => document.querySelector('input[name="improveMode"]:checked')?.value ?? "tweak";
   $("#modal").querySelectorAll("[data-improve-queue-chip]").forEach((button) => {
     button.onclick = (event) => withBusy(event.currentTarget, async () => {
