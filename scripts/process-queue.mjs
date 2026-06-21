@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Scripted queue processor: takes ChatGPT image-generation targets from a
+// Scripted queue processor: takes ChatGPT image generation/improvement targets from a
 // running image-arranger server and carries each one through the whole
 // pipeline — fresh chat, attach references, send prompt, wait, save the
 // result into outputDir, register it as an asset candidate, report
@@ -7,7 +7,7 @@
 // into agent-logs/.
 //
 //   node scripts/process-queue.mjs --check                  one-time setup / health check
-//   node scripts/process-queue.mjs                          process every queued chatgpt generate target
+//   node scripts/process-queue.mjs                          process queued chatgpt generate/improve targets
 //   node scripts/process-queue.mjs --request <id>           process one request only
 //   node scripts/process-queue.mjs --dry-run                list what would be processed
 //
@@ -40,12 +40,12 @@ function option(name, fallback = null) {
 }
 
 const HELP = `Scripted queue processor — drives ChatGPT's web UI over CDP to fulfill
-queued image-generation targets from a running image-arranger server.
+queued image generation/improvement targets from a running image-arranger server.
 
 Usage:
   node scripts/process-queue.mjs --check          one-time setup / health check
                                                   (Chrome + login + selector self-test)
-  node scripts/process-queue.mjs                  process every queued chatgpt generate target
+  node scripts/process-queue.mjs                  process queued chatgpt generate/improve targets
   node scripts/process-queue.mjs --request <id>   process one request only
   node scripts/process-queue.mjs --dry-run        list what would be processed (needs server)
 
@@ -70,6 +70,7 @@ if (flag("--help") || flag("-h")) {
 const SERVER = (option("--server", process.env.IMAGE_ARRANGER_SERVER ?? "http://127.0.0.1:4217")).replace(/\/$/, "");
 const CDP_PORT = Number(option("--cdp-port", DEFAULTS.cdpPort));
 const MAX_TARGETS = Number(option("--max", "20"));
+const CHECK_ONLY = flag("--check");
 const RETRIES_PER_TARGET = 3;
 const QUALITY_CHECK_RETRIES = 2;
 // How many targets run at once, each in its own chat tab (--parallel <n>).
@@ -99,10 +100,10 @@ function timestamp() {
 }
 
 async function main() {
-  const queue = await api("/api/requests");
+  const queue = CHECK_ONLY ? { projectRoot: process.cwd(), requests: [] } : await api("/api/requests");
   const projectRoot = queue.projectRoot;
   const runLog = new RunLog(join(projectRoot, "agent-logs"), `run-${timestamp()}`);
-  runLog.log(`server ${SERVER}, projectRoot ${projectRoot}`);
+  runLog.log(`${CHECK_ONLY ? "check-only" : `server ${SERVER}`}, projectRoot ${projectRoot}`);
   runLog.log(`run log: ${runLog.dir}`);
 
   const all = queue.requests ?? [];
@@ -177,7 +178,7 @@ async function main() {
     runLog.log("selector self-test passed: all core elements present");
     await closePage(page);
   }
-  if (flag("--check")) {
+  if (CHECK_ONLY) {
     runLog.log("--check finished: Chrome + login + selectors are ready");
     return;
   }

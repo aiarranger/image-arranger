@@ -16,12 +16,9 @@ public-safe, and keep generation services external to the server. See CONTRIBUTI
 <!-- The checks you ran. At minimum: -->
 
 ```bash
-node --check server.mjs
-node --check public/app.js
-node --check scripts/process-queue.mjs
-node --check scripts/agent-browser.mjs
-node --test server.test.mjs
-node server.mjs --workspace ./workspace/demo --init sample --doctor
+npm run check
+npm test
+npm run doctor
 ```
 
 ## Sample data / provenance

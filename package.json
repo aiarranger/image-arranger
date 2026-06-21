@@ -11,6 +11,7 @@
     "prompts.mjs",
     "placeholder-art.mjs",
     "png-metadata.mjs",
+    "server.test.mjs",
     "public/",
     "scripts/",
     "skills/",

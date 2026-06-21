@@ -126,12 +126,13 @@ node scripts/process-vidu-queue.mjs --server http://127.0.0.1:4217
 
 Division of labour:
 
-- The ChatGPT script handles image `generate` targets whose `service` is
-  `chatgpt` or omitted.
+- The ChatGPT script handles image `generate` and `improve` targets whose
+  `service` is `chatgpt` or omitted.
 - The Vidu script handles video `generate` targets with `inputs.startFrame` and
   `inputs.endFrame`.
 - You handle `draft-prompt` and `analyze` targets. Both are reported via
-  `POST /api/requests/complete`; no browser automation is required.
+  `POST /api/requests/complete`; the scripted browser drivers do not process
+  them.
 - `scripts/demo-agent.mjs` is the smallest complete reference processor for the
   request contract. It polls `/api/requests`, creates local placeholder outputs,
   registers candidates via `POST /api/assets`, and completes targets with the
@@ -166,19 +167,35 @@ Common target actions:
 
 ## Image Generation (`generate`)
 
-1. Use the target `prompt` as-is.
-2. If `inputs.refImages` is present, attach only those files. They contain assets
-   the user explicitly adopted or the source asset for an improvement.
-3. Treat one queue target as one deliverable. Do not produce grids, contact
+1. Use ChatGPT image generation for image `generate` targets by default: prefer
+   `scripts/process-queue.mjs`, or manually operate ChatGPT when the script is not
+   suitable. Do not use Codex's built-in `image_gen` tool for queued
+   image-arranger work unless the operator explicitly asks to bypass the ChatGPT
+   queue or asks for a Codex-local preview/mock.
+2. Use the target `prompt` as-is.
+3. If `inputs.refImages` is present, attach only those files. They contain assets
+   the user explicitly adopted or the source asset for an improvement. For
+   character image generation, prefer one reference image. Two reference images
+   are the practical maximum when the request truly needs a second anchor; three
+   or more references are discouraged because they often dilute identity,
+   direction, outfit, or pose constraints. If a queued target has more than two
+   references, ask the operator to reduce the set or revise the request before
+   generation unless the operator explicitly approves the larger set.
+4. Treat one queue target as one deliverable. Do not produce grids, contact
    sheets, A/B comparisons, or multiple candidates for a single target.
-4. If `qualityGate.enabled` is present, compare the candidate against
+5. If `qualityGate.enabled` is present, compare the candidate against
    `qualityGate.requiredParts` before completion. Compare only visible matching
    parts; do not fail missing, hidden, cropped-out, or occluded parts.
-5. Save the passing result into the target `outputDir`.
-6. Register the file as an asset candidate on the matching entry, marking it
+6. Save the passing result into the target `outputDir`.
+7. Register the file as an asset candidate on the matching entry, marking it
    adopted only if the user asked for auto-adoption.
-7. Mark the target completed, including `qualityReport` when a quality gate was
+8. Mark the target completed, including `qualityReport` when a quality gate was
    evaluated.
+
+If a queued target was accidentally generated with any non-ChatGPT path, treat
+that output as a diagnostic only. Do not complete the request with it without
+operator approval; remove or keep it unadopted as directed, return the request to
+`requested`, and process it through ChatGPT.
 
 ## Prompt Drafting (`draft-prompt`)
 
@@ -231,6 +248,15 @@ processor exists for the target service.
 
 Detailed attach/prompt/wait/collect guidance for macOS keystroke fallback lives in
 [docs/manual-fallback.md](docs/manual-fallback.md).
+
+### One-time macOS Setup for Real-OS Keystrokes
+
+The manual fallback in `docs/manual-fallback.md` uses `osascript`, `pbcopy`, and
+`pbpaste` to paste images or text into a browser when no CDP/scripted path is
+available. On macOS, grant Automation and Accessibility permission to the
+terminal app or agent runner that executes those commands. Prefer
+`scripts/process-queue.mjs`/`scripts/process-vidu-queue.mjs` whenever they work;
+this setup is only for the documented last-resort fallback.
 
 ## Base Kit Analysis (`analyze`)
 

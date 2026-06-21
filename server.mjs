@@ -82,6 +82,9 @@ const LEGACY_SCHEMA_VERSION = "prompt-deck.v1";
 // by the forward-compat guard in normalizeState().
 const KNOWN_SCHEMA_VERSIONS = [LEGACY_SCHEMA_VERSION, SCHEMA_VERSION];
 const MAX_ASSET_BYTES = 80 * 1024 * 1024;
+const MAX_BACKGROUND_REMOVAL_PIXELS = 16_000_000;
+const MAX_BACKGROUND_REMOVAL_DECODE_BYTES = 80 * 1024 * 1024;
+const REMBG_TIMEOUT_MS = 180000;
 // Keep this many timestamped deck snapshots under workspace/.history.
 const HISTORY_LIMIT = 20;
 
@@ -144,6 +147,7 @@ function parseArgs(argv = process.argv.slice(2)) {
       break;
     }
   }
+  const configHasProjectRoot = Object.prototype.hasOwnProperty.call(config, "projectRoot");
   const args = {
     port: DEFAULT_PORT,
     workspace: DEFAULT_WORKSPACE,
@@ -153,6 +157,7 @@ function parseArgs(argv = process.argv.slice(2)) {
     ...config,
   };
   const explicit = {};
+  let projectRootExplicit = configHasProjectRoot;
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index];
     const value = argv[index + 1];
@@ -178,6 +183,7 @@ function parseArgs(argv = process.argv.slice(2)) {
       index += 1;
     } else if (key === "--project-root") {
       args.projectRoot = resolve(value);
+      projectRootExplicit = true;
       index += 1;
     } else if (key === "--init") {
       args.init = value;
@@ -187,6 +193,7 @@ function parseArgs(argv = process.argv.slice(2)) {
     }
   }
   const workspace = resolve(args.workspace ?? DEFAULT_WORKSPACE);
+  const inferredProjectRoot = workspace === TOOL_ROOT || workspace.startsWith(TOOL_ROOT + sep) ? TOOL_ROOT : workspace;
   const init = INIT_MODES.has(args.init) ? args.init : "sample";
   return {
     port: args.port,
@@ -197,7 +204,7 @@ function parseArgs(argv = process.argv.slice(2)) {
     requestDir: resolve(explicit.requestDir ?? args.requestDir ?? join(workspace, "requests")),
     outputDir: resolve(explicit.outputDir ?? args.outputDir ?? join(workspace, "outputs")),
     assetDir: resolve(explicit.assetDir ?? args.assetDir ?? join(workspace, "assets")),
-    projectRoot: resolve(args.projectRoot ?? TOOL_ROOT),
+    projectRoot: resolve(projectRootExplicit ? args.projectRoot : inferredProjectRoot),
   };
 }
 
@@ -216,6 +223,29 @@ function safeSlug(value, fallback = "item") {
     .replace(/-+/g, "-")
     .replace(/^[-_.]+|[-_.]+$/g, "")
     .slice(0, 90) || fallback;
+}
+
+function isPathInsideAny(path, roots) {
+  const resolved = resolve(path);
+  return roots.some((rootPath) => {
+    const root = resolve(rootPath);
+    return resolved === root || resolved.startsWith(root + sep);
+  });
+}
+
+function workspaceAssetRoots(context) {
+  return [context.assetDir, context.outputDir];
+}
+
+function workspaceAssetFileExists(context, file) {
+  try {
+    const resolved = safeResolve(context.projectRoot, file);
+    return isPathInsideAny(resolved, workspaceAssetRoots(context))
+      && existsSync(resolved)
+      && !statSync(resolved).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 function ensureDir(path) {
@@ -653,13 +683,17 @@ function readRequestFiles(context) {
   return requests.sort((a, b) => String(b.requestPayload.requestedAt ?? "").localeCompare(String(a.requestPayload.requestedAt ?? "")));
 }
 
+function normalizeRequestAction(value, fallback = "generate") {
+  return ["generate", "improve", "analyze", "draft-prompt"].includes(value) ? value : fallback;
+}
+
 function requestSelectorMatches(target, selector, requestPayload, targetIndex) {
   if (selector.requestId) {
     return selector.requestId === requestPayload.requestId && Number(selector.targetIndex) === targetIndex;
   }
   return targetMatches(
     target,
-    selector.action === "improve" ? "improve" : selector.action === "draft-prompt" ? "draft-prompt" : "generate",
+    normalizeRequestAction(selector.action),
     selector.entryId,
     selector.assetId ?? "",
   );
@@ -1056,6 +1090,7 @@ function decodePngRgba(buffer) {
     if (end + 4 > buffer.length) throw new HttpError(400, "PNG is truncated");
     const data = buffer.subarray(start, end);
     if (type === "IHDR") {
+      if (data.length !== 13) throw new HttpError(400, "PNG has an invalid IHDR chunk");
       width = data.readUInt32BE(0);
       height = data.readUInt32BE(4);
       bitDepth = data[8];
@@ -1075,9 +1110,21 @@ function decodePngRgba(buffer) {
   if (!idat.length) throw new HttpError(400, "PNG has no image data");
 
   const channels = colorType === 6 ? 4 : 3;
+  const pixels = width * height;
+  if (!Number.isSafeInteger(pixels) || pixels > MAX_BACKGROUND_REMOVAL_PIXELS) {
+    throw new HttpError(413, `PNG is too large for background removal (${MAX_BACKGROUND_REMOVAL_PIXELS} pixels max)`);
+  }
   const stride = width * channels;
-  const inflated = inflateSync(Buffer.concat(idat));
   const expected = height * (stride + 1);
+  if (!Number.isSafeInteger(expected) || expected > MAX_BACKGROUND_REMOVAL_DECODE_BYTES) {
+    throw new HttpError(413, "PNG decoded data is too large for background removal");
+  }
+  let inflated;
+  try {
+    inflated = inflateSync(Buffer.concat(idat), { maxOutputLength: expected });
+  } catch {
+    throw new HttpError(400, "PNG image data could not be decoded");
+  }
   if (inflated.length < expected) throw new HttpError(400, "PNG image data is incomplete");
   const rows = Buffer.alloc(height * stride);
 
@@ -2053,7 +2100,7 @@ function normalizeBackgroundRemovalEngine(value) {
 }
 
 function resolveRembgBinary(options = {}) {
-  const explicit = String(options.rembgBin ?? process.env.IMAGE_ARRANGER_REMBG_BIN ?? "").trim();
+  const explicit = String(process.env.IMAGE_ARRANGER_REMBG_BIN ?? "").trim();
   if (explicit) {
     if (explicit.includes("/") || explicit.includes("\\")) {
       const binary = isAbsolute(explicit) ? explicit : resolve(TOOL_ROOT, explicit);
@@ -2065,6 +2112,47 @@ function resolveRembgBinary(options = {}) {
   const bundled = join(TOOL_ROOT, ".venv-rembg", "bin", "rembg");
   if (existsSync(bundled)) return bundled;
   return "rembg";
+}
+
+function sanitizedRembgModel(value) {
+  const model = String(value ?? "").trim();
+  if (!model) return "";
+  if (!/^[A-Za-z0-9._-]{1,96}$/.test(model)) {
+    throw new HttpError(400, "Invalid rembg model name");
+  }
+  return model;
+}
+
+function numericOption(value, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return undefined;
+  return Math.round(clamp(number, min, max));
+}
+
+function sanitizeBackgroundRemovalOptions(raw = {}) {
+  const input = raw && typeof raw === "object" ? raw : {};
+  const options = {};
+  if (input.engine !== undefined) options.engine = normalizeBackgroundRemovalEngine(input.engine);
+  if (input.mode !== undefined) options.mode = String(input.mode);
+  if (input.seedBottom !== undefined) options.seedBottom = Boolean(input.seedBottom);
+  if (input.keepFragments !== undefined) options.keepFragments = Boolean(input.keepFragments);
+  if (input.keepArtifacts !== undefined) options.keepArtifacts = Boolean(input.keepArtifacts);
+  if (input.keepLightComponents !== undefined) options.keepLightComponents = Boolean(input.keepLightComponents);
+  if (input.alphaMatting !== undefined) options.alphaMatting = Boolean(input.alphaMatting);
+  if (input.postProcessMask !== undefined) options.postProcessMask = Boolean(input.postProcessMask);
+  if (input.rembgModel !== undefined) {
+    const model = sanitizedRembgModel(input.rembgModel);
+    if (model) options.rembgModel = model;
+  }
+  const edgeSmoothStrength = Number(input.edgeSmoothStrength);
+  if (Number.isFinite(edgeSmoothStrength)) options.edgeSmoothStrength = clamp(edgeSmoothStrength, 0, 0.85);
+  const foreground = numericOption(input.alphaMattingForegroundThreshold, 0, 255);
+  if (foreground !== undefined) options.alphaMattingForegroundThreshold = foreground;
+  const background = numericOption(input.alphaMattingBackgroundThreshold, 0, 255);
+  if (background !== undefined) options.alphaMattingBackgroundThreshold = background;
+  const erode = numericOption(input.alphaMattingErodeSize, 0, 64);
+  if (erode !== undefined) options.alphaMattingErodeSize = erode;
+  return options;
 }
 
 function removeBackgroundWithRembg(sourcePath, outputPath, auditPath, options = {}, originalImage = null) {
@@ -2092,7 +2180,7 @@ function removeBackgroundWithRembg(sourcePath, outputPath, auditPath, options = 
     execFileSync(binary, args, {
       cwd: TOOL_ROOT,
       stdio: "ignore",
-      timeout: Number.isFinite(Number(options.rembgTimeoutMs)) ? Number(options.rembgTimeoutMs) : 180000,
+      timeout: REMBG_TIMEOUT_MS,
     });
     if (!existsSync(tempOutput)) throw new Error("rembg did not write an output file");
     const original = originalImage ?? decodePngRgba(readFileSync(sourcePath));
@@ -2288,11 +2376,14 @@ function createBackgroundRemovedAsset(context, character, targetEntry, sourceAss
     const existing = (targetEntry.assets ?? []).find((assetItem) =>
       assetItem.backgroundRemoval?.sourceAssetId === sourceAsset.id
       && assetItem.file
-      && existsSync(safeResolve(context.projectRoot, assetItem.file)));
+      && workspaceAssetFileExists(context, assetItem.file));
     if (existing) return { skipped: true, reason: "already-exists", asset: existing };
   }
 
   const sourcePath = safeResolve(context.projectRoot, sourceAsset.file);
+  if (!isPathInsideAny(sourcePath, workspaceAssetRoots(context))) {
+    throw new HttpError(403, "Background removal source must be inside workspace assets or outputs");
+  }
   if (!existsSync(sourcePath) || statSync(sourcePath).isDirectory()) {
     return { skipped: true, reason: "source-missing" };
   }
@@ -2309,7 +2400,14 @@ function createBackgroundRemovedAsset(context, character, targetEntry, sourceAss
     auditDestination = join(destinationDir, `${stem}-${suffix}-review.png`);
   }
 
-  const report = removeBackgroundFromPng(sourcePath, destination, auditDestination, options.removeBackgroundOptions ?? {});
+  let report;
+  try {
+    report = removeBackgroundFromPng(sourcePath, destination, auditDestination, options.removeBackgroundOptions ?? {});
+  } catch (error) {
+    rmSync(destination, { force: true });
+    rmSync(auditDestination, { force: true });
+    throw error;
+  }
   const reviewFile = toPosixPath(relative(context.projectRoot, auditDestination));
   const newAsset = {
     id: `asset-${safeSlug(targetEntry.id)}-${randomUUID().slice(0, 8)}`,
@@ -2448,6 +2546,7 @@ function registerCompletionResultAssets(context, state, completedTargets) {
           ? {
             skipped: Boolean(transparent.skipped),
             reason: transparent.reason ?? "",
+            error: transparent.error ?? "",
             reviewFile: transparent.reviewFile ?? transparent.asset?.backgroundRemoval?.reviewFile ?? "",
             report: transparent.report ?? transparent.asset?.backgroundRemoval?.report ?? null,
           }
@@ -2592,7 +2691,7 @@ async function handleApi(request, response, context, url) {
     const selectors = (body.targets ?? []).map((target) => ({
       requestId: target.requestId ?? body.requestId ?? "",
       targetIndex: target.targetIndex,
-      action: target.action === "improve" ? "improve" : "generate",
+      action: normalizeRequestAction(target.action),
       entryId: target.entryId,
       assetId: target.assetId ?? "",
     })).filter((target) => (target.requestId && target.targetIndex !== undefined) || target.entryId);
@@ -2610,7 +2709,7 @@ async function handleApi(request, response, context, url) {
     const selectors = targets.map((target) => ({
       requestId: target.requestId ?? body.requestId ?? "",
       targetIndex: target.targetIndex ?? body.targetIndex,
-      action: ["improve", "analyze", "draft-prompt"].includes(target.action) ? target.action : "generate",
+      action: normalizeRequestAction(target.action),
       entryId: target.entryId,
       assetId: target.assetId ?? "",
       results: Array.isArray(target.results) ? target.results : (Array.isArray(body.results) ? body.results : []),
@@ -2926,7 +3025,7 @@ async function handleApi(request, response, context, url) {
     }
 
     const created = createBackgroundRemovedAsset(context, character, targetEntry, sourceAsset, {
-      removeBackgroundOptions: body.options ?? {},
+      removeBackgroundOptions: sanitizeBackgroundRemovalOptions(body.options),
     });
     if (created.skipped || !created.asset) throw new HttpError(400, `Background removal skipped: ${created.reason ?? "unknown"}`);
     targetEntry.assets = [...(targetEntry.assets ?? []), created.asset];

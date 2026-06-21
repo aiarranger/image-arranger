@@ -11,7 +11,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 
 const CHROME_CANDIDATES = [
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -19,7 +19,15 @@ const CHROME_CANDIDATES = [
   "C:/Program Files/Google/Chrome/Application/chrome.exe",
   "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
   "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
   "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "google-chrome",
+  "google-chrome-stable",
+  "chromium",
+  "chromium-browser",
+  "chrome",
+  "chrome.exe",
 ];
 
 export const DEFAULTS = {
@@ -150,11 +158,27 @@ export class Cdp {
 
 function chromePath() {
   const fromEnv = process.env.IMAGE_ARRANGER_CHROME;
-  if (fromEnv && existsSync(fromEnv)) return fromEnv;
+  if (fromEnv) {
+    const executable = resolveExecutable(fromEnv);
+    if (executable) return executable;
+  }
   for (const candidate of CHROME_CANDIDATES) {
-    if (existsSync(candidate)) return candidate;
+    const executable = resolveExecutable(candidate);
+    if (executable) return executable;
   }
   throw new Error("Chrome executable was not found; set IMAGE_ARRANGER_CHROME to its path");
+}
+
+function resolveExecutable(candidate) {
+  if (!candidate) return "";
+  if (isAbsolute(candidate) || candidate.includes("/") || candidate.includes("\\")) {
+    return existsSync(candidate) ? candidate : "";
+  }
+  for (const dir of (process.env.PATH || "").split(delimiter).filter(Boolean)) {
+    const executable = join(dir, candidate);
+    if (existsSync(executable)) return executable;
+  }
+  return "";
 }
 
 export async function ensureChrome({ cdpPort = DEFAULTS.cdpPort, profileDir = DEFAULTS.profileDir, log = console.log } = {}) {

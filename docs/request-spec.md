@@ -69,7 +69,7 @@ handoff.
 | `status` | string | Request-level rollup: `"requested"`, `"completed"`, `"error"`, or `"cancelled"`. Recomputed from target statuses by the server. |
 | `character` | string | Owning character id. |
 | `characterName` | string | Display name of the character at request time. |
-| `mode` | string | `"image"`, `"video"`, or `"kit"` (analyze requests) — the tab/workflow the request came from. |
+| `mode` | string | `"image"`, `"video"`, `"kit"`, or `"base"` — the tab/workflow the request came from. Analyze requests are normally `"kit"`; per-part base generation can be `"base"`. |
 | `service` | string | The single service shared by all targets (`"chatgpt"`, `"vidu"`, …), or `"mixed"` if targets differ. |
 | `targets` | array | One entry per deliverable (see below). |
 | `requestedAt` | string | ISO 8601 timestamp when the request was written. |
@@ -131,7 +131,7 @@ contact sheets, or A/B variants for a single target.
 | `improvementPrompt` | string | The improvement intent (improve). |
 | `inputs` | object | Input files to attach (see below). |
 | `outputDir` | string \| null | Where to save results, relative to `projectRoot`. `null` for `analyze` targets (they produce JSON, not a file). |
-| `service` | string | Target service (`"chatgpt"`, `"vidu"`, …). |
+| `service` | string | Target service (`"chatgpt"`, `"vidu"`, …). Optional on older/custom request files; processors should fall back to the request-level `service` when absent. |
 | `qualityGate` | object \| null | Optional important-generation check. When enabled, processors should inspect the generated candidate before completion and compare only visible matching parts against `requiredParts`. Missing/hidden/cropped-out parts are not failures. See below. |
 | `status` | string | `"requested"`, `"completed"`, `"error"`, or `"cancelled"`. |
 | `results` | array | Filled on completion: `[{ "file": "<relative path>", ... }]`. |
@@ -234,8 +234,9 @@ Process a target only when both the request `status` and the target `status` are
   `assetFile` as the primary reference and follow `improvementPrompt`.
 - **`analyze`** — base-kit analysis. **No image is generated.** The deliverable is JSON
   (`{ "character": "...", "parts": [{ "key", "label", "category", "prompt" }] }`);
-  report it via the `parts` payload below. The server materializes one base entry per
-  part.
+  report it via the `parts` payload below. The server stores the parsed parts on the
+  completed target and exposes them as Create kit import results; the operator chooses
+  which parts become base entries.
 - **`draft-prompt`** — the user supplies only `referenceUrl` and delegates prompt
   writing. Write one prompt (and a short title), report it via the `prompt`/`overview`
   payload below. The server imports the prompt into the entry and **auto-queues a normal
@@ -246,7 +247,10 @@ Process a target only when both the request `status` and the target `status` are
 - `GET /api/state` returns the bare deck state object, not an `{ ok, ... }` envelope.
   This is the fastest inspection endpoint for tests, agents, and UI bootstrapping.
 - `GET /api/requests` returns `{ ok, projectRoot, requests }`, where `requests` is the
-  flattened list of currently requested targets that processors should handle.
+  flattened list of request targets whose request and target status are both
+  `"requested"`. Rows include `existsInDeck`; processors should normally handle rows
+  with `existsInDeck: true` and surface or skip stale rows where the source entry no
+  longer exists.
 - `GET /api/quality-reports` returns `{ ok, qualityReports }`, a flattened read model
   of completed/error targets that carry `target.qualityReport`. This is additive UI
   state for timelines and repair suggestions; it does not change the request-file
@@ -314,6 +318,11 @@ Creates a transparent PNG candidate from an existing PNG asset without modifying
 source asset. The endpoint is intended for local quality-controlled cutouts: it writes
 both the transparent candidate and a review composite that places the result over
 multiple backgrounds for visual inspection before adoption.
+
+The source asset file must be an existing registered PNG inside the workspace
+`assets/` or `outputs/` directory. Request bodies cannot override the `rembg`
+binary path or execution timeout; use `IMAGE_ARRANGER_REMBG_BIN` for a trusted local
+binary outside the default lookup path.
 
 The same background-removal pipeline is also used automatically for PNG generation
 results reported through `POST /api/requests/complete`. With `engine: "auto"`,
@@ -401,6 +410,11 @@ Generated candidates are intentionally left unadopted and `humanReviewed: false`
 Review the saved composite, then adopt the candidate only if the foreground details
 survived the transparency pass.
 
+When background removal is run as automatic post-processing during completion,
+each response row includes a `backgroundRemoval` object. If post-processing fails,
+`backgroundRemoval.error` contains the reason while the original result asset can
+still be registered.
+
 ## Completion API — `POST /api/requests/complete`
 
 Reports one or more target completions while the server is running. The body may be a
@@ -432,7 +446,8 @@ Common envelope:
   `qualityReport` alongside `results`; it is stored on the target.
 
 - **`parts`** — analysis result (analyze). `parts` is the analysis JSON (or its `parts`
-  array):
+  array). The response's `kitResultsStored`/`kitResults` fields confirm that the
+  parsed parts were stored for Create kit review/import:
 
   ```bash
   curl -X POST http://127.0.0.1:4217/api/requests/complete \

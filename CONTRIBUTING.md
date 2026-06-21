@@ -7,12 +7,9 @@ Thank you for considering a contribution to image-arranger.
 Run these before sending a pull request:
 
 ```bash
-node --check server.mjs
-node --check public/app.js
-node --check scripts/process-queue.mjs
-node --check scripts/agent-browser.mjs
-node --test server.test.mjs
-node server.mjs --workspace ./workspace/demo --init sample --doctor
+npm run check
+npm test
+npm run doctor
 ```
 
 ## Scope

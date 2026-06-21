@@ -13,6 +13,7 @@
     en: {
       title: "Image-Arrangrer — the missing management layer for AI image generation",
       description: "Local-first prompt & asset request manager for AI image/video generation. It doesn't generate — it keeps your workflow organized: canonical references, adopted candidates, queued requests.",
+      lang_switch_aria: "Language switch",
       language_label: "Language",
       hero_ver: "MIT License · Node.js 20+ · zero dependencies",
       hero_title: "Generators create.<br><span class=\"em\">Nothing keeps track.</span>",
@@ -24,17 +25,22 @@
       pill_local: "runs on 127.0.0.1 only",
       pill_files: "all data = plain JSON + files",
       pill_agent: "agent-ready request queue",
-      hero_screen_url: "127.0.0.1:4217 — real sample workspace screen",
+      hero_screen_url: "127.0.0.1:4217 — real local workspace screen",
       real_app_screen: "Real app screen",
+      overview_card_aria: "Image-Arrangrer 2-minute overview GIF",
+      overview_primary_aria: "Open the two-minute English overview GIF",
+      overview_links_aria: "Overview GIF language links",
+      overview_poster_alt: "Poster for a two-minute English overview showing Image-Arrangrer organizing image, prompt, source, and video generation assets",
       overview_eyebrow: "2-minute overview",
       overview_open: "Open English GIF",
       overview_en: "English GIF",
       overview_ja: "日本語 GIF",
       overview_caption: "A visual walkthrough of the same prompt, source, image, and video organization flow. <span lang=\"ja\">日本語版GIFもあります。</span>",
       strip_any_service: "…any service with a UI",
+      strip_aria: "Works with any generation service",
       strip_agent: "any coding agent",
       screens_title: "Actual screens from the local app",
-      screens_sub: "These are captured from the sample workspace running at <code>127.0.0.1:4217</code>: the real tabs, real candidate cards, real adopted state, and the real gallery.",
+      screens_sub: "These are captured from a vetted local image-arranger workspace: the real tabs, real candidate cards, real adopted state, and the real gallery.",
       screens_base_bar: "Base — adopted canonical references",
       screens_base_caption: "Base keeps canonical character references organized by part.",
       screens_kit_caption: "Create kit starts from selected real references.",
@@ -103,6 +109,7 @@
     ja: {
       title: "Image-Arrangrer — AI画像生成のためのローカル管理レイヤー",
       description: "AI画像・動画生成のためのローカルファーストなプロンプト/素材/依頼管理ツール。生成はせず、正リファレンス、採用候補、依頼キューを整理します。",
+      lang_switch_aria: "言語切り替え",
       language_label: "言語",
       hero_ver: "MIT License · Node.js 20+ · 依存パッケージなし",
       hero_title: "生成サービスは作る。<br><span class=\"em\">でも管理は残らない。</span>",
@@ -114,17 +121,22 @@
       pill_local: "127.0.0.1 だけで動作",
       pill_files: "データはJSON + ファイル",
       pill_agent: "エージェント対応キュー",
-      hero_screen_url: "127.0.0.1:4217 — 実サンプルワークスペース画面",
+      hero_screen_url: "127.0.0.1:4217 — 実ローカルワークスペース画面",
       real_app_screen: "実アプリ画面",
+      overview_card_aria: "Image-Arrangrer 2分概要GIF",
+      overview_primary_aria: "2分の日本語概要GIFを開く",
+      overview_links_aria: "概要GIFの言語リンク",
+      overview_poster_alt: "Image-Arrangrer が画像、プロンプト、参照元、動画生成素材を整理する2分の日本語概要GIFのポスター",
       overview_eyebrow: "2分の概要",
-      overview_open: "英語GIFを開く",
+      overview_open: "日本語GIFを開く",
       overview_en: "英語 GIF",
       overview_ja: "日本語 GIF",
       overview_caption: "プロンプト、元画像、生成画像、動画素材を整理する流れを実画面ベースで紹介します。英語版GIFもあります。",
       strip_any_service: "UIがある生成サービスなら併用可能",
+      strip_aria: "任意の生成サービスと併用可能",
       strip_agent: "任意のコーディングエージェント",
       screens_title: "ローカルアプリの実画面",
-      screens_sub: "<code>127.0.0.1:4217</code> で動くサンプルワークスペースから撮影した画面です。実タブ、候補カード、採用状態、ギャラリーをそのまま使っています。",
+      screens_sub: "公開用に確認済みのローカル image-arranger ワークスペースから撮影した画面です。実タブ、候補カード、採用状態、ギャラリーをそのまま使っています。",
       screens_base_bar: "Base — 採用済みの正リファレンス",
       screens_base_caption: "Base はキャラクターの正リファレンスをパーツごとに整理します。",
       screens_kit_caption: "Create kit は選択した実リファレンスから始まります。",
@@ -219,6 +231,33 @@
       const value = dict[el.dataset.i18n];
       if (value !== undefined) el.innerHTML = value;
     });
+    const overviewAsset = activeLang === "ja"
+      ? {
+        gif: "assets/marketing/image-arranger-overview-ja.gif",
+        poster: "assets/marketing/image-arranger-overview-ja-poster.png",
+      }
+      : {
+        gif: "assets/marketing/image-arranger-overview-en.gif",
+        poster: "assets/marketing/image-arranger-overview-en-poster.png",
+      };
+    const langSwitch = $(".lang-switch");
+    const overviewCard = $(".walkthrough-card");
+    const overviewLink = $(".hero-gif-link");
+    const overviewPoster = overviewLink ? $("img", overviewLink) : null;
+    const overviewLinks = $(".overview-links");
+    const strip = $(".strip");
+    if (langSwitch) langSwitch.setAttribute("aria-label", dict.lang_switch_aria);
+    if (overviewCard) overviewCard.setAttribute("aria-label", dict.overview_card_aria);
+    if (overviewLink) {
+      overviewLink.setAttribute("href", overviewAsset.gif);
+      overviewLink.setAttribute("aria-label", dict.overview_primary_aria);
+    }
+    if (overviewPoster) {
+      overviewPoster.setAttribute("src", overviewAsset.poster);
+      overviewPoster.setAttribute("alt", dict.overview_poster_alt);
+    }
+    if (overviewLinks) overviewLinks.setAttribute("aria-label", dict.overview_links_aria);
+    if (strip) strip.setAttribute("aria-label", dict.strip_aria);
     $$(".copy").forEach((btn) => {
       if (!btn.classList.contains("copied")) btn.textContent = COPY_LABELS[activeLang].ready;
     });

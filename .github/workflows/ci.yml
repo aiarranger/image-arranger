@@ -19,8 +19,12 @@ jobs:
       - name: Public data hygiene
         run: |
           set -euo pipefail
-          if git ls-files | grep -E '^(docs/(04_impl|review)/|docs/OSS_READINESS_REVIEW\.md$)'; then
+          if git ls-files | grep -E '^(docs/(04_impl|review)/|docs/OSS_READINESS_REVIEW\.md$|OSS_REVIEW\.md$)'; then
             echo "Internal planning/review docs must not be committed."
+            exit 1
+          fi
+          if git ls-files | grep -E '(^|/)(\.DS_Store|agent-logs/|review-sets/)|\.tgz$'; then
+            echo "Local artifacts must not be committed."
             exit 1
           fi
           if git grep -nI -E '(/Users/macstudio|workspace/demo-aichan|workspace/archive|workspace/fishing-fitness|http://127\.0\.0\.1:4190)' -- . ':!.github/workflows/ci.yml'; then

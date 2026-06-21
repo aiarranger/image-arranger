@@ -734,6 +734,46 @@ test("base kit: analyze request, complete with parts, and paste import create ba
   });
 });
 
+test("base kit analyze targets can be cancelled by entry and source asset selector", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const entryId = state.characters[0].images[0].id;
+    const uploaded = await uploadPng(baseUrl, entryId, "analysis-source", buildMetadataPng());
+
+    const analyze = await fetch(`${baseUrl}/api/base-kit/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: "sample-character",
+        sourceEntryId: entryId,
+        sourceAssetId: uploaded.asset.id,
+      }),
+    }).then((response) => response.json());
+    assert.equal(analyze.ok, true);
+    assert.equal(analyze.request.targets[0].action, "analyze");
+
+    const cancelled = await fetch(`${baseUrl}/api/requests/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        targets: [{
+          action: "analyze",
+          entryId,
+          assetId: uploaded.asset.id,
+        }],
+      }),
+    }).then((response) => response.json());
+    assert.equal(cancelled.ok, true);
+    assert.equal(cancelled.cancelled, 1);
+    const updatedAsset = cancelled.state.characters[0].images[0].assets.find((item) => item.id === uploaded.asset.id);
+    assert.equal(updatedAsset.requestStatus, "idle");
+
+    const requestPayload = JSON.parse(readFileSync(join(context.requestDir, `${analyze.request.requestId}.json`), "utf8"));
+    assert.equal(requestPayload.status, "cancelled");
+    assert.equal(requestPayload.targets[0].status, "cancelled");
+  });
+});
+
 test("error reporting marks targets and deck entries, allowing retry", async () => {
   await withServer(async ({ baseUrl, context }) => {
     const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
@@ -859,6 +899,29 @@ function buildRgbaPng(width, height, paint) {
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     pngChunk("IHDR", ihdr),
     pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function buildPngWithHeader(width, height, { colorType = 6, bitDepth = 8, idat = Buffer.from([0]) } = {}) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = bitDepth;
+  ihdr[9] = colorType;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(idat)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function buildInvalidIhdrPng() {
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", Buffer.from([0, 0, 0, 1])),
+    pngChunk("IDAT", deflateSync(Buffer.from([0]))),
     pngChunk("IEND", Buffer.alloc(0)),
   ]);
 }
@@ -1043,6 +1106,98 @@ test("asset background removal suppresses baked white checkerboard edge residue"
     assert.ok(edge[2] > edge[1] + 30);
     assert.equal(rgbaAt(output, 18, 15)[3], 0);
     assert.equal(rgbaAt(output, 0, 0)[3], 0);
+  });
+});
+
+test("asset background removal rejects oversized and malformed PNG sources cleanly", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const entryId = state.characters[0].images[0].id;
+    const oversized = await uploadPng(baseUrl, entryId, "oversized-header", buildPngWithHeader(5000, 5000));
+    const malformed = await uploadPng(baseUrl, entryId, "malformed-ihdr", buildInvalidIhdrPng());
+
+    const oversizedResponse = await fetch(`${baseUrl}/api/assets/remove-background`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: "sample-character",
+        entryId,
+        assetId: oversized.asset.id,
+        options: { mode: "chroma" },
+      }),
+    });
+    assert.equal(oversizedResponse.status, 413);
+    const oversizedPayload = await oversizedResponse.json();
+    assert.match(oversizedPayload.error, /too large/i);
+
+    const malformedResponse = await fetch(`${baseUrl}/api/assets/remove-background`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: "sample-character",
+        entryId,
+        assetId: malformed.asset.id,
+        options: { mode: "chroma" },
+      }),
+    });
+    assert.equal(malformedResponse.status, 400);
+    const malformedPayload = await malformedResponse.json();
+    assert.match(malformedPayload.error, /IHDR/i);
+  });
+});
+
+test("asset background removal only accepts workspace asset and output files", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const entry = state.characters[0].images[0];
+    const outsideFile = "orphan-source.png";
+    writeFileSync(join(context.projectRoot, outsideFile), buildRgbaPng(4, 4, () => [0, 255, 0, 255]));
+    entry.assets.push({
+      id: "asset-outside-source",
+      kind: "image",
+      name: "outside-source",
+      file: outsideFile,
+      adopted: false,
+      aiGenerated: true,
+      humanReviewed: false,
+      tags: [],
+    });
+    writeFileSync(context.stateFile, JSON.stringify(state, null, 2));
+
+    const response = await fetch(`${baseUrl}/api/assets/remove-background`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: "sample-character",
+        entryId: entry.id,
+        assetId: "asset-outside-source",
+        options: { mode: "chroma" },
+      }),
+    });
+    assert.equal(response.status, 403);
+    const payload = await response.json();
+    assert.match(payload.error, /workspace assets or outputs/i);
+  });
+});
+
+test("asset background removal rejects untrusted rembg option names from HTTP", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const entryId = state.characters[0].images[0].id;
+    const uploaded = await uploadPng(baseUrl, entryId, "invalid-rembg-option", buildRgbaPng(4, 4, () => [0, 255, 0, 255]));
+    const response = await fetch(`${baseUrl}/api/assets/remove-background`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: "sample-character",
+        entryId,
+        assetId: uploaded.asset.id,
+        options: { mode: "chroma", rembgModel: "../../../bin/false" },
+      }),
+    });
+    assert.equal(response.status, 400);
+    const payload = await response.json();
+    assert.match(payload.error, /Invalid rembg model/i);
   });
 });
 

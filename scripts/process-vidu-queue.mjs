@@ -50,6 +50,7 @@ const SERVER = (option("--server", process.env.IMAGE_ARRANGER_SERVER ?? "http://
 const CDP_PORT = Number(option("--cdp-port", DEFAULTS.cdpPort));
 const VIDU_URL = option("--vidu-url", process.env.IMAGE_ARRANGER_VIDU_URL ?? "https://www.vidu.com/ja/create/img2video");
 const MAX_TARGETS = Number(option("--max", "20"));
+const CHECK_ONLY = flag("--check");
 const TIMEOUT_MS = Math.max(1, Number(option("--timeout-min", "25")) || 25) * 60 * 1000;
 const ALLOW_PAID = flag("--allow-paid") || process.env.IMAGE_ARRANGER_VIDU_ALLOW_PAID === "1";
 
@@ -314,10 +315,10 @@ async function downloadVideo(url, destination) {
 }
 
 async function main() {
-  const queue = await api("/api/requests");
+  const queue = CHECK_ONLY ? { projectRoot: process.cwd(), requests: [] } : await api("/api/requests");
   const projectRoot = queue.projectRoot;
   const runLog = new RunLog(join(projectRoot, "agent-logs"), `vidu-run-${timestamp()}`);
-  runLog.log(`server ${SERVER}, projectRoot ${projectRoot}`);
+  runLog.log(`${CHECK_ONLY ? "check-only" : `server ${SERVER}`}, projectRoot ${projectRoot}`);
   runLog.log(`Vidu URL ${VIDU_URL}`);
   runLog.log(`run log: ${runLog.dir}`);
 
@@ -366,7 +367,7 @@ async function main() {
       await closePage(page);
     }
   }
-  if (flag("--check")) {
+  if (CHECK_ONLY) {
     runLog.log("--check finished: Chrome + Vidu page are ready");
     return;
   }

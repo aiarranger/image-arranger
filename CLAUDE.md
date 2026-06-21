@@ -12,6 +12,9 @@
   browser tab you open.
 - Use `AGENTS.md` for the current start/test/demo commands, including non-default
   port or workspace examples.
+- For image-arranger queued image generation, follow the ChatGPT-first rule in
+  `AGENTS.md`; do not use Codex's built-in image generation unless the operator
+  explicitly asks for that bypass or a local preview.
 - If a local server is already on the default port, follow the direct
   `node server.mjs --workspace ... --port ...` pattern from `AGENTS.md`; do not
   duplicate or improvise npm-script argument recipes here.

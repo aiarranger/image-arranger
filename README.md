@@ -49,10 +49,9 @@ Queue an image request in the app and watch the result land as a candidate asset
 <summary>Health checks (syntax, tests, workspace doctor)</summary>
 
 ```bash
-node --check server.mjs
-node --check public/app.js
-node --test server.test.mjs
-node server.mjs --workspace ./workspace/demo --init sample --doctor
+npm run check
+npm test
+npm run doctor
 ```
 
 </details>
@@ -77,7 +76,7 @@ Uploading a PNG that still carries its generation metadata (A1111 / NovelAI / Co
 
 Click **Remove background** on a PNG candidate card or asset detail to create a new non-destructive transparent PNG candidate. With `engine: auto`, image-arranger keeps the fast YUV-distance soft matte for green chroma-key sheets and switches white/light-gray or natural backgrounds to an `isnet-anime` AI matte when `rembg` is available. The shared cleanup pass removes detached failure fragments and thin line artifacts, suppresses green/yellow-green spill and white/light-gray edge contamination, smooths the alpha edge, fills transparent RGB from nearby foreground colors, and writes a review composite over the original, app, dark, blue, and checker backgrounds.
 
-To enable high-quality AI matting, install `rembg` locally, for example: `python3 -m venv .venv-rembg && .venv-rembg/bin/pip install "rembg[cpu,cli]" onnxruntime`. If it lives elsewhere, set `IMAGE_ARRANGER_REMBG_BIN=/path/to/rembg`; use `IMAGE_ARRANGER_REMBG_MODEL=birefnet-general-lite` to try a different model.
+To enable high-quality AI matting, install `rembg` locally, for example: `python3 -m venv .venv-rembg && .venv-rembg/bin/pip install "rembg[cpu,cli]" onnxruntime`. On Windows, the equivalent binary is usually `.venv-rembg\Scripts\rembg.exe`. If it lives elsewhere, set `IMAGE_ARRANGER_REMBG_BIN=/path/to/rembg`; use `IMAGE_ARRANGER_REMBG_MODEL=birefnet-general-lite` to try a different model.
 
 ## Why
 
@@ -92,7 +91,7 @@ image-arranger gives that workflow structure.
 3. A human or a coding agent processes the targets in the generation service (see [AGENTS.md](AGENTS.md)) and reports completion via `POST /api/requests/complete` — or by editing the JSON.
 4. Results are registered as candidate assets. For PNG results, image-arranger also adds a transparent, artifact-cleaned derivative beside the original. You adopt the good ones, and they become references for the next round.
 
-Analysis requests (`action: "analyze"`) work the same way, except the deliverable is JSON: per-part generation prompts that image-arranger turns into base entries automatically.
+Analysis requests (`action: "analyze"`) work the same way, except the deliverable is JSON: per-part generation prompts that image-arranger stores for Create kit review/import.
 
 ### Process a request by hand (no agent needed)
 
@@ -111,7 +110,7 @@ The repository ships an optional automation driver that processes queued ChatGPT
 
 ```bash
 node scripts/process-queue.mjs --check    # one-time setup: opens a dedicated automation Chrome; sign in to ChatGPT once
-node scripts/process-queue.mjs            # process every queued chatgpt generate target
+node scripts/process-queue.mjs            # process queued chatgpt generate/improve targets
 ```
 
 - Requires **Node 22+** (the server itself runs on Node 20+) and a Chrome/Chromium install; tested on macOS, expected to work on Windows/Linux (CDP-based, no OS-level permissions).
@@ -156,6 +155,10 @@ workspace/<name>/
 - `--init sample` — public-safe sample deck (default)
 - `--init empty` — blank starter deck
 - `--config config.example.json` — start from a config file
+
+When you point `--workspace` at a directory outside this repository, generated
+request paths are workspace-relative by default. Use `--project-root` only when you
+need a different shared root for assets, outputs, and request files.
 
 ## Provenance & Rights
 
