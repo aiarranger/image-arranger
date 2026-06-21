@@ -2,9 +2,9 @@
 
 Target: note / Japanese article
 Primary link: https://github.com/aiarranger/image-arranger?utm_source=note&utm_medium=article&utm_campaign=launch-ja
-LP link: https://aiarranger.github.io/image-arranger/?utm_source=note&utm_medium=article&utm_campaign=launch-ja
+LP link: https://aiarranger.jp/image-arranger/?utm_source=note&utm_medium=article&utm_campaign=launch-ja
 Media slots:
-- Hero: 45s demo video or GIF from `docs/assets/readme/demo.gif`
+- Hero: Aichan overview GIF from `docs/assets/marketing/image-arranger-overview-ja.gif`
 - Inline image 1: Create kit route selection
 - Inline image 2: Queue + candidate arrival
 - Inline image 3: Gallery / adopted assets
@@ -25,7 +25,7 @@ AI画像生成を続けていると、ある時点から問題が「どう生成
 
 image-arranger は、AI画像・動画生成のためのローカルファーストなプロンプト／アセット管理ツールです。大事な特徴は、**生成しない**ことです。ChatGPT、Midjourney、Vidu、ComfyUI など、実際の生成は好きな場所で続けます。image-arranger は「何を依頼するか」「どの参照を添付するか」「どの候補を採用したか」「いま何がキューにあるか」を整理します。
 
-[media: 45s demo video]
+[media: Aichan overview GIF]
 
 基本の流れは、Create kit → Base → Image → Video → Queue です。
 
@@ -74,7 +74,7 @@ GitHub:
 https://github.com/aiarranger/image-arranger?utm_source=note&utm_medium=article&utm_campaign=launch-ja
 
 Landing page:
-https://aiarranger.github.io/image-arranger/?utm_source=note&utm_medium=article&utm_campaign=launch-ja
+https://aiarranger.jp/image-arranger/?utm_source=note&utm_medium=article&utm_campaign=launch-ja
 
 ## Publishing Notes
 

@@ -33,7 +33,7 @@
     "LICENSE"
   ],
   "repository": { "type": "git", "url": "https://github.com/aiarranger/image-arranger.git" },
-  "homepage": "https://aiarranger.github.io/image-arranger/",
+  "homepage": "https://aiarranger.jp/image-arranger/",
   "bugs": "https://github.com/aiarranger/image-arranger/issues",
   "license": "MIT",
   "scripts": {

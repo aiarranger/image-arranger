@@ -4,12 +4,12 @@ Human-only actions: recording, posting, account login, scheduling, replies from 
 
 ## Assets
 
-- [ ] Record 45s demo video following `docs/marketing/video-shotlist.md`.
-- [ ] Place the final GIF at `docs/assets/readme/demo.gif` before publishing any draft or README that references it.
+- [ ] Verify the Aichan overview GIFs in `docs/assets/marketing/` and the README showcase GIF at `docs/assets/readme/demo.gif`.
+- [ ] Confirm published media shows Aichan or real product UI only.
 - [ ] Capture screenshots: Create kit route selection, Queue with requested row, result candidate/adoption, Gallery.
-- [ ] Verify OGP image: https://aiarranger.github.io/image-arranger/ogp.png
+- [ ] Verify OGP image: https://aiarranger.jp/image-arranger/ogp.png
 - [ ] Preview OGP/card rendering with https://metatags.io/ or the target platform's preview tool.
-- [ ] Verify LP: https://aiarranger.github.io/image-arranger/
+- [ ] Verify LP: https://aiarranger.jp/image-arranger/
 - [ ] Verify GitHub repo public visibility, description, homepage, topics, CI badge.
 - [ ] Confirm OS/Node wording: app/server = Node.js 20+ anywhere Node runs; scripted processor = Node.js 22+ + Chrome/Chromium, macOS-tested; manual keystroke fallback = macOS-only.
 - [ ] Confirm no draft implies image-arranger directly generates images or videos.
@@ -17,7 +17,7 @@ Human-only actions: recording, posting, account login, scheduling, replies from 
 ## Links
 
 - GitHub: https://github.com/aiarranger/image-arranger
-- Landing page: https://aiarranger.github.io/image-arranger/
+- Landing page: https://aiarranger.jp/image-arranger/
 - README quick start: https://github.com/aiarranger/image-arranger#quick-start
 - Request spec: https://github.com/aiarranger/image-arranger/blob/main/docs/request-spec.md
 
@@ -25,7 +25,7 @@ Human-only actions: recording, posting, account login, scheduling, replies from 
 
 Draft: `docs/marketing/x-ja.md`
 
-- [ ] Attach 45s demo video to post 1.
+- [ ] Attach the Aichan overview GIF to post 1.
 - [ ] Confirm every post remains within the platform character limit after edits, including the full post text and URLs.
 - [ ] Check GitHub URL with UTM opens.
 - [ ] Post thread.
@@ -36,7 +36,7 @@ Draft: `docs/marketing/x-ja.md`
 
 Draft: `docs/marketing/x-en.md`
 
-- [ ] Attach 45s demo video to post 1.
+- [ ] Attach the Aichan overview GIF to post 1.
 - [ ] Confirm every post remains within the platform character limit after edits, including the full post text and URLs.
 - [ ] Confirm no claim says image-arranger directly generates.
 - [ ] Check GitHub URL with UTM opens.

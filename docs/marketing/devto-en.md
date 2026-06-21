@@ -2,9 +2,9 @@
 
 Target: dev.to article; can be shortened into a Show HN post.
 Primary link: https://github.com/aiarranger/image-arranger?utm_source=devto&utm_medium=article&utm_campaign=launch-en
-LP link: https://aiarranger.github.io/image-arranger/?utm_source=devto&utm_medium=article&utm_campaign=launch-en
+LP link: https://aiarranger.jp/image-arranger/?utm_source=devto&utm_medium=article&utm_campaign=launch-en
 Media slots:
-- Hero: 45s demo video or README GIF
+- Hero: Aichan overview GIF from `docs/assets/marketing/image-arranger-overview-en.gif`
 - Inline: workflow diagram from `docs/assets/readme/workflow.svg`
 - Inline: Queue result candidate screenshot
 
@@ -86,7 +86,7 @@ GitHub:
 https://github.com/aiarranger/image-arranger?utm_source=devto&utm_medium=article&utm_campaign=launch-en
 
 Landing page:
-https://aiarranger.github.io/image-arranger/?utm_source=devto&utm_medium=article&utm_campaign=launch-en
+https://aiarranger.jp/image-arranger/?utm_source=devto&utm_medium=article&utm_campaign=launch-en
 
 ## Show HN Variant
 

@@ -11,14 +11,14 @@
 [![Node 20+](https://img.shields.io/badge/node-%3E%3D%2020-339933?logo=node.js&logoColor=white)](#quick-start)
 [![Runtime dependencies](https://img.shields.io/badge/runtime%20deps-0-6c5ce7)](#quick-start)
 
-[Landing page](https://aiarranger.github.io/image-arranger/) · [2-minute overview GIF](https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en.gif) · [Quick Start](#quick-start) · [How requests flow](#how-requests-flow) · [日本語 README](README.ja.md)
+[Landing page](https://aiarranger.jp/image-arranger/) · [Aichan overview GIF](https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en.gif) · [Quick Start](#quick-start) · [How requests flow](#how-requests-flow) · [日本語 README](README.ja.md)
 
-<p><strong>2-minute service overview (English)</strong></p>
-<a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en.gif"><img src="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en-poster.png" alt="Poster linking to a two-minute English GIF overview of Image-Arrangrer organizing image, prompt, source, and video generation assets" width="480"></a>
+<p><strong>Service overview with Aichan assets (English)</strong></p>
+<a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en.gif"><img src="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en-poster.png" alt="Poster linking to an English GIF overview of Image-Arrangrer organizing Aichan image, prompt, source, and video generation assets" width="480"></a>
 <p><em>Summary: Image-Arrangrer keeps AI image and video iterations organized by tracking prompts, source references, generated assets, and adoption state. <a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en.gif">Open the GIF</a>.</em></p>
 
-<!-- DEMO_GIF: docs/assets/readme/demo.gif — record the demo and drop it at that path; the <img> below picks it up with zero README edits. -->
-<img src="docs/assets/readme/demo.gif" alt="Demo: building a character kit, queueing a generation request, and registering the result as an adopted reference in image-arranger" width="800">
+<!-- README_GIF: docs/assets/readme/demo.gif — Aichan public showcase used by the README embed below. -->
+<img src="docs/assets/readme/demo.gif" alt="Aichan showcase: building a character kit, reviewing candidates, browsing the gallery, and queueing work in image-arranger" width="800">
 
 </div>
 
@@ -34,12 +34,12 @@ cd image-arranger
 node server.mjs --workspace ./workspace/demo --init sample --port 4217
 ```
 
-Open <http://127.0.0.1:4217/>. You get a public-safe sample deck to click around in — courier-girl **Aoi**, with every tab populated and one request already waiting in the Queue.
+Open <http://127.0.0.1:4217/>. You get a public-safe sample deck to click around in, with every tab populated and one request already waiting in the Queue.
 
 ### Try the full loop in 60 seconds
 
 ```bash
-npm start              # terminal 1 — server + sample deck (Aoi)
+npm start              # terminal 1 — server + public-safe sample deck
 npm run demo-agent     # terminal 2 — a tiny agent that completes queued requests
 ```
 

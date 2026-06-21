@@ -2,8 +2,8 @@
 
 Target: X / Japanese launch thread
 Primary link: https://github.com/aiarranger/image-arranger?utm_source=x&utm_medium=social&utm_campaign=launch-ja
-LP link: https://aiarranger.github.io/image-arranger/?utm_source=x&utm_medium=social&utm_campaign=launch-ja
-Media slot: attach the 45s demo video from `docs/marketing/video-shotlist.md` to post 1.
+LP link: https://aiarranger.jp/image-arranger/?utm_source=x&utm_medium=social&utm_campaign=launch-ja
+Media slot: attach the Aichan overview GIF from `docs/assets/marketing/image-arranger-overview-ja.gif` to post 1.
 
 ## Thread
 
