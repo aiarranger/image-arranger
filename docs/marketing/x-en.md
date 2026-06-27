@@ -20,9 +20,7 @@ Media slot: attach the Aichan base references from `docs/assets/base/aichan_desi
 4. For character work, Create kit can queue a request for a canonical reference sheet from adopted images, then decompose a sheet into face / outfit / accessory references for part-level fixes. It is a workflow manager, not another model wrapper.
 
 5. The app itself is local-first, zero runtime dependencies, Node.js 20+.  
-   The sample deck and demo agent let you run the full loop without external accounts. Use two terminals:
-   Terminal 1: `npm start`
-   Terminal 2: `npm run demo-agent`
+   The sample deck starts with no queued work. Queue files appear only when you explicitly request generation, and completion requires a real generation result.
 
 6. OSS, MIT licensed. If your generation workflow has outgrown folders of PNGs and a spreadsheet, I would love feedback.  
    GitHub: https://github.com/aiarranger/image-arranger?utm_source=x&utm_medium=social&utm_campaign=launch-en

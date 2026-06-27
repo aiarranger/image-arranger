@@ -361,19 +361,19 @@
     setActive(0);
   }
 
-  /* ---------- self-playing hero demo loop (~12s, exactly loopable) ---------- */
-  const mock = $("#demoMock");
+  /* ---------- workflow preview loop (~12s, exactly loopable) ---------- */
+  const mock = $("#previewMock");
   if (!mock) return;
   // Reduced motion keeps the static data-step="1" frame, but the loop wiring
-  // below still attaches so an RM-on → off flip mid-session starts the demo.
+  // below still attaches so an RM-on -> off flip mid-session starts the preview.
 
-  const body = $("#demoBody");
-  const pill = $("#demoPill");
-  const cursor = $("#demoCursor");
-  const typed = $("#demoTyped");
-  const tabBase = $("#demoTabBase");
-  const tabImage = $("#demoTabImage");
-  const tabQueue = $("#demoTabQueue");
+  const body = $("#previewBody");
+  const pill = $("#previewPill");
+  const cursor = $("#previewCursor");
+  const typed = $("#previewTyped");
+  const tabBase = $("#previewTabBase");
+  const tabImage = $("#previewTabImage");
+  const tabQueue = $("#previewTabQueue");
   const PROMPT = "full body, red dress, soft studio light";
   const STEP_MS = [1500, 1900, 1500, 2900, 2200, 2000]; // ≈ 12s total
   let stepTimer = 0;

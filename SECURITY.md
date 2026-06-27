@@ -24,5 +24,5 @@ Do not disclose exploitable details publicly until the maintainer has had time t
 
 - Do not expose image-arranger to the public internet.
 - Do not commit workspaces that contain private prompts, generated assets, browser downloads, secrets, or absolute local paths.
-- Run `node server.mjs --workspace ./workspace/demo --init sample --doctor` before publishing a repository snapshot.
+- Run `node server.mjs --workspace ./workspace/sample --init sample --doctor` before publishing a repository snapshot.
 - Keep generated assets and their usage rights documented with `sourceLicense`, `aiGenerated`, `humanReviewed`, and `usageNotes`.

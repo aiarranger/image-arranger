@@ -47,9 +47,7 @@ image-arranger keeps the stable part stable: the request contract.
 
 A queued request is just JSON with a prompt, reference image paths, output directory, service, and target action. A human can process it by hand. A coding agent can process it. A custom driver can process it. The app itself never needs your generator credentials and never calls a generation API.
 
-## Demo loop
-
-The repo includes a public-safe sample deck and a tiny demo agent that creates local placeholder art. That lets you try the full lifecycle without external accounts:
+## Try it locally
 
 ```bash
 git clone https://github.com/aiarranger/image-arranger.git
@@ -57,13 +55,7 @@ cd image-arranger
 npm start
 ```
 
-Open `http://127.0.0.1:4217/`, queue an image or Create kit sheet, then in another terminal:
-
-```bash
-npm run demo-agent
-```
-
-The queued request completes, a candidate asset is registered, and you can adopt it.
+Open `http://127.0.0.1:4217/` and inspect the sample deck. The Queue starts empty; it contains work only after you explicitly queue a request. To complete a request, process it in your real generation service or with a real service driver, then register the resulting file.
 
 ## Design constraints
 
@@ -100,6 +92,6 @@ I built image-arranger for the management layer around AI image/video generation
 
 It deliberately does not generate. You keep using ChatGPT, Midjourney, Vidu, ComfyUI, etc. image-arranger writes request files that a human, coding agent, or custom driver can process, then registers results as candidates for review/adoption.
 
-It is local-first, zero runtime dependencies, Node.js 20+, MIT licensed, with a sample deck and demo agent so the full loop can be tested without external accounts.
+It is local-first, zero runtime dependencies, Node.js 20+, MIT licensed, and ships with a sample deck whose queue starts empty until you explicitly create work.
 
 GitHub: https://github.com/aiarranger/image-arranger

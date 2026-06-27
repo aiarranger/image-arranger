@@ -28,24 +28,6 @@ import {
   parseQualityCheckResult,
 } from "./prompts.mjs";
 import {
-  PALETTES,
-  clipLine,
-  crc32,
-  drawSoftCircle,
-  drawText,
-  encodePng,
-  fillRect,
-  hash32,
-  makeCanvas,
-  mix,
-  mulberry32,
-  paintBackdrop,
-  pngChunk,
-  sanitizeText,
-  textWidth,
-  wrapLines,
-} from "./placeholder-art.mjs";
-import {
   HttpError,
   originPolicyViolation,
   readBody,
@@ -67,7 +49,7 @@ export {
 
 const TOOL_ROOT = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = 4217;
-const DEFAULT_WORKSPACE = join(TOOL_ROOT, "workspace", "demo");
+const DEFAULT_WORKSPACE = join(TOOL_ROOT, "workspace", "sample");
 const DEFAULT_STATE_FILE = join(DEFAULT_WORKSPACE, "deck.json");
 const DEFAULT_REQUEST_DIR = join(DEFAULT_WORKSPACE, "requests");
 const DEFAULT_OUTPUT_DIR = join(DEFAULT_WORKSPACE, "outputs");
@@ -97,11 +79,37 @@ const SECRET_PATTERNS = [
   /\b[A-Za-z0-9_]*token[A-Za-z0-9_]*\b/i,
   /\bpassword\b/i,
 ];
+const PNG_CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
 const PROJECT_SPECIFIC_PATTERNS = [
   /\/Users\//,
   /\/home\//,
   /C:\\Users/i,
 ];
+
+function pngCrc32(buffer) {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buffer.length; i += 1) {
+    crc = PNG_CRC_TABLE[(crc ^ buffer[i]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+  const crcBuffer = Buffer.alloc(4);
+  crcBuffer.writeUInt32BE(pngCrc32(body), 0);
+  return Buffer.concat([length, body, crcBuffer]);
+}
 
 function materializeKitParts(character, sourceFiles, parts) {
   const files = (Array.isArray(sourceFiles) ? sourceFiles : [sourceFiles]).filter(Boolean);
@@ -3179,44 +3187,9 @@ export function runDoctor(options = {}) {
 
 
 // ---------------------------------------------------------------------------
-// Sample workspace seeding: user-visible base references plus a pre-populated
-// queue, so the reference workflow is ready on first run. The demo agent still
-// uses placeholder-art.mjs for generated queue outputs.
+// Sample workspace seeding: user-visible base references only. The server does
+// not create queued work or generated-looking outputs on first run.
 // ---------------------------------------------------------------------------
-
-function makeSampleArt(spec) {
-  const seed = hash32(spec.file);
-  const rng = mulberry32(seed);
-  const palette = PALETTES[spec.palette % PALETTES.length];
-  const canvas = makeCanvas(spec.w, spec.h);
-  const glow = paintBackdrop(canvas, palette, rng);
-  const white = [246, 248, 252];
-  const soft = [224, 228, 238];
-  const ink = mix(palette.from, [0, 0, 0], 0.62);
-
-  const badge = sanitizeText(spec.badge) || "SAMPLE";
-  fillRect(canvas, 28, 26, textWidth(badge, 2) + 24, 32, ink, 0.5);
-  drawText(canvas, 40, 35, badge, 2, white, 0.95);
-  fillRect(canvas, 28, 70, 110, 4, glow, 0.9);
-
-  const panelX = 32;
-  const panelW = spec.w - panelX * 2;
-  const captionLines = spec.caption ? wrapLines(sanitizeText(spec.caption), Math.floor((panelW - 40) / 12), 2) : [];
-  const titleScale = sanitizeText(spec.title).length <= Math.floor((panelW - 40) / 24) ? 4 : 3;
-  const panelH = 30 + titleScale * 7 + (captionLines.length ? 10 + captionLines.length * 22 : 0);
-  const panelY = spec.h - panelH - 26;
-  fillRect(canvas, panelX, panelY, panelW, panelH, ink, 0.55);
-
-  const titleLine = clipLine(sanitizeText(spec.title) || "SAMPLE", Math.floor((panelW - 40) / (6 * titleScale)));
-  drawText(canvas, panelX + 21, panelY + 17, titleLine, titleScale, [0, 0, 0], 0.3);
-  drawText(canvas, panelX + 20, panelY + 16, titleLine, titleScale, white, 0.98);
-  captionLines.forEach((line, index) => {
-    drawText(canvas, panelX + 20, panelY + 26 + titleScale * 7 + index * 22, line, 2, soft, 0.92);
-  });
-  return encodePng(canvas);
-}
-
-const SAMPLE_REQUEST_NOTE = "image-arranger writes this request only. Ask an agent or operator to process queued image/video generation requests; the generation service is operated outside this tool and this file is updated after processing.";
 
 function seedSampleAssets(context) {
   if (context.init !== "sample") return;
@@ -3226,11 +3199,9 @@ function seedSampleAssets(context) {
   const pick = (list, id) => (list ?? []).find((item) => item.id === id);
   const base = character.base ?? {};
   const master = pick(base.master, "base-sample-character-master");
-  const imageSmile = pick(character.images, "image-sample-character-studio-smile");
-  const imageRooftop = pick(character.images, "image-sample-character-rooftop-dusk");
   const video = pick(character.videos, "video-sample-character-dusk-greeting");
-  if (!master || !imageSmile) return;
-  if ((master.assets ?? []).length || (imageSmile.assets ?? []).length) return;
+  if (!master) return;
+  if ((master.assets ?? []).length) return;
 
   const specs = [
     { entry: master, source: "aichan_design.png", file: "base-master-adopted.png", adopted: true, name: "Aichan design sheet / AIちゃん設定資料" },
@@ -3242,19 +3213,8 @@ function seedSampleAssets(context) {
     const destination = join(context.assetDir, spec.file);
     const source = join(SAMPLE_ASSET_DIR, spec.source);
     if (!existsSync(destination)) {
-      if (existsSync(source)) {
-        copyFileSync(source, destination);
-      } else {
-        writeFileSync(destination, makeSampleArt({
-          ...spec,
-          w: spec.file.includes("key-visual") ? 430 : 1491,
-          h: spec.file.includes("key-visual") ? 330 : 1055,
-          palette: 5,
-          badge: "BASE / MASTER",
-          title: "AICHAN BASE",
-          caption: "sample source file missing - generated fallback",
-        }));
-      }
+      if (!existsSync(source)) throw new Error(`Bundled sample asset is missing: ${source}`);
+      copyFileSync(source, destination);
     }
     const assetId = `asset-${safeSlug(spec.entry.id)}-${spec.file.replace(/[^a-z0-9]+/gi, "-")}`;
     assetIds.set(spec.file, assetId);
@@ -3278,55 +3238,8 @@ function seedSampleAssets(context) {
     video.endFrame = assetIds.get("base-master-adopted.png") ?? "";
   }
 
-  seedSampleRequests(context, { character, video, imageRooftop, assetIds });
   recomputeRequestedStatuses(state, context);
   writeState(context.stateFile, state);
-}
-
-// Pre-populate the queue so the request lifecycle (pending + completed) is
-// visible on first run: one completed image request whose result is already
-// registered as a candidate, and one pending video request for the demo
-// agent or a human operator to pick up.
-function seedSampleRequests(context, refs) {
-  ensureDir(context.requestDir);
-  if (readdirSync(context.requestDir).some((file) => file.endsWith(".json"))) return;
-  const { character, video, imageRooftop, assetIds } = refs;
-  const workspaceOutputs = toPosixPath(relative(context.projectRoot, context.outputDir));
-  const relAsset = (file) => toPosixPath(relative(context.projectRoot, join(context.assetDir, file)));
-
-  if (video) {
-    const startFile = relAsset("base-key-visual-adopted.png");
-    const endFile = relAsset("base-master-adopted.png");
-    writeJson(join(context.requestDir, "req_sample_pending_video.json"), {
-      schema: "image-arranger-request.v1",
-      requestId: "req_sample_pending_video",
-      status: "requested",
-      character: character.id,
-      characterName: character.name,
-      mode: "video",
-      service: "vidu",
-      targets: [{
-        action: "generate",
-        entryId: video.id,
-        assetId: null,
-        assetName: null,
-        assetFile: null,
-        overview: video.overview,
-        prompt: video.prompt,
-        referenceUrl: null,
-        basePrompt: "",
-        improvementPrompt: "",
-        inputs: { startFrame: startFile, endFrame: endFile, durationSec: video.durationSec ?? 8, refImages: [startFile, endFile] },
-        outputDir: `${workspaceOutputs}/${character.id}`,
-        service: "vidu",
-        status: "requested",
-        results: [],
-      }],
-      requestedAt: nowIso(),
-      completedAt: null,
-      note: SAMPLE_REQUEST_NOTE,
-    });
-  }
 }
 
 export function createImageArrangerServer(options = {}) {

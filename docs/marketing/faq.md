@@ -24,10 +24,6 @@ Digital asset managers organize files. image-arranger is built around generation
 
 Yes. The app writes request files and stores reference paths. You can process the request wherever you generate. The optional scripted processor currently targets ChatGPT image generation, but the request contract is service-neutral.
 
-## What is the demo agent?
-
-`npm run demo-agent` is a local placeholder processor. It creates deterministic demo outputs and completes demo image, analyze, draft-prompt, and improve targets so you can test the workflow without external accounts.
-
 ## Is my data sent anywhere?
 
 The server and UI are local. Workspace data lives on disk. The app itself does not call generation services. If you use an external generation service or optional automation driver, that service sees whatever you provide to it.
@@ -62,4 +58,4 @@ It is an early OSS release. The request-file contract is intended to be stable, 
 
 ## Can I contribute a driver for another service?
 
-Yes. Start with `docs/request-spec.md` and `scripts/demo-agent.mjs`. A useful driver should read queued request files, produce exactly one deliverable per target, register assets, and report completion.
+Yes. Start with `docs/request-spec.md`. A useful driver should read queued request files, produce exactly one real deliverable per target in the intended service, register assets, and report completion.

@@ -40,22 +40,18 @@ image-arranger.
 
 ```bash
 node --version          # Node 20+ for the app; scripted ChatGPT driver needs Node 22+
-npm start              # terminal 1: http://127.0.0.1:4217 with ./workspace/demo
+npm start              # terminal 1: http://127.0.0.1:4217 with ./workspace/sample
 open http://127.0.0.1:4217/
-npm run demo-agent     # terminal 2, optional local placeholder processor
 npm test
 ```
 
-`npm run demo-agent` is a local placeholder processor for trying the queue loop.
-It handles image, analyze, draft-prompt, and improve targets. The sample
-workspace's pre-seeded pending video request is intentionally skipped because
-video requires a real driver.
+The sample workspace starts with no queued requests. Queue files are created
+only when the operator explicitly queues work in the UI.
 
 For a different port or workspace, run the underlying commands directly:
 
 ```bash
-node server.mjs --workspace ./workspace/demo --init sample --port 4321
-node scripts/demo-agent.mjs --workspace ./workspace/demo --server http://127.0.0.1:4321
+node server.mjs --workspace ./workspace/sample --init sample --port 4321
 ```
 
 ## Workspace and Test-Data Safety
@@ -63,7 +59,7 @@ node scripts/demo-agent.mjs --workspace ./workspace/demo --server http://127.0.0
 - Treat any workspace under `workspace/` that you did not create yourself as
   production data. Do not read, modify, serve, or test with it unless the
   operator explicitly authorizes that workspace for the task.
-- `workspace/demo` is the bundled public-safe sample deck. `npm start` and CI can
+- `workspace/sample` is the bundled public-safe sample deck. `npm start` and CI can
   regenerate it.
 - For automated tests that do not need an operator-provided live workspace, use a
   throwaway workspace under `/tmp` and clean it up when finished.
@@ -102,6 +98,25 @@ verify the prompt, send, wait, save into `outputDir`, register the result as an
 asset candidate, report completion, and write a reviewable log under
 `agent-logs/run-*/`.
 
+### Chrome Profile and Browser Instance Rules
+
+For browser-based processors, one browser profile must have at most one running
+browser instance.
+
+- Before launching Chrome/Chromium for a dedicated profile, check whether that
+  profile is already running.
+- If the intended profile is already running, reuse that running browser when the
+  driver supports it. If it cannot be reused safely, stop and report the exact
+  profile and process conflict. Do not launch a second browser with the same
+  profile.
+- Do not run both a normal Chrome window and an automation Chrome window against
+  the same profile.
+- Do not work around a profile conflict by switching to Codex image generation,
+  screenshots, placeholder output, or any non-service-generated image.
+- On Windows, if Chrome upload, clipboard paste, profile startup, login, or
+  remote-control attachment fails, leave the request uncompleted and report the
+  browser failure. Do not substitute another generation path.
+
 ```bash
 # one-time setup / health check: opens a dedicated automation Chrome profile
 node scripts/process-queue.mjs --check --server http://127.0.0.1:4217
@@ -133,11 +148,6 @@ Division of labour:
 - You handle `draft-prompt` and `analyze` targets. Both are reported via
   `POST /api/requests/complete`; the scripted browser drivers do not process
   them.
-- `scripts/demo-agent.mjs` is the smallest complete reference processor for the
-  request contract. It polls `/api/requests`, creates local placeholder outputs,
-  registers candidates via `POST /api/assets`, and completes targets with the
-  same payload shapes as a real driver.
-
 If a script exits with an error, read `agent-logs/run-*/log.md` first. Fix the
 cause when possible, then rerun. Fall back to manual processing when the script
 itself cannot be repaired or when the target service is unsupported.
@@ -169,9 +179,14 @@ Common target actions:
 
 1. Use ChatGPT image generation for image `generate` targets by default: prefer
    `scripts/process-queue.mjs`, or manually operate ChatGPT when the script is not
-   suitable. Do not use Codex's built-in `image_gen` tool for queued
-   image-arranger work unless the operator explicitly asks to bypass the ChatGPT
-   queue or asks for a Codex-local preview/mock.
+   suitable.
+   Never use Codex's built-in `image_gen` tool for queued image-arranger work.
+   This is a hard prohibition: browser trouble, Chrome upload failure, clipboard
+   failure, login failure, profile conflict, Windows-specific failure, or service
+   refusal does not make Codex image generation acceptable. A Codex-local
+   preview/mock may be created only when the operator explicitly asks for a
+   preview/mock, and it must never be registered as a candidate or used to
+   complete a queued request.
 2. Use the target `prompt` as-is.
 3. If `inputs.refImages` is present, attach only those files. They contain assets
    the user explicitly adopted or the source asset for an improvement. For
@@ -251,6 +266,13 @@ processor exists for the target service.
 4. Register the output in image-arranger as a candidate asset, or report it with
    `POST /api/requests/complete`.
 5. Record enough notes for the operator to understand what was done and why.
+
+Manual fallback is still a real-service workflow. If the normal UI cannot be
+operated because upload, clipboard, login, browser profile, or automation control
+fails, stop with the request still pending or mark it `error` with the real
+failure reason. Do not use Codex image generation, placeholder files,
+screenshots, or cached/internal browser blobs as substitutes for the service
+export.
 
 Detailed attach/prompt/wait/collect guidance for macOS keystroke fallback lives in
 [docs/manual-fallback.md](docs/manual-fallback.md).

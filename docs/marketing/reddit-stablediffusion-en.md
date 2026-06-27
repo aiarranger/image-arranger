@@ -25,7 +25,7 @@ The app writes request JSON files. A human can process them manually in whatever
 
 For character workflows, the Create kit tab can queue a canonical reference sheet from adopted images, then decompose a sheet into per-part references like face, outfit, accessories, and palette when present.
 
-It is local-first, zero runtime dependencies, and runs with Node.js 20+. The repo includes a sample deck and a demo agent that creates local placeholder images, so you can try the loop without any external accounts.
+It is local-first, zero runtime dependencies, and runs with Node.js 20+. The repo includes a sample deck whose queue starts empty; request files are created only when you explicitly queue work, and completion requires a real generated result.
 
 GitHub:
 https://github.com/aiarranger/image-arranger

@@ -24,7 +24,7 @@ relative to the server's project root**, not the workspace.
 
 - The project root defaults to the image-arranger install directory (the folder that
   contains `server.mjs`). It can be overridden with `--project-root`.
-- A typical `outputDir` therefore looks like `workspace/demo/outputs/<characterId>`.
+- A typical `outputDir` therefore looks like `workspace/sample/outputs/<characterId>`.
 - `GET /api/requests` returns the absolute `projectRoot` so a processor can resolve these
   relative paths to absolute ones on disk.
 
@@ -94,8 +94,8 @@ contact sheets, or A/B variants for a single target.
   "referenceUrl": null,
   "basePrompt": "",
   "improvementPrompt": "",
-  "inputs": { "startFrame": null, "endFrame": null, "refImages": ["workspace/demo/assets/face.png"] },
-  "outputDir": "workspace/demo/outputs/sample-character",
+  "inputs": { "startFrame": null, "endFrame": null, "refImages": ["workspace/sample/assets/face.png"] },
+  "outputDir": "workspace/sample/outputs/sample-character",
   "service": "chatgpt",
   "qualityGate": {
     "enabled": true,
@@ -107,7 +107,7 @@ contact sheets, or A/B variants for a single target.
         "category": "accessory",
         "overview": "Horns",
         "prompt": "canonical horn description",
-        "file": "workspace/demo/assets/horns.png",
+        "file": "workspace/sample/assets/horns.png",
         "visibilityRule": "compare-if-visible"
       }
     ]
@@ -192,14 +192,14 @@ interpreting the shape, but processors should prefer this schema for interoperab
       "category": "accessory",
       "overview": "Horns",
       "prompt": "canonical horn description",
-      "file": "workspace/demo/assets/horns.png",
+      "file": "workspace/sample/assets/horns.png",
       "visibilityRule": "compare-if-visible"
     }
   ],
   "attempts": [
     {
       "attempt": 1,
-      "file": "workspace/demo/outputs/sample-character/attempt-1.png",
+      "file": "workspace/sample/outputs/sample-character/attempt-1.png",
       "ok": false,
       "summary": "Visible horn silhouette drifted",
       "parts": [],
@@ -209,7 +209,7 @@ interpreting the shape, but processors should prefer this schema for interoperab
     },
     {
       "attempt": 2,
-      "file": "workspace/demo/outputs/sample-character/attempt-2.png",
+      "file": "workspace/sample/outputs/sample-character/attempt-2.png",
       "ok": true,
       "summary": "Visible parts match"
     }
@@ -268,7 +268,7 @@ curl -X POST http://127.0.0.1:4217/api/assets \
   -d '{
     "characterId": "<character id>",
     "entryId": "<entry id>",
-    "sourceFile": "workspace/demo/outputs/sample-character/result.png",
+    "sourceFile": "workspace/sample/outputs/sample-character/result.png",
     "name": "result",
     "prompt": "<prompt that produced the file>",
     "adopted": false,
@@ -296,7 +296,7 @@ curl -X POST http://127.0.0.1:4217/api/assets \
 Response shape:
 
 ```jsonc
-{ "ok": true, "asset": { "id": "asset-...", "file": "workspace/demo/assets/..." }, "state": { /* deck */ } }
+{ "ok": true, "asset": { "id": "asset-...", "file": "workspace/sample/assets/..." }, "state": { /* deck */ } }
 ```
 
 The usual generate/improve flow is: save one file into `outputDir`, then call
@@ -359,14 +359,14 @@ Response shape:
   "ok": true,
   "asset": {
     "id": "asset-...",
-    "file": "workspace/demo/assets/.../source-transparent.png",
+    "file": "workspace/sample/assets/.../source-transparent.png",
     "adopted": false,
     "humanReviewed": false,
     "tags": ["background-removed"],
     "backgroundRemoval": {
       "sourceAssetId": "<source asset id>",
-      "sourceFile": "workspace/demo/assets/.../source.png",
-      "reviewFile": "workspace/demo/assets/.../source-transparent-review.png",
+      "sourceFile": "workspace/sample/assets/.../source.png",
+      "reviewFile": "workspace/sample/assets/.../source-transparent-review.png",
       "report": {
         "mode": "chroma-green",
         "engine": "local",
@@ -385,7 +385,7 @@ Response shape:
       }
     }
   },
-  "reviewFile": "workspace/demo/assets/.../source-transparent-review.png",
+  "reviewFile": "workspace/sample/assets/.../source-transparent-review.png",
   "report": {
     "mode": "chroma-green",
     "engine": "local",
@@ -510,12 +510,6 @@ The bundled ChatGPT driver is the reference implementation. Its reusable primiti
 exported from [`scripts/agent-browser.mjs`](../scripts/agent-browser.mjs); the orchestration
 that ties them to the request contract lives in
 [`scripts/process-queue.mjs`](../scripts/process-queue.mjs).
-
-For the smallest end-to-end example, read [`scripts/demo-agent.mjs`](../scripts/demo-agent.mjs)
-(`npm run demo-agent`): a zero-dependency driver that exercises the whole contract without any
-browser automation — poll `GET /api/requests`, produce a deliverable (here: a locally rendered
-placeholder PNG), register it via `POST /api/assets`, report `POST /api/requests/complete`.
-Replace the placeholder step with real generation and you have a new service driver.
 
 To drive a new service, fetch `GET /api/requests`, filter targets you can handle, and for
 each one reproduce: attach `inputs.refImages`, set `prompt`, send, wait for the result,

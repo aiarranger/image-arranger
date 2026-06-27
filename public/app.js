@@ -1076,7 +1076,7 @@ async function loadQueue(showMessage = true) {
 // ---- Live queue auto-refresh (Round 3, backlog #1) ------------------------
 // Poll GET /api/requests every ~5s while the page is visible. When a pending
 // target disappears (an agent completed it elsewhere — e.g.
-// scripts/demo-agent.mjs), pull fresh state, re-render via renderT(), toast a
+// an external processor), pull fresh state, re-render via renderT(), toast a
 // celebration, bump the Queue tab, and ring-highlight the freshly registered
 // candidate cards. Network failures retry silently with backoff; nothing
 // re-renders unless the pending set actually changed.

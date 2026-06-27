@@ -9,7 +9,6 @@
     "server.mjs",
     "http-util.mjs",
     "prompts.mjs",
-    "placeholder-art.mjs",
     "png-metadata.mjs",
     "server.test.mjs",
     "public/",
@@ -38,10 +37,9 @@
   "bugs": "https://github.com/aiarranger/image-arranger/issues",
   "license": "MIT",
   "scripts": {
-    "start": "node server.mjs --workspace ./workspace/demo --init sample --port 4217",
+    "start": "node server.mjs --workspace ./workspace/sample --init sample --port 4217",
     "test": "node --test server.test.mjs",
-    "doctor": "node server.mjs --workspace ./workspace/demo --init sample --doctor",
-    "demo-agent": "node scripts/demo-agent.mjs --workspace ./workspace/demo",
-    "check": "node --check server.mjs && node --check public/app.js && node --check public/gallery.js && node --check scripts/process-queue.mjs && node --check scripts/process-vidu-queue.mjs && node --check scripts/agent-browser.mjs && node --check scripts/demo-agent.mjs"
+    "doctor": "node server.mjs --workspace ./workspace/sample --init sample --doctor",
+    "check": "node --check server.mjs && node --check public/app.js && node --check public/gallery.js && node --check scripts/process-queue.mjs && node --check scripts/process-vidu-queue.mjs && node --check scripts/agent-browser.mjs"
   }
 }

@@ -31,19 +31,10 @@ Requires Node.js 20+. No dependencies, no build step.
 ```bash
 git clone https://github.com/aiarranger/image-arranger.git
 cd image-arranger
-node server.mjs --workspace ./workspace/demo --init sample --port 4217
+node server.mjs --workspace ./workspace/sample --init sample --port 4217
 ```
 
-Open <http://127.0.0.1:4217/>. You get a public-safe sample deck to click around in, with every tab populated and one request already waiting in the Queue.
-
-### Try the full loop in 60 seconds
-
-```bash
-npm start              # terminal 1 — server + public-safe sample deck
-npm run demo-agent     # terminal 2 — a tiny agent that completes queued requests
-```
-
-Queue an image request in the app and watch the result land as a candidate asset a few seconds later. Everything is generated locally — the placeholder art needs no accounts, no services, no network. The sample workspace's pre-seeded pending request is a video request, so the demo agent intentionally skips it. See `node scripts/demo-agent.mjs --help` for flags, including `--server` when you start the app on a non-default port.
+Open <http://127.0.0.1:4217/>. You get a public-safe sample deck to click around in. The Queue starts empty; work appears there only after you explicitly queue a request.
 
 <details>
 <summary>Health checks (syntax, tests, workspace doctor)</summary>
@@ -200,7 +191,7 @@ If image-arranger keeps your generation workflow sane, **starring the repo** hel
 ```bash
 git clone https://github.com/aiarranger/image-arranger.git
 cd image-arranger
-node server.mjs --workspace ./workspace/demo --init sample --port 4217
+node server.mjs --workspace ./workspace/sample --init sample --port 4217
 ```
 
 を実行して <http://127.0.0.1:4217/> を開いてください。Node.js 20+ のみで動作し、依存パッケージはありません。

@@ -16,8 +16,33 @@ import {
   runDoctor,
 } from "./server.mjs";
 import { extractPngMetadata } from "./png-metadata.mjs";
-import { pngChunk } from "./placeholder-art.mjs";
 
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buffer.length; i += 1) {
+    crc = CRC_TABLE[(crc ^ buffer[i]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+  const crcBuffer = Buffer.alloc(4);
+  crcBuffer.writeUInt32BE(crc32(body), 0);
+  return Buffer.concat([length, body, crcBuffer]);
+}
 
 async function withServer(callback, options = {}) {
   const temp = mkdtempSync(join(tmpdir(), "image-arranger-"));
@@ -92,7 +117,7 @@ test("server creates request files and updates target status", async () => {
 
     assert.equal(completeResult.ok, true);
     assert.equal(completeResult.completed, 1);
-    assert.equal(completeResult.requests.length, 1); // the seeded sample video request is still pending
+    assert.equal(completeResult.requests.length, 0);
     assert.equal(completeResult.state.characters[0].images[0].requestStatus, "idle");
 
     const completedPayload = JSON.parse(readFileSync(join(context.requestDir, `${result.request.requestId}.json`), "utf8"));
@@ -279,7 +304,7 @@ test("server queues mixed generation and improvement targets and cancels them", 
     assert.equal(queueResult.state.characters[0].images[0].assets.find((item) => item.id === asset.id).requestStatus, "requested");
 
     const listed = await fetch(`${baseUrl}/api/requests`).then((response) => response.json());
-    assert.equal(listed.requests.length, 3); // 2 queued here + the seeded sample video request
+    assert.equal(listed.requests.length, 2);
     assert.equal(listed.requests[0].requestId, queueResult.request.requestId);
     const generateRow = listed.requests.find((item) => item.action === "generate");
     const improveRow = listed.requests.find((item) => item.action === "improve");
@@ -537,7 +562,7 @@ test("server updates characters and cascades queued targets on delete", async ()
       method: "DELETE",
     }).then((response) => response.json());
     assert.equal(deleteResult.ok, true);
-    assert.equal(deleteResult.cancelled, 2); // the queued target plus the seeded sample video request
+    assert.equal(deleteResult.cancelled, 1);
     assert.equal(deleteResult.state.characters.some((item) => item.id === character.id), false);
     assert.equal(deleteResult.requests.length, 0);
 
@@ -801,7 +826,7 @@ test("error reporting marks targets and deck entries, allowing retry", async () 
     assert.equal(errored.errored, 1);
     assert.equal(errored.completed, 0);
     assert.equal(errored.state.characters[0].images[0].requestStatus, "error");
-    assert.equal(errored.requests.length, 1); // the seeded sample video request is still pending
+    assert.equal(errored.requests.length, 0);
     const payload = JSON.parse(readFileSync(join(context.requestDir, `${queued.request.requestId}.json`), "utf8"));
     assert.equal(payload.status, "error");
     assert.equal(payload.targets[0].status, "error");

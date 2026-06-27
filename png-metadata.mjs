@@ -1,5 +1,4 @@
-// PNG generation-metadata reader — zero-dependency companion to
-// placeholder-art.mjs (which WRITES PNG chunks; this module READS them).
+// PNG generation-metadata reader.
 //
 // Stable Diffusion WebUI (A1111), NovelAI, and ComfyUI all embed the
 // generation prompt in PNG tEXt/iTXt/zTXt chunks. extractPngMetadata() walks

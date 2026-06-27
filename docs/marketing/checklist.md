@@ -61,7 +61,7 @@ Draft: `docs/marketing/note-ja.md`
 Draft: `docs/marketing/devto-en.md`
 
 - [ ] Add canonical tags if desired: `ai`, `opensource`, `imagegeneration`, `node`.
-- [ ] Insert demo media.
+- [ ] Insert product media.
 - [ ] Confirm Markdown renders the command blocks.
 - [ ] Publish.
 - [ ] Record URL:

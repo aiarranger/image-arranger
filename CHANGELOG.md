@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Fake queue processors and pre-seeded queue work. The sample deck now starts with real base references only; users must explicitly queue work and complete it with a real generated result.
+
 ### Added
 
 - Cmd+K / Ctrl+K command palette: fuzzy search across commands and every entry in every character (overview + prompt), with match highlighting and keyboard navigation.
@@ -23,11 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Japanese README parity (`README.ja.md`), a glossary, an alternatives/positioning section, and an OS-support matrix.
 - GitHub issue templates (bug, feature, ChatGPT-UI-breakage, new-service) and a pull-request template.
 - Scripted driver resilience: a `--check` selector self-test that reports when ChatGPT's UI has drifted, documented in `SELECTORS.md`.
-- Demo agent (`scripts/demo-agent.mjs`, `npm run demo-agent`): completes queued requests with locally generated placeholder art, so the full queue → agent → result → adopt loop runs with zero accounts, services, or network.
 - PNG metadata auto-import: prompts embedded by A1111, NovelAI, or ComfyUI auto-fill the prompt fields when you upload the PNG.
 - App motion & UX system: animated view transitions, color-coded status badges, delete with Undo toast, adopt pop and fly-to-queue animations, busy/empty states, drag-drop and paste upload, and keyboard shortcuts (`/`, `1`–`5`, `n`, `g`) — all gated on `prefers-reduced-motion`.
-- README workflow diagrams (EN/JA SVG), a conversion-focused README restructure, and a "Try the full loop in 60 seconds" guide.
-- Agent bootstrap docs for Codex/Claude Code, including `CLAUDE.md`, a Quick bootstrap in `AGENTS.md`, and a CI boot-smoke check that starts the app and runs the demo agent.
+- README workflow diagrams (EN/JA SVG) and a conversion-focused README restructure.
+- Agent bootstrap docs for Codex/Claude Code, including `CLAUDE.md` and a Quick bootstrap in `AGENTS.md`.
 - Create kit route cards, inline queue guidance, integrated analysis-result import flow, empty-source CTA, and selected-source count in JA/EN.
 - Color-palette kit support: palette part keys are persisted, palette generation can be queued from adopted references, and adopted palettes can be attached to sheet requests as color authority references.
 - Phase 5 UX assists: queue flow diagrams, prompt insertion chips, sheet request previews, pending return slots, qualityReport timelines, and quality-gate issue chips that queue targeted improve requests.
@@ -42,10 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scripted ChatGPT detection is locale-neutral and structural (assistant-turn first), reducing wrong-deliverable and false-refusal cases.
 - Mutating API endpoints are serialized through a single-writer mutex to prevent lost updates.
 - Internal: extracted `http-util.mjs` (path safety, Range serving, Host/Origin policy) and `prompts.mjs` (base-kit vocabulary) from `server.mjs` as a first step toward a modular layout.
-- Landing page redesigned: problem-first hero with a copyable run command, self-playing demo loop, workflow scrollytelling, before/after, and FAQ — fully offline-safe and reduced-motion friendly.
-- Sample deck v2 (Aichan): every tab is populated on first run with sample base references, and the queue is pre-seeded with one pending request.
+- Landing page redesigned: problem-first hero with a copyable run command, workflow scrollytelling, before/after, and FAQ — fully offline-safe and reduced-motion friendly.
+- Sample deck v2 (Aichan): every tab is populated on first run with sample base references, and the queue starts empty until the user explicitly queues work.
 - Startup now reports a self-solving command when the requested port is already in use.
-- `npm run demo-agent -- --workspace ...` now honors the last repeated option, allowing npm-script defaults to be overridden cleanly.
 - Gallery scope contract: the gallery shows every adopted still image across Base and Image entries (`source-reference` assets excluded).
 - Create kit is now a continuous 1→2→3 flow: pick or upload a core image, create a character setup sheet, then optionally decompose into parts. Route cards, selected-count text, kit palette controls, and kit-level sheet quality gates were removed.
 - Queue and Create kit copy now avoid implementation terms such as request files, commands, and agent handoff language in user-facing UI.
