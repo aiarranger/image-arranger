@@ -4,7 +4,7 @@ Target: dev.to article; can be shortened into a Show HN post.
 Primary link: https://github.com/aiarranger/image-arranger?utm_source=devto&utm_medium=article&utm_campaign=launch-en
 LP link: https://aiarranger.jp/image-arranger/?utm_source=devto&utm_medium=article&utm_campaign=launch-en
 Media slots:
-- Hero: Aichan overview GIF from `docs/assets/marketing/image-arranger-overview-en.gif`
+- Hero: Aichan base references from `docs/assets/base/aichan_design.png`
 - Inline: workflow diagram from `docs/assets/readme/workflow.svg`
 - Inline: Queue result candidate screenshot
 

@@ -73,7 +73,7 @@ test("server creates request files and updates target status", async () => {
     assert.equal(result.ok, true);
     assert.equal(result.request.status, "requested");
     assert.equal(result.request.character, "sample-character");
-    assert.equal(result.request.characterName, "Aoi (Sample Character)");
+    assert.equal(result.request.characterName, "Aichan (Sample Character)");
     assert.equal(result.request.service, "chatgpt");
     assert.deepEqual(result.request.targets[0].inputs.refImages, ["assets/base-reference.png"]);
     assert.equal(result.request.targets[0].outputDir, "outputs/sample-character");
@@ -1513,19 +1513,16 @@ test("absolute sourceFile paths are rejected when registering assets", async () 
   });
 });
 
-test("sample init seeds placeholder assets with provenance", async () => {
+test("sample init seeds Aichan base assets with provenance", async () => {
   await withServer(async ({ baseUrl, context }) => {
     const state = await (await fetch(`${baseUrl}/api/state`)).json();
     const character = state.characters[0];
     const masterAssets = character.base.master[0].assets;
-    const imageAssets = character.images[0].assets;
     assert.equal(masterAssets.length, 2);
     assert.equal(masterAssets[0].adopted, true);
-    assert.equal(masterAssets.filter((asset) => asset.adopted).length, 1);
-    assert.equal(imageAssets.length, 2);
-    assert.equal(imageAssets.filter((asset) => asset.adopted).length, 1);
-    for (const asset of [...masterAssets, ...imageAssets]) {
-      assert.ok(asset.sourceLicense, "placeholder has a sourceLicense");
+    assert.equal(masterAssets.filter((asset) => asset.adopted).length, 2);
+    for (const asset of masterAssets) {
+      assert.ok(asset.sourceLicense, "sample asset has a sourceLicense");
       assert.equal(typeof asset.aiGenerated, "boolean");
       const served = await fetch(`${baseUrl}/asset?path=${encodeURIComponent(asset.file)}`);
       assert.equal(served.status, 200);

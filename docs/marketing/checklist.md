@@ -4,7 +4,7 @@ Human-only actions: recording, posting, account login, scheduling, replies from 
 
 ## Assets
 
-- [ ] Verify the Aichan overview GIFs in `docs/assets/marketing/` and the README showcase GIF at `docs/assets/readme/demo.gif`.
+- [ ] Verify the Aichan base references in `docs/assets/base/aichan_design.png` and `docs/assets/base/aichan.png`.
 - [ ] Confirm published media shows Aichan or real product UI only.
 - [ ] Capture screenshots: Create kit route selection, Queue with requested row, result candidate/adoption, Gallery.
 - [ ] Verify OGP image: https://aiarranger.jp/image-arranger/ogp.png
@@ -25,7 +25,7 @@ Human-only actions: recording, posting, account login, scheduling, replies from 
 
 Draft: `docs/marketing/x-ja.md`
 
-- [ ] Attach the Aichan overview GIF to post 1.
+- [ ] Attach the Aichan base references to post 1.
 - [ ] Confirm every post remains within the platform character limit after edits, including the full post text and URLs.
 - [ ] Check GitHub URL with UTM opens.
 - [ ] Post thread.
@@ -36,7 +36,7 @@ Draft: `docs/marketing/x-ja.md`
 
 Draft: `docs/marketing/x-en.md`
 
-- [ ] Attach the Aichan overview GIF to post 1.
+- [ ] Attach the Aichan base references to post 1.
 - [ ] Confirm every post remains within the platform character limit after edits, including the full post text and URLs.
 - [ ] Confirm no claim says image-arranger directly generates.
 - [ ] Check GitHub URL with UTM opens.

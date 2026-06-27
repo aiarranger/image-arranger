@@ -11,14 +11,14 @@
 [![Node 20+](https://img.shields.io/badge/node-%3E%3D%2020-339933?logo=node.js&logoColor=white)](#quick-start)
 [![Runtime dependencies](https://img.shields.io/badge/runtime%20deps-0-6c5ce7)](#quick-start)
 
-[Landing page](https://aiarranger.jp/image-arranger/) · [Aichan overview GIF](https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en.gif) · [Quick Start](#quick-start) · [How requests flow](#how-requests-flow) · [日本語 README](README.ja.md)
+[Landing page](https://aiarranger.jp/image-arranger/) · [Aichan base references](https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/base/aichan_design.png) · [Quick Start](#quick-start) · [How requests flow](#how-requests-flow) · [日本語 README](README.ja.md)
 
 <p><strong>Service overview with Aichan assets (English)</strong></p>
-<a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en.gif"><img src="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en-poster.png" alt="Poster linking to an English GIF overview of Image-Arrangrer organizing Aichan image, prompt, source, and video generation assets" width="480"></a>
-<p><em>Summary: Image-Arrangrer keeps AI image and video iterations organized by tracking prompts, source references, generated assets, and adoption state. <a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-en.gif">Open the GIF</a>.</em></p>
+<a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/base/aichan_design.png"><img src="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/base/aichan.png" alt="Aichan key visual linking to the design sheet used as the sample base reference" width="480"></a>
+<p><em>Summary: Image-Arrangrer keeps AI image and video iterations organized by tracking prompts, source references, generated assets, and adoption state. <a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/base/aichan_design.png">Open the design sheet</a>.</em></p>
 
-<!-- README_GIF: docs/assets/readme/demo.gif — Aichan public showcase used by the README embed below. -->
-<img src="docs/assets/readme/demo.gif" alt="Aichan showcase: building a character kit, reviewing candidates, browsing the gallery, and queueing work in image-arranger" width="800">
+<!-- README_IMAGE: docs/assets/base/aichan_design.png — Aichan public showcase used by the README embed below. -->
+<img src="docs/assets/base/aichan_design.png" alt="Aichan showcase: building a character kit, reviewing candidates, browsing the gallery, and queueing work in image-arranger" width="800">
 
 </div>
 

@@ -5,21 +5,21 @@
   "updatedAt": "2026-06-06T00:00:00.000Z",
   "settings": {
     "currentCharacterId": "sample-character",
-    "mode": "image"
+    "mode": "base"
   },
   "characters": [
     {
       "id": "sample-character",
-      "name": "Aoi (Sample Character)",
+      "name": "Aichan (Sample Character)",
       "workflow": "character",
       "categoryLabels": {},
-      "description": "Fictional demo character bundled with image-arranger: Aoi, a cheerful bicycle courier with a short teal bob, amber eyes, a sky-blue cap and a mustard jacket. Every image is generated locally at first run — replace with your own art. / image-arranger 同梱の架空デモキャラ「アオイ」。画像はすべて初回起動時にローカル生成されるプレースホルダーです。",
+      "description": "Public sample character bundled with image-arranger: Aichan, a small demon-themed anime girl with magenta-violet hair, red horns, red eyes, compact bat wings, a devil tail, black hoodie, purple check dress, choker, gloves, stockings, and black boots. / image-arranger 同梱の公開サンプルキャラクター「AIちゃん」。ベースにはキー画像と設定資料を登録します。",
       "base": {
         "master": [
           {
             "id": "base-sample-character-master",
-            "overview": "Full-body base / 全身ベース",
-            "prompt": "full body character reference sheet of Aoi, a cheerful young bicycle courier with a short teal bob and amber eyes, neutral A-pose, front view, flat pastel background, soft even lighting, clean cel shading, consistent face, single character, no text, no watermark",
+            "overview": "Aichan base references / AIちゃんベース参照",
+            "prompt": "Aichan character reference: small demon-themed anime girl, magenta-violet layered shoulder-length hair with hot pink underside, red curved horns, red eyes, black choker, black hoodie, purple check dress with lace trim, black gloves, thigh-high stockings, black boots, compact red-black bat wings, long purple devil tail with red heart tip; keep identity, outfit, wing size, horn size, and tail shape consistent; no text, no logo, no watermark",
             "version": 1,
             "checked": false,
             "requestStatus": "idle",
@@ -30,8 +30,8 @@
         "accessory": [
           {
             "id": "base-sample-character-accessory-cap",
-            "overview": "Sky-blue cap / 水色キャップ",
-            "prompt": "isolated reference of Aoi's sky-blue baseball cap, slightly worn brim, faithful to the master sheet colors, flat neutral background, clean cel shading, single object, no text",
+            "overview": "Horns, wings, and tail / 角・羽・しっぽ",
+            "prompt": "Aichan attached parts reference: red curved horns on upper head, compact red-black bat wings on upper back, long purple devil tail with red heart tip attached at lower back; preserve size, curve, colors, and attachment points; no text, no logo, no watermark",
             "version": 1,
             "checked": false,
             "requestStatus": "idle",
@@ -42,8 +42,8 @@
         "expression": [
           {
             "id": "base-sample-character-expression-smile",
-            "overview": "Smile / 笑顔",
-            "prompt": "face close-up of Aoi with a bright friendly smile, relaxed eyes, faithful to the master sheet, flat neutral background, clean cel shading, no text",
+            "overview": "Smile expression / 笑顔",
+            "prompt": "Aichan face close-up with bright smile, red eyes, magenta-violet layered hair, red horns, black choker, faithful to the base references; no text, no logo, no watermark",
             "version": 1,
             "checked": false,
             "requestStatus": "idle",
@@ -52,8 +52,8 @@
           },
           {
             "id": "base-sample-character-expression-focus",
-            "overview": "Focused / 集中",
-            "prompt": "face close-up of Aoi with a focused expression, slight frown, eyes locked forward, faithful to the master sheet, flat neutral background, clean cel shading, no text",
+            "overview": "Neutral expression / 真顔",
+            "prompt": "Aichan face close-up with neutral expression, red eyes, magenta-violet layered hair, red horns, black choker, faithful to the base references; no text, no logo, no watermark",
             "version": 1,
             "checked": false,
             "requestStatus": "idle",
@@ -64,8 +64,8 @@
         "clothing": [
           {
             "id": "base-sample-character-clothing-casual",
-            "overview": "Courier jacket / 配達ジャケット",
-            "prompt": "isolated outfit reference of Aoi's mustard-yellow courier jacket with rolled sleeves over a white tee, faithful colors and trims, clean readable silhouette, flat neutral background, no text",
+            "overview": "Hoodie and dress outfit / パーカーとワンピース",
+            "prompt": "Aichan outfit reference: black oversized hoodie over purple check dress with lace trim, black choker with ring, fingerless gloves, thigh-high stockings with garter strap, chunky black boots; preserve silhouette and colors; no text, no logo, no watermark",
             "version": 1,
             "checked": false,
             "requestStatus": "idle",
@@ -76,8 +76,8 @@
         "background": [
           {
             "id": "base-sample-character-background-studio",
-            "overview": "Studio / スタジオ",
-            "prompt": "simple bright studio background, soft white sweep with a hint of warm bounce light, empty scene, no characters, no text",
+            "overview": "Clean reference background / 設定資料用背景",
+            "prompt": "clean neutral reference-sheet background, white or light gray, no scene props, no text, no logo, no watermark",
             "version": 1,
             "checked": false,
             "requestStatus": "idle",
@@ -89,8 +89,8 @@
       "images": [
         {
           "id": "image-sample-character-studio-smile",
-          "overview": "Smiling in the studio / スタジオで笑顔",
-          "prompt": "waist-up portrait of Aoi smiling at the camera in a bright studio, sky-blue cap and mustard courier jacket, soft key light with warm bounce, crisp clean line art, polished illustration, single character, no text, no watermark",
+          "overview": "Aichan portrait / AIちゃんポートレート",
+          "prompt": "waist-up portrait of Aichan smiling at the camera, sunset seaside light, magenta-violet hair, red horns, red eyes, black hoodie, choker, compact bat wings visible, polished anime illustration, single character, no text, no logo, no watermark",
           "version": 1,
           "checked": false,
           "requestStatus": "idle",
@@ -114,8 +114,8 @@
         },
         {
           "id": "image-sample-character-rooftop-dusk",
-          "overview": "Rooftop at dusk / 夕暮れの屋上",
-          "prompt": "Aoi leaning on a rooftop railing at dusk after her last delivery, warm rim light on her teal hair, city bokeh lights below, wind lifting her jacket collar, cinematic color grading, single character, no text, no watermark",
+          "overview": "Aichan full-body scene / AIちゃん全身シーン",
+          "prompt": "full-body illustration of Aichan standing in a clean studio reference pose, black hoodie, purple check dress, horns, wings, tail, boots, faithful to the design sheet, polished anime style, single character, no text, no logo, no watermark",
           "version": 1,
           "checked": false,
           "requestStatus": "idle",
@@ -139,8 +139,8 @@
       "videos": [
         {
           "id": "video-sample-character-dusk-greeting",
-          "overview": "Dusk greeting, 8s / 夕暮れのあいさつ（8秒）",
-          "prompt": "0-2s: start on the studio portrait, slow push-in from waist-up to a gentle face close-up as Aoi notices the camera. 2-4s: she breaks into a bright smile and gives a small wave, hair swaying once. 4-6s: quarter orbit around her while the light warms to golden hour. 6-8s: she turns toward the dusk skyline and the shot settles on the rooftop end frame, holding on her smiling profile. Keep her face sharp and in focus throughout, consistent character design, no text, no watermark",
+          "overview": "Aichan reference turn, 8s / AIちゃん参照ターン（8秒）",
+          "prompt": "0-2s: start on the Aichan key visual and hold the smiling face. 2-4s: slow push-in while hair and hoodie move subtly. 4-6s: gentle transition toward the design sheet pose, keeping horns, wings, tail, outfit, and eye color consistent. 6-8s: settle on a clean full-body reference view. No text, no logo, no watermark.",
           "version": 1,
           "checked": false,
           "requestStatus": "idle",

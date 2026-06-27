@@ -11,14 +11,14 @@
 [![Node 20+](https://img.shields.io/badge/node-%3E%3D%2020-339933?logo=node.js&logoColor=white)](#クイックスタート)
 [![Runtime dependencies](https://img.shields.io/badge/runtime%20deps-0-6c5ce7)](#クイックスタート)
 
-[ランディングページ](https://aiarranger.jp/image-arranger/) · [AIちゃん説明GIF](https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-ja.gif) · [クイックスタート](#クイックスタート) · [依頼の流れ](#依頼の流れhow-requests-flow) · [English README](README.md)
+[ランディングページ](https://aiarranger.jp/image-arranger/) · [AIちゃんベース資料](https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/base/aichan_design.png) · [クイックスタート](#クイックスタート) · [依頼の流れ](#依頼の流れhow-requests-flow) · [English README](README.md)
 
 <p><strong>AIちゃん素材を使ったサービス説明（日本語）</strong></p>
-<a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-ja.gif"><img src="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-ja-poster.png" alt="Image-Arrangrer がAIちゃんの画像・プロンプト・参照元・動画素材を整理する流れを示す日本語説明GIFへのポスター画像リンク" width="480"></a>
-<p><em>概要：Image-Arrangrer は、AI画像・動画生成の試行、プロンプト、参照元、生成物、採用状態をまとめて管理します。<a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/marketing/image-arranger-overview-ja.gif">GIFを開く</a>。</em></p>
+<a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/base/aichan_design.png"><img src="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/base/aichan.png" alt="サンプルのベース参照として使うAIちゃんキー画像。設定資料へのリンクです" width="480"></a>
+<p><em>概要：Image-Arrangrer は、AI画像・動画生成の試行、プロンプト、参照元、生成物、採用状態をまとめて管理します。<a href="https://raw.githubusercontent.com/aiarranger/image-arranger/main/docs/assets/base/aichan_design.png">設定資料を開く</a>。</em></p>
 
-<!-- README_GIF: docs/assets/readme/demo.gif — README 埋め込み用の AIちゃん公開ショーケースです。 -->
-<img src="docs/assets/readme/demo.gif" alt="AIちゃんショーケース：image-arranger でキャラクターキット、候補確認、ギャラリー、キュー投入を扱う流れ" width="800">
+<!-- README_IMAGE: docs/assets/base/aichan_design.png — README 埋め込み用の AIちゃん公開ショーケースです。 -->
+<img src="docs/assets/base/aichan_design.png" alt="AIちゃんショーケース：image-arranger でキャラクターキット、候補確認、ギャラリー、キュー投入を扱う流れ" width="800">
 
 </div>
 

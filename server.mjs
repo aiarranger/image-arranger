@@ -73,6 +73,7 @@ const DEFAULT_REQUEST_DIR = join(DEFAULT_WORKSPACE, "requests");
 const DEFAULT_OUTPUT_DIR = join(DEFAULT_WORKSPACE, "outputs");
 const DEFAULT_ASSET_DIR = join(DEFAULT_WORKSPACE, "assets");
 const DEFAULT_SAMPLE_DECK = join(TOOL_ROOT, "examples", "sample-deck.json");
+const SAMPLE_ASSET_DIR = join(TOOL_ROOT, "examples", "assets");
 const DEFAULT_REMBG_MODEL = "isnet-anime";
 const SCHEMA_VERSION = "image-arranger.v1";
 const LEGACY_SCHEMA_VERSION = "prompt-deck.v1";
@@ -3178,10 +3179,9 @@ export function runDoctor(options = {}) {
 
 
 // ---------------------------------------------------------------------------
-// Sample workspace seeding: dependency-free placeholder art (rendering
-// primitives in placeholder-art.mjs, shared with scripts/demo-agent.mjs) plus
-// a pre-populated queue, so every tab of a fresh `--init sample` workspace is
-// alive on first run without bundling binary fixtures.
+// Sample workspace seeding: user-visible base references plus a pre-populated
+// queue, so the reference workflow is ready on first run. The demo agent still
+// uses placeholder-art.mjs for generated queue outputs.
 // ---------------------------------------------------------------------------
 
 function makeSampleArt(spec) {
@@ -3226,11 +3226,6 @@ function seedSampleAssets(context) {
   const pick = (list, id) => (list ?? []).find((item) => item.id === id);
   const base = character.base ?? {};
   const master = pick(base.master, "base-sample-character-master");
-  const cap = pick(base.accessory, "base-sample-character-accessory-cap");
-  const smile = pick(base.expression, "base-sample-character-expression-smile");
-  const focus = pick(base.expression, "base-sample-character-expression-focus");
-  const jacket = pick(base.clothing, "base-sample-character-clothing-casual");
-  const studio = pick(base.background, "base-sample-character-background-studio");
   const imageSmile = pick(character.images, "image-sample-character-studio-smile");
   const imageRooftop = pick(character.images, "image-sample-character-rooftop-dusk");
   const video = pick(character.videos, "video-sample-character-dusk-greeting");
@@ -3238,23 +3233,29 @@ function seedSampleAssets(context) {
   if ((master.assets ?? []).length || (imageSmile.assets ?? []).length) return;
 
   const specs = [
-    { entry: master, file: "base-master-adopted.png", w: 768, h: 1024, palette: 5, adopted: true, badge: "BASE / MASTER", title: "AOI - FULL-BODY BASE", caption: "teal bob, amber eyes, sky-blue cap, mustard courier jacket", name: "Canonical full-body sheet / 全身カノニカル" },
-    { entry: master, file: "base-master-earlier.png", w: 768, h: 1024, palette: 7, adopted: false, badge: "BASE / CANDIDATE", title: "EARLIER TAKE", caption: "kept for comparison - proportions drift", name: "Earlier take / 比較用の旧テイク" },
-    { entry: cap, file: "base-cap-adopted.png", w: 640, h: 640, palette: 3, adopted: true, badge: "BASE / ACCESSORY", title: "SKY-BLUE CAP", name: "Cap reference / キャップ参照" },
-    { entry: smile, file: "base-smile-adopted.png", w: 640, h: 640, palette: 2, adopted: true, badge: "BASE / EXPRESSION", title: "SMILE", name: "Smile reference / 笑顔参照" },
-    { entry: smile, file: "base-smile-alt.png", w: 640, h: 640, palette: 1, adopted: false, badge: "BASE / CANDIDATE", title: "SMILE - ALT", caption: "wider grin - awaiting review", name: "Alternate smile / 笑顔の別案" },
-    { entry: focus, file: "base-focus-adopted.png", w: 640, h: 640, palette: 0, adopted: true, badge: "BASE / EXPRESSION", title: "FOCUSED", name: "Focused reference / 集中参照" },
-    { entry: jacket, file: "base-jacket-adopted.png", w: 768, h: 960, palette: 4, adopted: true, badge: "BASE / CLOTHING", title: "COURIER JACKET", name: "Jacket reference / ジャケット参照" },
-    { entry: studio, file: "base-studio-adopted.png", w: 1024, h: 640, palette: 6, adopted: true, badge: "BASE / BACKGROUND", title: "STUDIO", name: "Studio backdrop / スタジオ背景" },
-    { entry: imageSmile, file: "image-studio-smile-adopted.png", w: 1024, h: 640, palette: 2, adopted: true, badge: "IMAGE / ADOPTED", title: "SMILING IN THE STUDIO", caption: "waist-up, soft key light", name: "Adopted result / 採用カット" },
-    { entry: imageSmile, file: "image-studio-smile-take2.png", w: 1024, h: 640, palette: 3, adopted: false, badge: "IMAGE / CANDIDATE", title: "STUDIO - TAKE 2", caption: "cooler light - candidate", name: "Take 2 / テイク2（候補）" },
-    { entry: imageRooftop, file: "image-rooftop-dusk-take1.png", w: 1024, h: 640, palette: 1, adopted: false, badge: "IMAGE / NEW RESULT", title: "ROOFTOP AT DUSK", caption: "fresh from the queue - review and adopt", name: "New result / 新着結果（未採用）" },
+    { entry: master, source: "aichan_design.png", file: "base-master-adopted.png", adopted: true, name: "Aichan design sheet / AIちゃん設定資料" },
+    { entry: master, source: "aichan.png", file: "base-key-visual-adopted.png", adopted: true, name: "Aichan key visual / AIちゃんキー画像" },
   ].filter((spec) => spec.entry);
 
   const assetIds = new Map();
   for (const spec of specs) {
     const destination = join(context.assetDir, spec.file);
-    if (!existsSync(destination)) writeFileSync(destination, makeSampleArt(spec));
+    const source = join(SAMPLE_ASSET_DIR, spec.source);
+    if (!existsSync(destination)) {
+      if (existsSync(source)) {
+        copyFileSync(source, destination);
+      } else {
+        writeFileSync(destination, makeSampleArt({
+          ...spec,
+          w: spec.file.includes("key-visual") ? 430 : 1491,
+          h: spec.file.includes("key-visual") ? 330 : 1055,
+          palette: 5,
+          badge: "BASE / MASTER",
+          title: "AICHAN BASE",
+          caption: "sample source file missing - generated fallback",
+        }));
+      }
+    }
     const assetId = `asset-${safeSlug(spec.entry.id)}-${spec.file.replace(/[^a-z0-9]+/gi, "-")}`;
     assetIds.set(spec.file, assetId);
     spec.entry.assets = [...(spec.entry.assets ?? []), {
@@ -3264,17 +3265,17 @@ function seedSampleAssets(context) {
       name: spec.name,
       adopted: spec.adopted,
       prompt: spec.adopted ? (spec.entry.prompt ?? "") : "",
-      sourceLicense: "CC0 (generated placeholder)",
+      sourceLicense: "User-provided sample asset",
       aiGenerated: false,
       humanReviewed: true,
-      usageNotes: "Locally generated placeholder bundled with the sample workspace - replace with your own art.",
+      usageNotes: "Bundled Aichan sample base reference. Replace with your own art before publishing a private workspace.",
       tags: [],
     }];
   }
 
   if (video && !video.startFrame && !video.endFrame) {
-    video.startFrame = assetIds.get("image-studio-smile-adopted.png") ?? "";
-    video.endFrame = assetIds.get("image-rooftop-dusk-take1.png") ?? "";
+    video.startFrame = assetIds.get("base-key-visual-adopted.png") ?? "";
+    video.endFrame = assetIds.get("base-master-adopted.png") ?? "";
   }
 
   seedSampleRequests(context, { character, video, imageRooftop, assetIds });
@@ -3293,43 +3294,9 @@ function seedSampleRequests(context, refs) {
   const workspaceOutputs = toPosixPath(relative(context.projectRoot, context.outputDir));
   const relAsset = (file) => toPosixPath(relative(context.projectRoot, join(context.assetDir, file)));
 
-  if (imageRooftop) {
-    writeJson(join(context.requestDir, "req_sample_completed_rooftop.json"), {
-      schema: "image-arranger-request.v1",
-      requestId: "req_sample_completed_rooftop",
-      status: "completed",
-      character: character.id,
-      characterName: character.name,
-      mode: "image",
-      service: "chatgpt",
-      targets: [{
-        action: "generate",
-        entryId: imageRooftop.id,
-        assetId: null,
-        assetName: null,
-        assetFile: null,
-        overview: imageRooftop.overview,
-        prompt: imageRooftop.prompt,
-        referenceUrl: null,
-        basePrompt: "",
-        improvementPrompt: "",
-        inputs: { startFrame: null, endFrame: null, refImages: [] },
-        outputDir: `${workspaceOutputs}/${character.id}`,
-        service: "chatgpt",
-        status: "completed",
-        completedAt: nowIso(),
-        results: [{ file: relAsset("image-rooftop-dusk-take1.png"), assetId: assetIds.get("image-rooftop-dusk-take1.png"), sample: true }],
-      }],
-      requestedAt: nowIso(),
-      completedAt: nowIso(),
-      updatedAt: nowIso(),
-      note: SAMPLE_REQUEST_NOTE,
-    });
-  }
-
   if (video) {
-    const startFile = relAsset("image-studio-smile-adopted.png");
-    const endFile = relAsset("image-rooftop-dusk-take1.png");
+    const startFile = relAsset("base-key-visual-adopted.png");
+    const endFile = relAsset("base-master-adopted.png");
     writeJson(join(context.requestDir, "req_sample_pending_video.json"), {
       schema: "image-arranger-request.v1",
       requestId: "req_sample_pending_video",

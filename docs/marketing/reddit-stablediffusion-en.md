@@ -2,7 +2,7 @@
 
 Target: r/StableDiffusion
 Primary link: https://github.com/aiarranger/image-arranger
-Media slot: attach demo GIF/video if subreddit rules and flair allow it.
+Media slot: attach the Aichan design sheet or key visual if subreddit rules and flair allow it.
 
 ## Suggested Title
 

@@ -3,7 +3,7 @@
 Target: X / English launch thread
 Primary link: https://github.com/aiarranger/image-arranger?utm_source=x&utm_medium=social&utm_campaign=launch-en
 LP link: https://aiarranger.jp/image-arranger/?utm_source=x&utm_medium=social&utm_campaign=launch-en
-Media slot: attach the Aichan overview GIF from `docs/assets/marketing/image-arranger-overview-en.gif` to post 1.
+Media slot: attach the Aichan base references from `docs/assets/base/aichan_design.png` to post 1.
 
 ## Thread
 
@@ -29,6 +29,6 @@ Media slot: attach the Aichan overview GIF from `docs/assets/marketing/image-arr
 
 ## Notes
 
-- Post 1 is the hook; attach the Aichan overview GIF there.
+- Post 1 is the hook; attach the Aichan base references there.
 - Use the LP link when replying to non-technical readers.
 - Avoid claiming Windows/Linux scripted processing is fully tested; README says the server is cross-platform, the scripted processor is macOS-tested with Windows/Linux paths present but untested.
