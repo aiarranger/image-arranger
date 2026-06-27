@@ -40,6 +40,6 @@
     "start": "node server.mjs --workspace ./workspace/sample --init sample --port 4217",
     "test": "node --test server.test.mjs",
     "doctor": "node server.mjs --workspace ./workspace/sample --init sample --doctor",
-    "check": "node --check server.mjs && node --check public/app.js && node --check public/gallery.js && node --check scripts/process-queue.mjs && node --check scripts/process-vidu-queue.mjs && node --check scripts/agent-browser.mjs"
+    "check": "node --check server.mjs && node --check public/app.js && node --check public/gallery.js && node --check scripts/process-queue.mjs && node --check scripts/service-browser-profile.mjs && node --check scripts/process-vidu-queue.mjs && node --check scripts/agent-browser.mjs && node --check scripts/process-chatgpt-profile-queue.mjs && node --check scripts/process-service-queue.mjs"
   }
 }

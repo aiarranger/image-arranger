@@ -13,6 +13,15 @@ Do not mark a GUI issue fixed only because DOM metrics or an alternate implement
 
 For image-arranger work, use the operator-approved GUI/UX verification URL. In this repository's default workflow that URL is `http://127.0.0.1:4217/` unless the operator gives a newer URL. Saves and data changes are allowed only when the operator or repo-local rules allow them and they are needed to verify or fix the user-visible issue; record any mutation in the evidence.
 
+For image-arranger browser operation that touches generation queues, ChatGPT, or
+service-driver flows, use `skills/image-arranger-queue-processing`. That skill is
+the canonical route and `scripts/process-service-queue.mjs` is the first-choice
+executor. In short: let the common entrypoint route ChatGPT and Vidu targets to
+their drivers, use only the locally selected existing Chrome profile for
+ChatGPT, never launch a second browser for that profile, and never fall back to
+Codex image generation, screenshots, placeholder files, a temporary Chrome
+profile, or any other Google/ChatGPT profile.
+
 For any frontend fix or user-reported UI bug, run a second check with a context-less sub-agent when the agent platform supports it. Start it with no conversation history (`fork_context: false` or equivalent), give only the running URL, user-visible task, user screenshot, and whether mutation is allowed for that check. The independent report must pass before saying "confirmed fixed"; otherwise document the remaining failure or limitation.
 
 Close every sub-agent as soon as its assigned UI QA task is complete, cancelled, no longer needed, or superseded by a newer user request. A sub-agent is a per-task resource, not a standing reviewer; do not leave completed, failed, interrupted, or stale sub-agents open between tasks.

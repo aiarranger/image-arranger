@@ -97,14 +97,17 @@ image-arranger はそのワークフローに構造を与えます。
 
 ### スクリプト処理（任意）
 
-リポジトリには、キューされた ChatGPT 画像ターゲットを端から端まで処理し、レビュー可能な実行ログ（手順＋スクリーンショット）を `agent-logs/` に書き出す任意の自動化ドライバが同梱されています。
+リポジトリには任意のサービスドライバが同梱されています。ブラウザを使うドライバでは、先に Chrome プロファイルを選択し、その後に共通のサービスキュー入口を実行します。
 
 ```bash
-node scripts/process-queue.mjs --check    # 初回セットアップ：専用の自動化用 Chrome を開き、ChatGPT に一度サインイン
-node scripts/process-queue.mjs            # キューされた chatgpt の generate/improve ターゲットを全処理
+node scripts/process-service-queue.mjs --setup-profile --service chatgpt
+node scripts/process-service-queue.mjs --setup-profile --service vidu
+node scripts/process-service-queue.mjs --check --service chatgpt --ensure-tab
+node scripts/process-service-queue.mjs --check --service vidu
+node scripts/process-service-queue.mjs
 ```
 
-- **Node 22+**（サーバ本体は Node 20+ で動作）と Chrome/Chromium が必要です。macOS でテスト済みで、Windows/Linux でも動作見込み（CDP ベース・OS レベルの権限不要）。
+- **Node 22+**（サーバ本体は Node 20+ で動作）と Chrome/Chromium が必要です。ChatGPT と Vidu は macOS でテスト済みで、選択済みの通常 Chrome プロファイルにすでに開いている marker タブを再利用します。Vidu は start/end フレームをそのタブへ投入し、Vidu の通常 UI で作成、MP4 保存、完了報告まで行います。生成された自動化用プロファイルへ戻ることは禁止です。
 - **免責**：これは *あなたのブラウザ*を *あなたのアカウント*で *あなたの責任*において操作し、生成サービスの利用規約と衝突しうるため、使用前に必ず確認してください。安定したインターフェースは [依頼ファイル契約](docs/request-spec.md) であり、このドライバは差し替え可能な便宜ツールです。手動でも、独自ツールでも依頼を処理できます。
 
 ### 同梱 Codex skill
@@ -126,7 +129,7 @@ node scripts/process-queue.mjs            # キューされた chatgpt の gener
 | 層 | 要件 | 状態 |
 |----|------|------|
 | **サーバ**（`server.mjs`・UI・依頼ファイル） | Node 20+ が動く任意の OS | Node が動く環境すべてでサポート |
-| **スクリプト処理**（`scripts/`） | **Node 22+**（グローバル `WebSocket` を使用）＋ Chrome/Chromium | 設計上クロスプラットフォーム（CDP・OS 権限不要）。macOS でテスト済み。Windows/Linux 用の Chrome パスは `agent-browser.mjs` にあるが未検証——フィードバック歓迎 |
+| **スクリプト処理**（`scripts/`） | **Node 22+**（グローバル `WebSocket` を使用）＋ Chrome/Chromium | 共通入口が保存済み通常 Chrome プロファイルを確認し、そのプロファイルで開いている marker タブを再利用する。ChatGPT と Vidu は macOS でテスト済み。Vidu は通常 UI または直接結果 URL から MP4 を保存する。旧 CDP キュードライバは無効 |
 | **手動キーストロークのフォールバック**（[AGENTS.md](AGENTS.md) ／ [docs/manual-fallback.md](docs/manual-fallback.md)） | macOS（`osascript` / `pbcopy` / `pbpaste`） | **macOS のみ**。Windows/Linux 相当は未確立 |
 
 バージョンの差分に注意：**サーバは Node 20+** で動きますが、**スクリプト処理はグローバル `WebSocket` のため Node 22+** が必要です。Node 20 ではスクリプトが明確なメッセージを表示してクリーンに終了します。

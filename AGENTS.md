@@ -31,6 +31,8 @@ for maintaining the OSS app:
 
 - `skills/gui-ux-verification` - real UI verification rules for frontend fixes
   and scroll/click operability bugs.
+- `skills/image-arranger-queue-processing` - the only approved browser route for
+  processing image-arranger generation queues in this operator environment.
 
 If your agent runtime does not auto-discover repository-local skills, install or
 copy that folder into the runtime's skill search path before doing GUI QA on
@@ -85,7 +87,122 @@ DOM metrics, source reading, and shortcut API calls are supporting evidence only
 - Report concrete evidence: URL, viewport size, starting screen, actions, what was
   visible, what changed, and any remaining skipped checks.
 
-## Scripted Processing (optional)
+## Queue Processing Browser Route
+
+For this operator environment, there is exactly one approved entrypoint for
+queued ChatGPT image generation and Vidu image-to-video processing:
+
+```bash
+node scripts/process-service-queue.mjs --setup-profile --service chatgpt
+node scripts/process-service-queue.mjs --setup-profile --service vidu
+node scripts/process-service-queue.mjs --check --service chatgpt --ensure-tab --server http://127.0.0.1:4217
+node scripts/process-service-queue.mjs --check --service vidu --server http://127.0.0.1:4217
+node scripts/process-service-queue.mjs --dry-run --server http://127.0.0.1:4217
+node scripts/process-service-queue.mjs --server http://127.0.0.1:4217
+```
+
+Use `skills/image-arranger-queue-processing` as the canonical step-by-step
+procedure. The script above is the first-choice executor for this operator
+environment; it delegates to the ChatGPT or Vidu driver based on each queued
+target's `service`. Use manual browser operations only to repair that same
+route, then rerun from the beginning.
+
+1. Keep image-arranger itself in the Codex in-app browser at
+   `http://127.0.0.1:4217/` for local app inspection and queue state.
+2. Operate ChatGPT only in the already-running external Chrome profile selected
+   by `node scripts/process-service-queue.mjs --setup-profile --service chatgpt`.
+   The local selection is saved in `workspace/.local/chatgpt-profile.json`,
+   which is ignored by git. This selection is written and verified only through
+   `scripts/service-browser-profile.mjs`.
+3. Select that Chrome backend explicitly through `agent.browsers.list()` by
+   matching the saved profile name. Do not use the default `extension` backend
+   blindly.
+4. Use one ChatGPT work tab with a marker URL that includes
+   `agent-work=image-arranger`, `profile-directory`, and `profile-email` for the
+   saved profile. Reuse that tab for the whole queue attempt. The script must
+   not create this tab; if it is missing, it stops and prints the exact URL to
+   open in the saved Chrome profile.
+5. Attach reference images with the macOS real clipboard route only:
+   `osascript` sets the clipboard to the PNG as `«class PNGf»`, the marked
+   ChatGPT tab is brought to the front, the composer is focused, and System
+   Events sends a real `Cmd+V`.
+6. Insert the prompt into the composer with page-context
+   `document.execCommand("insertText", false, prompt)` or an equally verified
+   normal text-entry path, then verify the full prompt is visible and the send
+   button is enabled before sending.
+7. Send through the visible ChatGPT composer, wait for completion, save through
+   the normal ChatGPT image UI, then register the downloaded/exported file through
+   the image-arranger request completion API.
+8. Vidu targets are routed by the same common entrypoint to the Vidu driver. Vidu
+   must first be configured with
+   `node scripts/process-service-queue.mjs --setup-profile --service vidu`.
+   The local selection is saved in `workspace/.local/vidu-profile.json`; without
+   that file the Vidu driver must print candidates and stop before opening
+   Chrome. This selection is written and verified only through
+   `scripts/service-browser-profile.mjs`. Vidu must open in the selected normal
+   Chrome profile, for example `kaminokuresse@gmail.com` / `ユーザー 1`, not in
+   a generated `~/.image-arranger/vidu-*` profile. Do not use the rejected
+   `~/.image-arranger/agent-chrome` profile for ChatGPT or Vidu. The Vidu driver
+   must not launch Chrome or create a tab; it may only reuse a Vidu marker URL
+   that is already open in the saved profile.
+
+### Common Service Browser Profile Contract
+
+Every browser-based generation service driver must use
+`scripts/service-browser-profile.mjs` for the startup/profile phase. This is the
+only approved startup contract for ChatGPT, Vidu, and future service drivers.
+
+Required flow:
+
+1. `--list-profiles` lists candidates from Chrome `Local State`.
+2. `--setup-profile --service <service> --profile-choice <n>` saves the chosen
+   signed-in normal Chrome profile under `workspace/.local/<service>-profile.json`.
+3. Normal `--check` and processing runs read that saved config before touching
+   any service page.
+4. If the config is missing, stale, unsigned, or contains any `automationChrome`
+   / `viduAutomationChrome` style field, the driver must print candidates and
+   stop before opening Chrome.
+5. The service driver may only reuse a marker tab that is already open in the
+   saved normal Chrome profile. It must not open Chrome, create a new tab, create
+   a service-specific `~/.image-arranger/<service>-chrome`,
+   `~/.image-arranger/<service>-profiles/*`, temporary `--user-data-dir`, CDP
+   automation profile, unspecified default Chrome profile, or Codex-local
+   generation fallback.
+6. A new service may add only the service-specific page logic after this common
+   profile guard. It must not copy back the removed Vidu generated-profile
+   startup or the old ChatGPT CDP automation startup.
+
+When maintaining `scripts/process-service-queue.mjs` or the delegated ChatGPT
+driver, preserve these implementation constraints:
+
+- Browser JavaScript encoded by Node and executed through AppleScript must be
+  decoded with `TextDecoder`; `atob()` alone corrupts Japanese labels such as
+  `保存` and breaks the normal ChatGPT save flow.
+- After sending, track only the same active marker tab until it becomes a
+  `/c/...` conversation URL. Do not scan all ChatGPT tabs for matching prompt
+  text or generated images.
+- `hasStopButton: true` on the marker URL means ChatGPT accepted the send but
+  the URL has not settled yet. Keep waiting for the conversation URL.
+
+Rejected routes from the 2026-06-27 audit:
+
+- `scripts/process-queue.mjs` / CDP automation Chrome: launches or reuses the
+  dedicated `~/.image-arranger/agent-chrome` profile, not the locally selected
+  Chrome profile, and failed login in this environment. The script is disabled
+  and must not be re-enabled for queue processing.
+- `open -a "Google Chrome" ... --profile-directory=...` service startup:
+  already-running multi-profile Chrome can place the URL in the wrong profile.
+  Service drivers must not use it to open ChatGPT, Vidu, or future services.
+- Chrome file chooser / `fileChooser.setFiles`: failed with `Not allowed`.
+- Browser tab virtual clipboard for PNG via `tab.clipboard.write`: dropped the
+  Chrome extension pipe (`native pipe closed before response`).
+- Codex built-in image generation, screenshots, placeholder files, blob/cache
+  extraction, or any non-ChatGPT substitute.
+
+If the approved route fails, stop with the request still pending or mark it
+`error` with the real failure reason. Do not switch routes.
+
+## Scripted Processing (optional, not the approved local route)
 
 > Disclaimer: the bundled automation driver operates your browser with your
 > account at your responsibility, and may conflict with a generation service's
@@ -93,16 +210,33 @@ DOM metrics, source reading, and shortcut API calls are supporting evidence only
 > request-file contract; the driver is an optional, replaceable convenience.
 
 The scripted ChatGPT image processor carries queued `generate` targets through a
-dedicated automation Chrome profile: fresh chat, attach references, insert and
-verify the prompt, send, wait, save into `outputDir`, register the result as an
-asset candidate, report completion, and write a reviewable log under
-`agent-logs/run-*/`.
+dedicated automation Chrome profile. In this operator environment it is not the
+approved queue route because it does not use the locally selected Chrome
+profile. Keep the script for OSS reference and development only; do not use it
+to process this user's image-arranger queues unless the operator explicitly
+changes the profile contract.
 
 ### Chrome Profile and Browser Instance Rules
 
 For browser-based processors, one browser profile must have at most one running
 browser instance.
 
+- For image-arranger ChatGPT queue processing and browser operation, use only the
+  Chrome profile selected by
+  `scripts/process-service-queue.mjs --setup-profile --service chatgpt`.
+- For Vidu queue processing, use the normal Chrome profile configured by the
+  Vidu driver through
+  `scripts/process-service-queue.mjs --setup-profile --service vidu`.
+  The Vidu driver must not launch an unspecified default profile or a generated
+  `~/.image-arranger/vidu-*` profile. If `workspace/.local/vidu-profile.json` is
+  missing or stale, list candidates and stop before opening Chrome.
+- If that profile is already running, do not launch another Chrome/Chromium
+  instance for the same profile. Reuse the running browser when the driver can do
+  so safely. If it cannot be reused safely, stop and report the profile conflict.
+- Do not process image-arranger queues from any other Google/ChatGPT profile,
+  including the default automation profile, an unsigned profile, or a newly
+  created temporary profile that was not created from the saved ChatGPT/Vidu
+  profile configuration.
 - Before launching Chrome/Chromium for a dedicated profile, check whether that
   profile is already running.
 - If the intended profile is already running, reuse that running browser when the
@@ -117,34 +251,34 @@ browser instance.
   remote-control attachment fails, leave the request uncompleted and report the
   browser failure. Do not substitute another generation path.
 
-```bash
-# one-time setup / health check: opens a dedicated automation Chrome profile
-node scripts/process-queue.mjs --check --server http://127.0.0.1:4217
-
-# process queued ChatGPT image targets
-node scripts/process-queue.mjs --server http://127.0.0.1:4217
-
-# useful variants
-node scripts/process-queue.mjs --dry-run
-node scripts/process-queue.mjs --request <id>
-node scripts/process-queue.mjs --parallel 3
-node scripts/process-queue.mjs --keep-tabs
-```
+Do not run `scripts/process-queue.mjs` for this operator's ChatGPT image queues.
+Use `scripts/process-service-queue.mjs` via `skills/image-arranger-queue-processing`
+instead.
 
 Vidu/image-to-video targets can be processed with the optional Vidu driver when
 you have a suitable account and the service UI is available:
 
 ```bash
-node scripts/process-vidu-queue.mjs --check --server http://127.0.0.1:4217
-node scripts/process-vidu-queue.mjs --server http://127.0.0.1:4217
+node scripts/process-service-queue.mjs --setup-profile --service vidu
+node scripts/process-service-queue.mjs --check --service vidu --server http://127.0.0.1:4217
+node scripts/process-service-queue.mjs --service vidu --server http://127.0.0.1:4217
 ```
+
+The Vidu script reuses the selected normal Chrome profile's already-open marker
+tab, injects exactly `inputs.startFrame` and `inputs.endFrame` into the Vidu UI,
+submits through Vidu's visible create button, saves the MP4 into `outputDir`, and
+reports completion through `POST /api/requests/complete`. It must not launch
+Chrome, create tabs, use CDP file chooser upload, or switch back to any generated
+automation profile. If Vidu visibly shows a non-zero credit cost, stop unless
+the operator intentionally reruns with `--allow-paid`.
 
 Division of labour:
 
-- The ChatGPT script handles image `generate` and `improve` targets whose
+- The common service script routes ChatGPT image `generate` and `improve` targets
+  whose
   `service` is `chatgpt` or omitted.
-- The Vidu script handles video `generate` targets with `inputs.startFrame` and
-  `inputs.endFrame`.
+- The common service script routes Vidu video `generate` targets with
+  `inputs.startFrame` and `inputs.endFrame`.
 - You handle `draft-prompt` and `analyze` targets. Both are reported via
   `POST /api/requests/complete`; the scripted browser drivers do not process
   them.
@@ -177,9 +311,8 @@ Common target actions:
 
 ## Image Generation (`generate`)
 
-1. Use ChatGPT image generation for image `generate` targets by default: prefer
-   `scripts/process-queue.mjs`, or manually operate ChatGPT when the script is not
-   suitable.
+1. Use ChatGPT image generation for image `generate` targets through the single
+   approved queue-processing browser route above.
    Never use Codex's built-in `image_gen` tool for queued image-arranger work.
    This is a hard prohibition: browser trouble, Chrome upload failure, clipboard
    failure, login failure, profile conflict, Windows-specific failure, or service
@@ -282,9 +415,10 @@ Detailed attach/prompt/wait/collect guidance for macOS keystroke fallback lives 
 The manual fallback in `docs/manual-fallback.md` uses `osascript`, `pbcopy`, and
 `pbpaste` to paste images or text into a browser when no CDP/scripted path is
 available. On macOS, grant Automation and Accessibility permission to the
-terminal app or agent runner that executes those commands. Prefer
-`scripts/process-queue.mjs`/`scripts/process-vidu-queue.mjs` whenever they work;
-this setup is only for the documented last-resort fallback.
+terminal app or agent runner that executes those commands. For this operator's
+ChatGPT image queues, this real-OS route is the approved route because it keeps
+the work inside the locally selected Chrome profile and avoids the rejected CDP
+automation profile, file chooser, and virtual-clipboard paths.
 
 ## Base Kit Analysis (`analyze`)
 

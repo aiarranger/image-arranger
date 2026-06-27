@@ -1,18 +1,7 @@
 #!/usr/bin/env node
-// Scripted queue processor: takes ChatGPT image generation/improvement targets from a
-// running image-arranger server and carries each one through the whole
-// pipeline — fresh chat, attach references, send prompt, wait, save the
-// result into outputDir, register it as an asset candidate, report
-// completion — while writing a reviewable run log (markdown + screenshots)
-// into agent-logs/.
-//
-//   node scripts/process-queue.mjs --check                  one-time setup / health check
-//   node scripts/process-queue.mjs                          process queued chatgpt generate/improve targets
-//   node scripts/process-queue.mjs --request <id>           process one request only
-//   node scripts/process-queue.mjs --dry-run                list what would be processed
-//
-// Options: --server http://127.0.0.1:4217  --cdp-port 9377  --max <n>
-//          --keep-tabs (leave chat tabs open for inspection)
+// Legacy CDP queue processor. It is disabled because it launches a
+// dedicated automation Chrome profile. Use scripts/process-service-queue.mjs for
+// normal queue processing with a saved normal Chrome profile.
 
 if (typeof WebSocket === "undefined") {
   console.error("scripts/process-queue.mjs needs Node 22+ (global WebSocket). The server itself runs on Node 20+.");
@@ -39,28 +28,19 @@ function option(name, fallback = null) {
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 }
 
-const HELP = `Scripted queue processor — drives ChatGPT's web UI over CDP to fulfill
-queued image generation/improvement targets from a running image-arranger server.
+console.error("scripts/process-queue.mjs is disabled because it launches a dedicated CDP automation Chrome profile. Use scripts/process-service-queue.mjs with an explicit saved normal Chrome profile.");
+process.exit(2);
 
-Usage:
-  node scripts/process-queue.mjs --check          one-time setup / health check
-                                                  (Chrome + login + selector self-test)
-  node scripts/process-queue.mjs                  process queued chatgpt generate/improve targets
-  node scripts/process-queue.mjs --request <id>   process one request only
-  node scripts/process-queue.mjs --dry-run        list what would be processed (needs server)
+const HELP = `Legacy CDP queue processor — disabled.
 
-Options:
-  --server <url>     image-arranger server (default http://127.0.0.1:4217, $IMAGE_ARRANGER_SERVER)
-  --cdp-port <n>     automation Chrome CDP port (default ${DEFAULTS.cdpPort})
-  --max <n>          cap targets processed (default 20)
-  --parallel <n>     targets in flight at once, each in its own tab (default 1)
-  --image-model <m>  switch ChatGPT to the model matching <m> (e.g. thinking) before each generation
-  --keep-tabs        leave chat tabs open for inspection
-  --help, -h         show this help and exit
+This script launches a dedicated automation Chrome profile and must not be used
+for normal image-arranger queue processing. Use:
 
-The --check selector self-test verifies ChatGPT's UI still exposes the elements
-the automation depends on. On mismatch it prints an actionable message pointing
-at SELECTORS.md (repo root), which documents every selector and how to patch it.`;
+  node scripts/process-service-queue.mjs --setup-profile --service chatgpt
+  node scripts/process-service-queue.mjs --check --service chatgpt --ensure-tab
+  node scripts/process-service-queue.mjs --server http://127.0.0.1:4217
+
+This legacy route is not available.`;
 
 if (flag("--help") || flag("-h")) {
   console.log(HELP);

@@ -1,12 +1,8 @@
-// Agent browser driver: drives a dedicated automation Chrome over the DevTools
-// protocol (CDP). No clipboard, no synthetic keystrokes, no OS accessibility
-// permissions — attachments use DOM.setFileInputFiles and every step is
-// verified against the live DOM.
-//
-// The automation Chrome uses its own user-data-dir (default
-// ~/.image-arranger/agent-chrome), so it never touches the user's main
-// browser profile. One-time setup: run `node scripts/process-queue.mjs --check`
-// and sign in to the generation service in the window that opens.
+// Legacy CDP helpers for the disabled process-queue.mjs path and shared RunLog.
+// Do not use these helpers as the startup route for image-arranger queue
+// processing. Browser-based service drivers must start from
+// process-service-queue.mjs plus service-browser-profile.mjs, then reuse an
+// already-open marker tab in the saved normal Chrome profile.
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, appendFileSync } from "node:fs";

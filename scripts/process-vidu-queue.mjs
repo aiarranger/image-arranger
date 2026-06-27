@@ -1,19 +1,34 @@
 #!/usr/bin/env node
-// Scripted Vidu queue processor: takes queued video targets from a running
-// image-arranger server, drives Vidu's normal web UI over CDP, downloads the
-// generated MP4 export, registers it as an asset candidate, and reports
-// completion back to image-arranger.
+// Scripted Vidu queue processor. It reuses an already-open marker tab in the
+// operator-selected normal Chrome profile; it must not launch Chrome, create a
+// service tab, or fall back to generated automation profiles.
 
 if (typeof WebSocket === "undefined") {
   console.error("scripts/process-vidu-queue.mjs needs Node 22+ (global WebSocket). The server itself runs on Node 20+.");
   process.exit(1);
 }
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import { basename, isAbsolute, join, resolve } from "node:path";
 import {
-  DEFAULTS, RunLog, ensureChrome, openPage, closePage, evaluate, waitFor, sleep,
-} from "./agent-browser.mjs";
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { basename, extname, isAbsolute, join, resolve } from "node:path";
+import { RunLog } from "./agent-browser.mjs";
+import {
+  assertNoUserDataDirProcesses,
+  findChromeTabByUrlPart,
+  listChromeProfiles,
+  loadServiceChromeProfile,
+  printServiceProfileCandidates,
+  runChromeTabJsByUrlPart,
+  setupServiceChromeProfile,
+} from "./service-browser-profile.mjs";
 
 const args = process.argv.slice(2);
 function flag(name) { return args.includes(name); }
@@ -22,24 +37,37 @@ function option(name, fallback = null) {
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 }
 
-const HELP = `Scripted Vidu queue processor — drives Vidu's web UI over CDP to
-fulfill queued video-generation targets from a running image-arranger server.
+const HELP = `Vidu queue processor — processes queued image-to-video targets in
+an already-open Vidu marker tab in the selected normal Chrome profile.
 
 Usage:
   node scripts/process-vidu-queue.mjs --check
+  node scripts/process-vidu-queue.mjs --setup-profile
+  node scripts/process-vidu-queue.mjs --list-profiles
   node scripts/process-vidu-queue.mjs
   node scripts/process-vidu-queue.mjs --request <id>
   node scripts/process-vidu-queue.mjs --dry-run
 
 Options:
   --server <url>       image-arranger server (default http://127.0.0.1:4217, $IMAGE_ARRANGER_SERVER)
-  --cdp-port <n>       automation Chrome CDP port (default ${DEFAULTS.cdpPort})
+  --setup-profile      choose the normal Chrome profile used for Vidu
+  --profile-choice <n> non-interactive selection for --setup-profile
+  --list-profiles      print Chrome profile candidates and exit
+  --profile-config <path>
+                       local Vidu profile config path (default workspace/.local/vidu-profile.json)
   --vidu-url <url>     Vidu create page (default https://www.vidu.com/ja/create/img2video)
+  --download-dir <dir> normal Chrome download directory (default ~/Downloads)
   --max <n>            cap targets processed (default 20)
   --timeout-min <n>    generation wait timeout per target (default 25)
-  --allow-paid         allow submitting when Vidu's create button shows a non-zero credit cost
-  --keep-tabs          leave Vidu tabs open for inspection
-  --help, -h           show this help and exit`;
+  --allow-paid         allow submitting when Vidu visibly shows a non-zero credit cost
+  --keep-tabs          leave the Vidu marker tab on the result page after processing
+  --help, -h           show this help and exit
+
+Hard rules:
+  - Vidu uses the selected normal Chrome profile, not a separate automation profile
+  - this script never launches Chrome and never creates service tabs
+  - the previous implicit ~/.image-arranger/vidu-chrome and ~/.image-arranger/vidu-profiles profiles are not used
+  - do not use Codex image generation as a fallback for queued Vidu work`;
 
 if (flag("--help") || flag("-h")) {
   console.log(HELP);
@@ -47,12 +75,24 @@ if (flag("--help") || flag("-h")) {
 }
 
 const SERVER = (option("--server", process.env.IMAGE_ARRANGER_SERVER ?? "http://127.0.0.1:4217")).replace(/\/$/, "");
-const CDP_PORT = Number(option("--cdp-port", DEFAULTS.cdpPort));
+const SETUP_PROFILE = flag("--setup-profile");
+const LIST_PROFILES = flag("--list-profiles");
+const PROFILE_CHOICE = option("--profile-choice", option("--choice", ""));
+const PROFILE_CONFIG_PATH = resolve(option("--profile-config", "workspace/.local/vidu-profile.json"));
 const VIDU_URL = option("--vidu-url", process.env.IMAGE_ARRANGER_VIDU_URL ?? "https://www.vidu.com/ja/create/img2video");
+const DOWNLOAD_DIR = resolve(option("--download-dir", process.env.IMAGE_ARRANGER_VIDU_DOWNLOAD_DIR ?? join(homedir(), "Downloads")));
 const MAX_TARGETS = Number(option("--max", "20"));
 const CHECK_ONLY = flag("--check");
+const DRY_RUN = flag("--dry-run");
+const REQUEST_ID = option("--request", "");
 const TIMEOUT_MS = Math.max(1, Number(option("--timeout-min", "25")) || 25) * 60 * 1000;
 const ALLOW_PAID = flag("--allow-paid") || process.env.IMAGE_ARRANGER_VIDU_ALLOW_PAID === "1";
+const SERVICE = "vidu";
+const SERVICE_LABEL = "Vidu";
+const BROWSER_UPLOAD_CHUNK_SIZE = 24000;
+const MIN_VIDEO_BYTES = 100000;
+
+const delay = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 
 async function api(path, body = null) {
   const response = await fetch(`${SERVER}${path}`, body
@@ -63,13 +103,117 @@ async function api(path, body = null) {
   return payload;
 }
 
-function slugify(value, fallback = "output") {
-  const slug = String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
-  return slug || fallback;
+function printProfileCandidates(profiles = listChromeProfiles()) {
+  printServiceProfileCandidates({
+    service: SERVICE,
+    serviceLabel: SERVICE_LABEL,
+    profileConfigPath: PROFILE_CONFIG_PATH,
+    profiles,
+  });
+}
+
+async function setupProfile() {
+  await setupServiceChromeProfile({
+    service: SERVICE,
+    serviceLabel: SERVICE_LABEL,
+    profileChoice: PROFILE_CHOICE,
+    profileConfigPath: PROFILE_CONFIG_PATH,
+  });
+}
+
+function loadViduProfileConfig() {
+  return loadServiceChromeProfile({
+    service: SERVICE,
+    serviceLabel: SERVICE_LABEL,
+    profileConfigPath: PROFILE_CONFIG_PATH,
+  });
+}
+
+function assertNoLegacyViduAutomationChrome() {
+  assertNoUserDataDirProcesses({
+    label: "Legacy Vidu automation Chrome",
+    rejectedPaths: [
+      join(homedir(), ".image-arranger/vidu-chrome"),
+      join(homedir(), ".image-arranger/vidu-profiles"),
+    ],
+  });
+}
+
+function buildViduMarkerUrl(profile, runId = "") {
+  const url = new URL(VIDU_URL);
+  url.searchParams.set("agent-work", "image-arranger-vidu");
+  url.searchParams.set("profile-directory", profile.profileDir);
+  if (runId) url.searchParams.set("run", runId);
+  return url.toString();
+}
+
+function markerPartForProfile(profile) {
+  const profileMarker = new URLSearchParams({ "profile-directory": profile.profileDir }).toString();
+  return `agent-work=image-arranger-vidu&${profileMarker}`;
+}
+
+function runViduJs(markerPart, js, { activate = false } = {}) {
+  return runChromeTabJsByUrlPart(markerPart, js, {
+    activate,
+    errorLabel: "Vidu marker tab",
+  });
+}
+
+async function waitForState(label, getter, predicate, { timeoutMs = 30000, intervalMs = 1000 } = {}) {
+  const startedAt = Date.now();
+  let last = null;
+  let lastError = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      last = await getter();
+      if (predicate(last)) return last;
+    } catch (error) {
+      lastError = error;
+    }
+    await delay(intervalMs);
+  }
+  const detail = lastError ? lastError.message : JSON.stringify(last).slice(0, 1200);
+  throw new Error(`${label} timed out: ${detail}`);
+}
+
+async function waitForNormalProfileViduPage(profile, runLog) {
+  const url = buildViduMarkerUrl(profile);
+  const markerPart = markerPartForProfile(profile);
+  const existing = findChromeTabByUrlPart(markerPart, { activate: true });
+  if (!existing) {
+    throw new Error(`Vidu marker tab was not found for the selected Chrome profile. Open this exact URL in ${profile.profileName} / ${profile.email}, then rerun. This script must not create tabs itself: ${url}`);
+  }
+  runLog.log(`reusing selected-profile Vidu marker tab: ${existing.url}`);
+
+  const state = await waitForState(
+    "Vidu selected normal Chrome profile page",
+    () => viduState(markerPart),
+    (item) => item.readyState === "complete" && (item.loggedOut || (item.fileInputs > 0 && item.textareaCount > 0)),
+    { timeoutMs: 30000, intervalMs: 1000 },
+  );
+  return state;
+}
+
+async function resetViduMarkerTab(profile, runLog) {
+  const markerPart = markerPartForProfile(profile);
+  const targetUrl = buildViduMarkerUrl(profile, timestamp());
+  runViduJs(markerPart, `
+    location.href = ${JSON.stringify(targetUrl)};
+    return { url: location.href };
+  `, { activate: true });
+  await delay(3000);
+  const state = await waitForNormalProfileViduPage(profile, runLog);
+  await closeTopBanner(markerPart);
+  return state;
 }
 
 function timestamp() {
   return new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+}
+
+function slugify(value, fallback = "output") {
+  const slug = String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+  return slug || fallback;
 }
 
 function relPath(projectRoot, file) {
@@ -89,77 +233,19 @@ function resolveProjectFile(projectRoot, file) {
   return isAbsolute(file) ? file : resolve(projectRoot, file);
 }
 
-async function openViduPage() {
-  const page = await openPage(VIDU_URL, { cdpPort: CDP_PORT });
-  await waitFor(page, "document.readyState === \"complete\"", { timeoutMs: 30000, label: "Vidu page load" });
-  await sleep(8000);
-  return page;
+function assertExistingFile(label, file) {
+  if (!file || !existsSync(file)) throw new Error(`${label} was not found: ${file || "(empty)"}`);
+  const stat = statSync(file);
+  if (!stat.isFile()) throw new Error(`${label} is not a file: ${file}`);
+  return file;
 }
 
-async function closeTopBanner(page) {
-  await evaluate(page, `(() => {
-    const button = [...document.querySelectorAll('button')]
-      .find((item) => /^(Close|閉じる)$/i.test(item.getAttribute('aria-label') || item.innerText.trim()));
-    if (!button) return false;
-    button.click();
-    return true;
-  })()`).catch(() => false);
-}
-
-async function viduState(page) {
-  return evaluate(page, `(() => {
-    const body = document.body?.innerText ?? "";
-    const submit = document.querySelector('[data-testid="form-submit-button"]');
-    const videos = [...document.querySelectorAll('video')]
-      .map((video) => video.currentSrc || video.src || "")
-      .filter((src) => src && /\\.mp4(\\?|$)/i.test(src));
-    return {
-      url: location.href,
-      title: document.title,
-      body: body.replace(/\\s+/g, " ").slice(0, 3000),
-      fileInputs: document.querySelectorAll('input[type=file]').length,
-      uploadPreviews: [...document.querySelectorAll('img[alt="upload preview"]')].length,
-      textareaCount: document.querySelectorAll('textarea').length,
-      submitText: (submit?.innerText ?? "").replace(/\\s+/g, " ").trim(),
-      submitDisabled: !submit || submit.disabled || submit.getAttribute("aria-disabled") === "true",
-      videos,
-    };
-  })()`);
-}
-
-async function checkViduLogin(page) {
-  const state = await viduState(page);
-  if (state.fileInputs > 0 && state.textareaCount > 0 && /作成|Create|Generate/i.test(state.body)) return { status: "ok", state };
-  if (/ログイン|Sign in|Log in|Login/i.test(state.body)) return { status: "logged-out", state };
-  return { status: "unknown", state };
-}
-
-async function uploadFrames(page, files) {
-  if (files.length !== 2) throw new Error(`Vidu start/end generation needs exactly 2 frames; got ${files.length}`);
-  const { root } = await page.send("DOM.getDocument", { depth: 1 });
-  const { nodeId } = await page.send("DOM.querySelector", { nodeId: root.nodeId, selector: 'input[type=file]' });
-  if (!nodeId) throw new Error("Vidu file input was not found");
-  await page.send("DOM.setFileInputFiles", { nodeId, files });
-  await evaluate(page, `(() => {
-    const input = document.querySelector('input[type=file]');
-    if (!input) return false;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-    return true;
-  })()`);
-  await waitFor(
-    page,
-    `(() => {
-      const body = document.body?.innerText ?? "";
-      const submit = document.querySelector('[data-testid="form-submit-button"]');
-      const submitReady = submit && !submit.disabled && submit.getAttribute("aria-disabled") !== "true";
-      const previews = document.querySelectorAll('img[alt="upload preview"]').length;
-      const framePairReady = previews >= 2 || /フレーム\\s*1\\s*-\\s*フレーム\\s*2|Frame\\s*1\\s*-\\s*Frame\\s*2/i.test(body);
-      return framePairReady && (submitReady || !/アップロード中|Uploading/i.test(body));
-    })()`,
-    { timeoutMs: 180000, intervalMs: 1000, label: "Vidu start/end frame upload completion" },
-  );
-  await sleep(1500);
+function mimeForFile(file) {
+  const ext = extname(file).toLowerCase();
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  return "image/png";
 }
 
 const FIRE_POINTER_SEQUENCE = `(el) => {
@@ -169,10 +255,163 @@ const FIRE_POINTER_SEQUENCE = `(el) => {
   }
 }`;
 
-async function setDurationIfAvailable(page, durationSec) {
+async function closeTopBanner(markerPart) {
+  try {
+    return runViduJs(markerPart, `
+      const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim();
+      const buttons = [...document.querySelectorAll('button')];
+      const button = buttons.find((item) => /^(Close|閉じる|×|x)$/i.test(normalize(item.getAttribute("aria-label") || item.innerText)));
+      if (!button) return false;
+      button.click();
+      return true;
+    `);
+  } catch {
+    return false;
+  }
+}
+
+function viduState(markerPart) {
+  return runViduJs(markerPart, `
+    const body = document.body?.innerText ?? "";
+    const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim();
+    const visible = (el) => {
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+    };
+    const buttons = [...document.querySelectorAll('button, a')];
+    const submit = document.querySelector('[data-testid="form-submit-button"]')
+      || buttons.find((item) => /作成|生成|Create|Generate/i.test(normalize(item.innerText || item.getAttribute("aria-label"))));
+    const videos = [...document.querySelectorAll('video')]
+      .map((video) => video.currentSrc || video.src || "")
+      .filter(Boolean);
+    const directVideos = videos.filter((src) => /\\.mp4(\\?|$)/i.test(src) && !src.startsWith("blob:"));
+    const uploadImages = [...document.querySelectorAll("img")]
+      .map((img) => ({
+        src: img.currentSrc || img.src || "",
+        alt: img.alt || "",
+        width: img.naturalWidth || 0,
+        height: img.naturalHeight || 0,
+      }))
+      .filter((img) => /upload|preview|frame/i.test(img.alt) || img.src.startsWith("blob:") || img.src.startsWith("data:"));
+    const downloadButtons = buttons
+      .filter((item) => visible(item))
+      .map((item) => ({
+        text: normalize(item.innerText || item.getAttribute("aria-label") || item.getAttribute("title") || ""),
+        href: item.href || "",
+      }))
+      .filter((item) => /download|ダウンロード|保存/i.test(item.text) || /\\.mp4(\\?|$)/i.test(item.href));
+    const fileInputs = [...document.querySelectorAll("input[type=file]")];
+    return {
+      url: location.href,
+      title: document.title,
+      readyState: document.readyState,
+      body: normalize(body).slice(0, 3000),
+      bodyStart: normalize(body).slice(0, 800),
+      fileInputs: fileInputs.length,
+      fileInputFiles: fileInputs.map((input) => input.files?.length ?? 0),
+      uploadPreviews: uploadImages.length,
+      textareaCount: document.querySelectorAll("textarea").length,
+      submitText: normalize(submit?.innerText ?? submit?.getAttribute("aria-label") ?? ""),
+      submitDisabled: !submit || submit.disabled || submit.getAttribute("aria-disabled") === "true",
+      uploading: /アップロード中|Uploading/i.test(body),
+      loggedOut: /ログイン|Sign in|Log in|Login/i.test(body),
+      videos,
+      directVideos,
+      downloadButtons,
+    };
+  `);
+}
+
+async function uploadFrames(markerPart, files, runLog, tag) {
+  if (files.length !== 2) throw new Error(`Vidu start/end generation needs exactly 2 frames; got ${files.length}`);
+  const uploadId = `vidu-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  runViduJs(markerPart, `
+    window.__imageArrangerViduUploads = window.__imageArrangerViduUploads || {};
+    window.__imageArrangerViduUploads[${JSON.stringify(uploadId)}] = { files: [] };
+    return { ok: true };
+  `);
+
+  for (const [index, file] of files.entries()) {
+    const data = readFileSync(file).toString("base64");
+    const fileInfo = { name: basename(file), type: mimeForFile(file), size: statSync(file).size };
+    runLog.log(`[${tag}] preparing ${fileInfo.name} (${Math.round(fileInfo.size / 1024)} KB)`);
+    runViduJs(markerPart, `
+      const upload = window.__imageArrangerViduUploads?.[${JSON.stringify(uploadId)}];
+      if (!upload) throw new Error("upload store missing");
+      upload.files[${index}] = {
+        name: ${JSON.stringify(fileInfo.name)},
+        type: ${JSON.stringify(fileInfo.type)},
+        chunks: []
+      };
+      return { ok: true };
+    `);
+    for (let offset = 0; offset < data.length; offset += BROWSER_UPLOAD_CHUNK_SIZE) {
+      const chunk = data.slice(offset, offset + BROWSER_UPLOAD_CHUNK_SIZE);
+      runViduJs(markerPart, `
+        const upload = window.__imageArrangerViduUploads?.[${JSON.stringify(uploadId)}];
+        const file = upload?.files?.[${index}];
+        if (!file) throw new Error("upload file store missing");
+        file.chunks.push(${JSON.stringify(chunk)});
+        return { chunks: file.chunks.length };
+      `);
+    }
+  }
+
+  const committed = runViduJs(markerPart, `
+    const uploadId = ${JSON.stringify(uploadId)};
+    const upload = window.__imageArrangerViduUploads?.[uploadId];
+    if (!upload || upload.files.length !== 2 || upload.files.some((file) => !file?.chunks?.length)) {
+      throw new Error("upload chunks incomplete");
+    }
+    const input = document.querySelector("input[type=file]");
+    if (!input) return { ok: false, reason: "file input not found" };
+    const dt = new DataTransfer();
+    for (const file of upload.files) {
+      const binary = atob(file.chunks.join(""));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      dt.items.add(new File([bytes], file.name, { type: file.type }));
+    }
+    input.scrollIntoView({ block: "center", inline: "center" });
+    try {
+      input.files = dt.files;
+    } catch {
+      Object.defineProperty(input, "files", { configurable: true, value: dt.files });
+    }
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    try {
+      input.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+    } catch {
+      // DragEvent construction is not available in every Chromium context.
+    }
+    delete window.__imageArrangerViduUploads[uploadId];
+    return { ok: true, fileCount: input.files.length, names: [...input.files].map((file) => file.name) };
+  `, { activate: true });
+  if (!committed.ok || committed.fileCount !== 2) {
+    throw new Error(`Vidu file injection failed: ${JSON.stringify(committed)}`);
+  }
+
+  await waitForState(
+    "Vidu start/end frame upload completion",
+    () => viduState(markerPart),
+    (state) => {
+      const framePairReady = state.uploadPreviews >= 2
+        || state.fileInputFiles.some((count) => count >= 2)
+        || /フレーム\s*1\s*-\s*フレーム\s*2|Frame\s*1\s*-\s*Frame\s*2|First\s*Frame.*Last\s*Frame/i.test(state.body);
+      return framePairReady && !state.uploading;
+    },
+    { timeoutMs: 180000, intervalMs: 1000 },
+  );
+  await delay(1200);
+  return committed;
+}
+
+async function setDurationIfAvailable(markerPart, durationSec) {
   if (!durationSec) return { status: "skipped" };
   const want = String(Number(durationSec));
-  const opened = await evaluate(page, `(() => {
+  const opened = runViduJs(markerPart, `
     const want = ${JSON.stringify(want)};
     const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim();
     const numeric = [...document.querySelectorAll('button[role="combobox"]')]
@@ -184,20 +423,23 @@ async function setDurationIfAvailable(page, durationSec) {
     button.scrollIntoView({ block: "center", inline: "center" });
     (${FIRE_POINTER_SEQUENCE})(button);
     return { status: "opened", current };
-  })()`);
+  `, { activate: true });
   if (opened.status !== "opened") return opened;
 
   try {
-    await waitFor(
-      page,
-      `document.querySelectorAll('[role="option"], [role="menuitem"], [data-radix-collection-item]').length > 0`,
-      { timeoutMs: 6000, label: "Vidu duration menu" },
+    await waitForState(
+      "Vidu duration menu",
+      () => runViduJs(markerPart, `
+        return document.querySelectorAll('[role="option"], [role="menuitem"], [data-radix-collection-item]').length;
+      `),
+      (count) => count > 0,
+      { timeoutMs: 6000, intervalMs: 500 },
     );
   } catch {
     return { status: "unavailable", reason: "duration menu did not open", current: opened.current };
   }
 
-  const picked = await evaluate(page, `(() => {
+  const picked = runViduJs(markerPart, `
     const want = ${JSON.stringify(want)};
     const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim();
     const items = [...document.querySelectorAll('[role="option"], [role="menuitem"], [data-radix-collection-item]')];
@@ -205,99 +447,86 @@ async function setDurationIfAvailable(page, durationSec) {
     if (!item) return { status: "not-found", seen: items.map((el) => normalize(el.innerText)).filter(Boolean).slice(0, 20) };
     (${FIRE_POINTER_SEQUENCE})(item);
     return { status: "picked", text: normalize(item.innerText) };
-  })()`);
-  await sleep(700);
+  `, { activate: true });
+  await delay(700);
   return picked;
 }
 
-async function setViduPrompt(page, prompt) {
-  const written = await evaluate(page, `(() => {
-    const textarea = document.querySelector('textarea');
+async function setViduPrompt(markerPart, prompt) {
+  const text = String(prompt ?? "").trim();
+  if (!text) throw new Error("Vidu target prompt is empty");
+  const written = runViduJs(markerPart, `
+    const textarea = document.querySelector("textarea");
     if (!textarea) return null;
     textarea.focus();
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-    if (setter) setter.call(textarea, ${JSON.stringify(prompt)});
-    else textarea.value = ${JSON.stringify(prompt)};
+    if (setter) setter.call(textarea, ${JSON.stringify(text)});
+    else textarea.value = ${JSON.stringify(text)};
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
     textarea.dispatchEvent(new Event("change", { bubbles: true }));
     return textarea.value;
-  })()`);
+  `, { activate: true });
   if (written == null) throw new Error("Vidu prompt textarea was not found");
   const normalize = (value) => String(value).replace(/\s+/g, " ").trim();
-  if (!normalize(written).startsWith(normalize(prompt).slice(0, 80))) {
+  if (!normalize(written).startsWith(normalize(text).slice(0, 80))) {
     throw new Error(`Vidu prompt mismatch after insert: "${String(written).slice(0, 120)}"`);
   }
+  return written;
 }
 
 function visibleCreditCost(text) {
-  const numbers = String(text).match(/\b\d+\b/g) ?? [];
+  const visible = String(text);
+  if (!/(credit|credits|クレジット|消費|cost|C\b)/i.test(visible)) return 0;
+  const numbers = visible.match(/\b\d+\b/g) ?? [];
   if (!numbers.length) return 0;
   return Number(numbers[numbers.length - 1]) || 0;
 }
 
-async function clickCreate(page) {
-  const state = await waitFor(
-    page,
-    `(() => {
-      const button = document.querySelector('[data-testid="form-submit-button"]');
-      if (!button) return false;
-      const text = (button.innerText || "").replace(/\\s+/g, " ").trim();
-      const disabled = button.disabled || button.getAttribute("aria-disabled") === "true";
-      const uploading = /アップロード中|Uploading/i.test(document.body?.innerText ?? "");
-      return !disabled && !uploading ? { ok: true, text } : false;
-    })()`,
-    { timeoutMs: 120000, intervalMs: 1000, label: "Vidu create button enabled" },
-  ).catch(async () => {
-    const current = await evaluate(page, `(() => {
-      const button = document.querySelector('[data-testid="form-submit-button"]');
-      if (!button) return { ok: false, reason: "submit button not found" };
-      const text = (button.innerText || "").replace(/\\s+/g, " ").trim();
-      const disabled = button.disabled || button.getAttribute("aria-disabled") === "true";
-      const uploading = /アップロード中|Uploading/i.test(document.body?.innerText ?? "");
-      return { ok: false, reason: uploading ? "uploads are still pending" : disabled ? "submit button is disabled" : "submit button did not become ready", text };
-    })()`);
-    return current;
-  });
-  if (!state.ok) throw new Error(`Vidu create button unavailable: ${state.reason}${state.text ? ` (${state.text})` : ""}`);
-  const cost = visibleCreditCost(state.text);
+async function clickCreate(markerPart) {
+  const state = await waitForState(
+    "Vidu create button enabled",
+    () => viduState(markerPart),
+    (item) => item.submitText && !item.submitDisabled && !item.uploading,
+    { timeoutMs: 120000, intervalMs: 1000 },
+  );
+  const cost = visibleCreditCost(state.submitText);
   if (cost > 0 && !ALLOW_PAID) {
-    throw new Error(`Vidu create button shows a non-zero credit cost (${state.text}). Rerun with --allow-paid if this is intended.`);
+    throw new Error(`Vidu create button shows a non-zero credit cost (${state.submitText}). Rerun with --allow-paid if this is intended.`);
   }
-  const clicked = await evaluate(page, `(() => {
-    const button = document.querySelector('[data-testid="form-submit-button"]');
-    if (!button) return false;
+  const clicked = runViduJs(markerPart, `
+    const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim();
+    const button = document.querySelector('[data-testid="form-submit-button"]')
+      || [...document.querySelectorAll("button")].find((item) => /作成|生成|Create|Generate/i.test(normalize(item.innerText || item.getAttribute("aria-label"))));
+    if (!button) return { clicked: false };
     button.scrollIntoView({ block: "center", inline: "center" });
     (${FIRE_POINTER_SEQUENCE})(button);
-    return true;
-  })()`);
-  if (!clicked) throw new Error("Vidu create button disappeared before click");
+    return { clicked: true, text: normalize(button.innerText || button.getAttribute("aria-label")) };
+  `, { activate: true });
+  if (!clicked.clicked) throw new Error("Vidu create button disappeared before click");
   return state;
 }
 
-async function waitForNewVideo(page, beforeVideos, { onTick = null } = {}) {
+async function waitForNewVideo(markerPart, beforeVideos, { onTick = null } = {}) {
   const before = new Set(beforeVideos);
   const startedAt = Date.now();
   let lastBeat = 0;
-  let lastReload = 0;
   while (Date.now() - startedAt < TIMEOUT_MS) {
-    const state = await viduState(page);
-    const fresh = state.videos.filter((src) => !before.has(src) && !src.startsWith("blob:"));
-    if (fresh.length) return { status: "video", src: fresh[0], state };
+    const state = viduState(markerPart);
+    const freshVideos = state.videos.filter((src) => !before.has(src));
+    const freshDirect = state.directVideos.filter((src) => !before.has(src));
+    if (freshDirect.length) return { status: "video", src: freshDirect[0], state, browserDownload: false };
+    if (freshVideos.length && state.downloadButtons.length) {
+      return { status: "video", src: freshVideos[0], state, browserDownload: true };
+    }
     if (/生成に失敗|失敗しました|Failed|error|insufficient|クレジット不足|policy|規約違反/i.test(state.body)) {
-      return { status: "error", message: state.body.slice(0, 500), state };
+      return { status: "error", message: state.body.slice(0, 800), state };
     }
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
     if (onTick && elapsed - lastBeat >= 30) {
       lastBeat = elapsed;
       onTick(elapsed, state);
     }
-    if (elapsed >= 180 && state.videos.length === 0 && elapsed - lastReload >= 120) {
-      lastReload = elapsed;
-      await page.send("Page.reload", { ignoreCache: true });
-      await waitFor(page, "document.readyState === \"complete\"", { timeoutMs: 30000, label: "Vidu reload after empty history" }).catch(() => {});
-      await sleep(8000);
-    }
-    await sleep(10000);
+    await delay(10000);
   }
   return { status: "timeout" };
 }
@@ -309,22 +538,110 @@ async function downloadVideo(url, destination) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Vidu MP4 download failed: HTTP ${response.status}`);
   const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length < 100000) throw new Error(`Vidu MP4 download was suspiciously small (${buffer.length} bytes)`);
+  if (buffer.length < MIN_VIDEO_BYTES) throw new Error(`Vidu MP4 download was suspiciously small (${buffer.length} bytes)`);
   writeFileSync(destination, buffer);
-  return { bytes: buffer.length };
+  return { bytes: buffer.length, source: "direct-url" };
+}
+
+function listDownloadFiles(downloadDir) {
+  if (!existsSync(downloadDir)) return [];
+  return readdirSync(downloadDir)
+    .filter((name) => /\.(mp4|mov|webm)$/i.test(name) && !/\.crdownload$/i.test(name))
+    .map((name) => {
+      const file = join(downloadDir, name);
+      const stat = statSync(file);
+      return { file, name, size: stat.size, mtimeMs: stat.mtimeMs };
+    })
+    .filter((item) => item.size >= MIN_VIDEO_BYTES)
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+async function waitForDownloadedVideo(downloadDir, startedAtMs, beforeFiles) {
+  const stable = new Map();
+  while (Date.now() - startedAtMs < 10 * 60 * 1000) {
+    for (const item of listDownloadFiles(downloadDir)) {
+      if (beforeFiles.has(item.file)) continue;
+      if (item.mtimeMs < startedAtMs - 5000) continue;
+      const previous = stable.get(item.file);
+      const stableCount = previous && previous.size === item.size ? previous.stableCount + 1 : 1;
+      stable.set(item.file, { size: item.size, stableCount });
+      if (stableCount >= 2) return item;
+    }
+    await delay(2000);
+  }
+  throw new Error(`Timed out waiting for Vidu browser download in ${downloadDir}`);
+}
+
+async function clickDownloadAndCopy(markerPart, destination, startedAtMs, runLog, tag) {
+  const beforeFiles = new Set(listDownloadFiles(DOWNLOAD_DIR).map((item) => item.file));
+  const clicked = runViduJs(markerPart, `
+    const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim();
+    const visible = (el) => {
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+    };
+    const candidates = [...document.querySelectorAll("a, button")]
+      .filter((el) => visible(el))
+      .map((el) => ({
+        el,
+        text: normalize(el.innerText || el.getAttribute("aria-label") || el.getAttribute("title") || ""),
+        href: el.href || "",
+      }))
+      .filter((item) => /download|ダウンロード|保存/i.test(item.text) || /\\.mp4(\\?|$)/i.test(item.href));
+    const direct = candidates.find((item) => /\\.mp4(\\?|$)/i.test(item.href));
+    if (direct) return { status: "href", href: direct.href, text: direct.text };
+    const item = candidates[candidates.length - 1];
+    if (!item) return { status: "missing" };
+    item.el.scrollIntoView({ block: "center", inline: "center" });
+    (${FIRE_POINTER_SEQUENCE})(item.el);
+    return { status: "clicked", text: item.text };
+  `, { activate: true });
+  if (clicked.status === "href") {
+    runLog.log(`[${tag}] Vidu download href found; downloading directly`);
+    return downloadVideo(clicked.href, destination);
+  }
+  if (clicked.status !== "clicked") {
+    throw new Error(`Vidu download button was not found: ${JSON.stringify(clicked)}`);
+  }
+  runLog.log(`[${tag}] Vidu download button clicked (${clicked.text || "no label"}); waiting in ${DOWNLOAD_DIR}`);
+  const downloaded = await waitForDownloadedVideo(DOWNLOAD_DIR, startedAtMs, beforeFiles);
+  copyFileSync(downloaded.file, destination);
+  return { bytes: downloaded.size, source: "browser-download", downloaded: downloaded.file };
+}
+
+async function saveViduResult(markerPart, result, destination, submittedAtMs, runLog, tag) {
+  if (result.src && !result.browserDownload) {
+    try {
+      return await downloadVideo(result.src, destination);
+    } catch (error) {
+      runLog.log(`[${tag}] direct Vidu video download failed; trying browser download button: ${error.message}`, "warn");
+    }
+  }
+  return clickDownloadAndCopy(markerPart, destination, submittedAtMs, runLog, tag);
 }
 
 async function main() {
+  if (LIST_PROFILES) {
+    printProfileCandidates();
+    return;
+  }
+  if (SETUP_PROFILE) {
+    await setupProfile();
+    return;
+  }
+
   const queue = CHECK_ONLY ? { projectRoot: process.cwd(), requests: [] } : await api("/api/requests");
   const projectRoot = queue.projectRoot;
   const runLog = new RunLog(join(projectRoot, "agent-logs"), `vidu-run-${timestamp()}`);
   runLog.log(`${CHECK_ONLY ? "check-only" : `server ${SERVER}`}, projectRoot ${projectRoot}`);
   runLog.log(`Vidu URL ${VIDU_URL}`);
+  runLog.log(`download dir ${DOWNLOAD_DIR}`);
   runLog.log(`run log: ${runLog.dir}`);
 
   const all = queue.requests ?? [];
   const wanted = all
-    .filter((row) => option("--request") ? row.requestId === option("--request") : true)
+    .filter((row) => REQUEST_ID ? row.requestId === REQUEST_ID : true)
     .filter(isViduTarget)
     .slice(0, MAX_TARGETS);
   const skipped = all.filter((row) => !wanted.includes(row));
@@ -332,7 +649,7 @@ async function main() {
     runLog.log(`skipping ${row.requestId}[${row.targetIndex}] (action=${row.action}, service=${row.service})`, "warn");
   }
   runLog.log(`${wanted.length} vidu video target(s) to process`);
-  if (flag("--dry-run")) {
+  if (DRY_RUN) {
     runLog.attachJson("dry-run targets", wanted);
     console.log(JSON.stringify(wanted.map((row) => ({
       requestId: row.requestId,
@@ -346,29 +663,29 @@ async function main() {
     return;
   }
 
-  const chrome = await ensureChrome({ cdpPort: CDP_PORT, log: (message) => runLog.log(message) });
-  runLog.log(`automation Chrome ready (${chrome.alreadyRunning ? "already running" : "launched"}): ${chrome.version?.Browser ?? ""}`);
-
-  {
-    const page = await openViduPage();
-    try {
-      await closeTopBanner(page);
-      const login = await checkViduLogin(page);
-      await runLog.shot(page, "vidu-login-check");
-      runLog.attachJson("vidu check state", login.state);
-      if (login.status !== "ok") {
-        runLog.log(`Vidu is not ready (state: ${login.status}). Sign in to Vidu in the automation Chrome window, then rerun.`, "error");
-        console.error("\n>>> Sign in to Vidu in the automation Chrome window, then rerun this script. <<<\n");
-        process.exitCode = 2;
-        return;
-      }
-      runLog.log("Vidu login/create page OK");
-    } finally {
-      await closePage(page);
-    }
+  if (!CHECK_ONLY && wanted.length === 0) {
+    runLog.log("No Vidu video targets to process; Chrome was not started.");
+    return;
   }
+
+  const viduProfile = loadViduProfileConfig();
+  const markerPart = markerPartForProfile(viduProfile.chrome);
+  runLog.log(`Vidu profile config ${viduProfile.configPath}`);
+  runLog.log(`Vidu selected normal Chrome profile ${viduProfile.chrome.profileName} / ${viduProfile.chrome.email} / ${viduProfile.chrome.profileDir}`);
+  assertNoLegacyViduAutomationChrome();
+
+  const pageState = await waitForNormalProfileViduPage(viduProfile.chrome, runLog);
+  runLog.attachJson("vidu normal-profile check state", pageState);
+  if (!(pageState.fileInputs > 0 && pageState.textareaCount > 0) || pageState.loggedOut) {
+    runLog.log(`Vidu is not ready in the selected normal Chrome profile. State: ${JSON.stringify(pageState)}`, "error");
+    console.error("\n>>> Sign in to Vidu in the selected normal Chrome profile, then rerun this script. <<<\n");
+    process.exitCode = 2;
+    return;
+  }
+  runLog.log("Vidu normal Chrome profile page OK");
+
   if (CHECK_ONLY) {
-    runLog.log("--check finished: Chrome + Vidu page are ready");
+    runLog.log("--check finished: selected normal Chrome profile + Vidu page are ready");
     return;
   }
 
@@ -379,83 +696,79 @@ async function main() {
     runLog.section(`${row.requestId}[${row.targetIndex}] ${row.overview ?? row.entryId}`);
     runLog.attachJson(`target ${tag}`, row);
 
-    const startFrame = resolveProjectFile(projectRoot, row.inputs?.startFrame);
-    const endFrame = resolveProjectFile(projectRoot, row.inputs?.endFrame);
-    if (!startFrame || !endFrame) throw new Error("Vidu target is missing inputs.startFrame or inputs.endFrame");
+    const startFrame = assertExistingFile("inputs.startFrame", resolveProjectFile(projectRoot, row.inputs?.startFrame));
+    const endFrame = assertExistingFile("inputs.endFrame", resolveProjectFile(projectRoot, row.inputs?.endFrame));
     const outputDir = resolve(projectRoot, row.outputDir || "outputs");
     mkdirSync(outputDir, { recursive: true });
-    const fileBase = `${slugify(row.entryId.replace(/^video-/, ""), row.entryId)}-${timestamp()}`;
+    const fileBase = `${slugify(String(row.entryId ?? "video").replace(/^video-/, ""), row.entryId)}-${timestamp()}`;
     const destination = join(outputDir, `${fileBase}.mp4`);
 
-    const page = await openViduPage();
-    try {
-      await closeTopBanner(page);
-      const before = await viduState(page);
-      runLog.attachJson(`before ${tag}`, before);
-      const beforeVideos = before.videos ?? [];
-      runLog.log(`[${tag}] Vidu page opened; ${beforeVideos.length} existing video(s) visible`);
-
-      await uploadFrames(page, [startFrame, endFrame]);
-      runLog.log(`[${tag}] uploaded start/end frames`);
-      await runLog.shot(page, `uploaded-${tag}`);
-
-      const duration = await setDurationIfAvailable(page, row.inputs?.durationSec);
-      runLog.attachJson(`duration ${tag}`, duration);
-      if (duration.status === "picked" || duration.status === "already") {
-        runLog.log(`[${tag}] duration: ${duration.text ?? duration.current}`);
-      } else if (row.inputs?.durationSec) {
-        runLog.log(`[${tag}] could not set duration ${row.inputs.durationSec}s (${duration.status}); relying on the prompt/default`, "warn");
-      }
-
-      await setViduPrompt(page, row.prompt);
-      runLog.log(`[${tag}] prompt inserted and verified`);
-      await runLog.shot(page, `before-create-${tag}`);
-
-      const submit = await clickCreate(page);
-      runLog.log(`[${tag}] Vidu create submitted (${submit.text || "no visible cost text"})`);
-      const reply = await waitForNewVideo(page, beforeVideos, {
-        onTick: (elapsed, state) => runLog.log(
-          `[${tag}] waiting ${elapsed}s — videos:${state.videos.length} submit:${state.submitText || "(none)"}`,
-        ),
-      });
-      await runLog.shot(page, `vidu-result-${tag}`);
-      if (reply.status !== "video") {
-        const message = reply.status === "timeout" ? "Vidu generation timed out" : `Vidu generation failed: ${reply.message}`;
-        throw new Error(message);
-      }
-
-      const saved = await downloadVideo(reply.src, destination);
-      runLog.log(`[${tag}] video saved: ${destination} (${Math.round(saved.bytes / 1024)} KB)`);
-      const relFile = relPath(projectRoot, destination);
-      const registered = await api("/api/assets", {
-        characterId: row.characterId,
-        entryId: row.entryId,
-        sourceFile: relFile,
-        name: basename(destination, ".mp4"),
-        prompt: row.prompt,
-        aiGenerated: true,
-        humanReviewed: false,
-        adopted: false,
-        usageNotes: "Generated by Vidu web app via scripts/process-vidu-queue.mjs.",
-      });
-      runLog.log(`[${tag}] registered as asset candidate: ${registered.asset?.id} -> ${registered.asset?.file}`);
-      await api("/api/requests/complete", {
-        requestId: row.requestId,
-        targetIndex: row.targetIndex,
-        results: [{ file: relFile, prompt: row.prompt }],
-      });
-      runLog.log(`[${tag}] reported completed via /api/requests/complete`);
-      return {
-        requestId: row.requestId,
-        targetIndex: row.targetIndex,
-        entryId: row.entryId,
-        status: "completed",
-        file: relFile,
-        asset: registered.asset?.id,
-      };
-    } finally {
-      if (!flag("--keep-tabs")) await closePage(page);
+    const startState = await resetViduMarkerTab(viduProfile.chrome, runLog);
+    if (startState.loggedOut || startState.fileInputs === 0 || startState.textareaCount === 0) {
+      throw new Error(`Vidu create page is not usable: ${JSON.stringify(startState).slice(0, 1200)}`);
     }
+    const beforeVideos = startState.videos ?? [];
+    runLog.log(`[${tag}] Vidu page ready; ${beforeVideos.length} existing video(s) visible`);
+
+    const upload = await uploadFrames(markerPart, [startFrame, endFrame], runLog, tag);
+    runLog.log(`[${tag}] uploaded start/end frames: ${upload.names.join(", ")}`);
+
+    const duration = await setDurationIfAvailable(markerPart, row.inputs?.durationSec);
+    runLog.attachJson(`duration ${tag}`, duration);
+    if (duration.status === "picked" || duration.status === "already") {
+      runLog.log(`[${tag}] duration: ${duration.text ?? duration.current}`);
+    } else if (row.inputs?.durationSec) {
+      runLog.log(`[${tag}] could not set duration ${row.inputs.durationSec}s (${duration.status}); relying on the prompt/default`, "warn");
+    }
+
+    await setViduPrompt(markerPart, row.prompt);
+    runLog.log(`[${tag}] prompt inserted and verified`);
+
+    const submittedAt = Date.now();
+    const submit = await clickCreate(markerPart);
+    runLog.log(`[${tag}] Vidu create submitted (${submit.submitText || "no visible cost text"})`);
+    const result = await waitForNewVideo(markerPart, beforeVideos, {
+      onTick: (elapsed, state) => runLog.log(
+        `[${tag}] waiting ${elapsed}s - videos:${state.videos.length} submit:${state.submitText || "(none)"}`,
+      ),
+    });
+    if (result.status !== "video") {
+      const message = result.status === "timeout" ? "Vidu generation timed out" : `Vidu generation failed: ${result.message}`;
+      throw new Error(message);
+    }
+
+    const saved = await saveViduResult(markerPart, result, destination, submittedAt, runLog, tag);
+    const relFile = relPath(projectRoot, destination);
+    runLog.log(`[${tag}] video saved: ${destination} (${Math.round(saved.bytes / 1024)} KB, ${saved.source})`);
+
+    const complete = await api("/api/requests/complete", {
+      requestId: row.requestId,
+      targetIndex: row.targetIndex,
+      results: [{ file: relFile, prompt: row.prompt, service: "vidu" }],
+    });
+    runLog.attachJson(`completion ${tag}`, {
+      postprocess: complete.postprocess,
+      remainingRequests: (complete.requests ?? []).length,
+    });
+    runLog.log(`[${tag}] reported completed via /api/requests/complete`);
+
+    if (!flag("--keep-tabs")) {
+      try {
+        runViduJs(markerPart, `
+          history.replaceState(null, document.title, ${JSON.stringify(buildViduMarkerUrl(viduProfile.chrome))});
+          return { url: location.href };
+        `);
+      } catch {
+        // Keeping the result page open is acceptable if URL cleanup fails.
+      }
+    }
+    return {
+      requestId: row.requestId,
+      targetIndex: row.targetIndex,
+      entryId: row.entryId,
+      status: "completed",
+      file: relFile,
+    };
   }
 
   for (const row of wanted) {

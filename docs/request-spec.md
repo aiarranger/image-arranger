@@ -506,31 +506,33 @@ never assume a field that this document marks as conditional.
 
 ## Writing a service driver
 
-The bundled ChatGPT driver is the reference implementation. Its reusable primitives are
-exported from [`scripts/agent-browser.mjs`](../scripts/agent-browser.mjs); the orchestration
-that ties them to the request contract lives in
-[`scripts/process-queue.mjs`](../scripts/process-queue.mjs).
+Browser-based service drivers should start from the common queue entrypoint and
+shared profile guard:
+
+- [`scripts/process-service-queue.mjs`](../scripts/process-service-queue.mjs)
+  dispatches queued targets to supported service drivers.
+- [`scripts/service-browser-profile.mjs`](../scripts/service-browser-profile.mjs)
+  lists Chrome profile candidates, saves the selected signed-in normal profile,
+  verifies saved configs against Chrome `Local State`, and rejects old
+  automation-profile configs before any service page is opened.
+
+Do not add a new browser driver that silently launches an unspecified default
+profile, a generated `~/.image-arranger/<service>-chrome` profile, a generated
+`~/.image-arranger/<service>-profiles/*` profile, or a temporary
+`--user-data-dir`. Do not launch Chrome with `--profile-directory` from a service
+driver; a running multi-profile Chrome can place the URL in the wrong profile.
+If the profile is not configured, or if the required service marker tab is not
+already open in the selected profile, the driver must stop before touching the
+service page.
 
 To drive a new service, fetch `GET /api/requests`, filter targets you can handle, and for
-each one reproduce: attach `inputs.refImages`, set `prompt`, send, wait for the result,
-save into `outputDir`, then POST the completion. The exported primitives you can reuse or
-mirror:
-
-| Export | Purpose |
-|--------|---------|
-| `DEFAULTS` | CDP port (`9377`), automation Chrome profile dir, chat URL. |
-| `ensureChrome({ cdpPort, profileDir, log })` | Launch (or reuse) the dedicated automation Chrome with its own profile + CDP port — it never touches the user's main browser. |
-| `openChat({ cdpPort, chatUrl })` / `openPage(url)` / `closePage(page)` | Open/close a tab driven over CDP. |
-| `checkLogin(page)` | Detect logged-in vs logged-out state from the header. |
-| `attachImages(page, files)` | Set the page's `input[type=file]` to the reference files and wait for thumbnails. |
-| `setPrompt(page, prompt)` | Insert the prompt into the composer and verify the text landed. |
-| `sendMessage(page)` | Click send and wait for the composer to clear. |
-| `waitForImageReply(page, { onTick })` | Poll until a finished image (or an error) appears. |
-| `downloadImage(page, src, destination)` | Save the result bytes to disk (fetch → canvas tiers). |
-| `evaluate(page, expr)` / `waitFor(page, expr)` | Low-level page evaluation helpers. |
-| `RunLog` | Writes `log.md` + `events.jsonl` + numbered screenshots into one `agent-logs/run-*/` folder per run. |
-
-A complete driver for a new service is typically a couple hundred lines on top of these
-primitives — selectors and result detection are the only service-specific parts. Because
-the driver is optional, you can always process requests by hand (see
-[manual-fallback.md](manual-fallback.md)) or with your own tooling against this contract.
+each one reproduce the request contract: attach `inputs.refImages` for image
+targets or `inputs.startFrame`/`inputs.endFrame` for image-to-video targets, set
+`prompt`, send, wait for exactly one result, save into `outputDir`, then POST the
+completion. Add only the service-specific page actions after the shared profile guard.
+The Vidu driver follows this normal-profile route end to end for MP4 results.
+The legacy CDP queue driver
+(`scripts/process-queue.mjs`) is disabled and is not a template for new browser
+drivers. Because the driver is optional, you can always process
+requests by hand (see [manual-fallback.md](manual-fallback.md)) or with your own
+tooling against this contract.
