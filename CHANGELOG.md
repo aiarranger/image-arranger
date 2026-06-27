@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mutating API endpoints are serialized through a single-writer mutex to prevent lost updates.
 - Internal: extracted `http-util.mjs` (path safety, Range serving, Host/Origin policy) and `prompts.mjs` (base-kit vocabulary) from `server.mjs` as a first step toward a modular layout.
 - Landing page redesigned: problem-first hero with a copyable run command, self-playing demo loop, workflow scrollytelling, before/after, and FAQ — fully offline-safe and reduced-motion friendly.
-- Sample deck v2 (courier-girl Aoi): every tab is populated on first run with locally generated art, and the queue is pre-seeded with one pending and one completed request.
+- Sample deck v2 (Aichan): every tab is populated on first run with sample base references, and the queue is pre-seeded with one pending request.
 - Startup now reports a self-solving command when the requested port is already in use.
 - `npm run demo-agent -- --workspace ...` now honors the last repeated option, allowing npm-script defaults to be overridden cleanly.
 - Gallery scope contract: the gallery shows every adopted still image across Base and Image entries (`source-reference` assets excluded).
