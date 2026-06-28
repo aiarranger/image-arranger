@@ -41,6 +41,13 @@ jobs:
             "fake" + " processor",
             "fake queue" + " processor",
             "placeholder" + " generation",
+            "A" + "oi",
+            "a" + "oi",
+            "\u3042\u304a\u3044",
+            "\u30a2\u30aa\u30a4",
+            "\u8475",
+            "\u84bc\u4e95",
+            "\u9752\u4e95",
           ];
           const files = execFileSync("git", ["ls-files"], { encoding: "utf8" })
             .trim()
@@ -97,8 +104,35 @@ jobs:
           const { mkdir, writeFile } = await import("node:fs/promises");
           const { join } = await import("node:path");
           const workspaceRoot = process.env.SMOKE_WORKSPACE;
-          const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
-          const character = state.characters[0];
+          let state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+          let character = state.characters[0];
+          if (!character.images.length) {
+            character.images.push({
+              id: "ci-smoke-image",
+              overview: "CI smoke image",
+              prompt: "one CI smoke image, no text, no watermark",
+              version: 1,
+              checked: false,
+              requestStatus: "idle",
+              tags: ["ci-only"],
+              assets: [],
+              refs: {
+                master: character.base?.master?.[0]?.id ?? "",
+                accessory: [],
+                expression: [],
+                clothing: [],
+                background: [],
+              },
+            });
+            const saved = await fetch(`${baseUrl}/api/state`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(state),
+            }).then((response) => response.json());
+            if (!saved.ok) throw new Error(`state setup failed: ${JSON.stringify(saved)}`);
+            state = saved.state;
+            character = state.characters[0];
+          }
           const entry = character.images[0];
           const beforeGenerated = (entry.assets ?? []).filter((asset) => !(asset.tags ?? []).includes("source-reference")).length;
           const queued = await fetch(`${baseUrl}/api/requests`, {

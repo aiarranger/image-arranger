@@ -2761,7 +2761,7 @@ function renderFormModal() {
       </div>` : "";
     body = `
       ${categoryField}
-      <label>${t("assetName")}<input name="overview" required value="${escapeHtml(form.draftOverview ?? "")}" placeholder="${state.mode === "video" ? "fish-jump-loop" : "new asset prompt"}"></label>
+      <label>${t("assetName")}<input name="overview" required value="${escapeHtml(form.draftOverview ?? "")}" placeholder="${state.mode === "video" ? "aichan-locked-camera-8s" : "new asset prompt"}"></label>
       <label>${t("prompt")}
         ${renderPromptChips("#entryFormPrompt", state.mode === "video" ? "video" : "image")}
         <textarea id="entryFormPrompt" name="prompt" rows="7">${escapeHtml(form.draftPrompt ?? "")}</textarea>

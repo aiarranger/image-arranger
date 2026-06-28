@@ -3199,7 +3199,6 @@ function seedSampleAssets(context) {
   const pick = (list, id) => (list ?? []).find((item) => item.id === id);
   const base = character.base ?? {};
   const master = pick(base.master, "base-sample-character-master");
-  const video = pick(character.videos, "video-sample-character-dusk-greeting");
   if (!master) return;
   if ((master.assets ?? []).length) return;
 
@@ -3231,11 +3230,6 @@ function seedSampleAssets(context) {
       usageNotes: "Bundled Aichan sample base reference. Replace with your own art before publishing a private workspace.",
       tags: [],
     }];
-  }
-
-  if (video && !video.startFrame && !video.endFrame) {
-    video.startFrame = assetIds.get("base-key-visual-adopted.png") ?? "";
-    video.endFrame = assetIds.get("base-master-adopted.png") ?? "";
   }
 
   recomputeRequestedStatuses(state, context);

@@ -32,57 +32,8 @@
         "clothing": [],
         "background": []
       },
-      "images": [
-        {
-          "id": "image-sample-character-studio-smile",
-          "overview": "Aichan portrait / AIちゃんポートレート",
-          "prompt": "waist-up portrait of Aichan smiling at the camera, sunset seaside light, magenta-violet hair, red horns, red eyes, black hoodie, choker, compact bat wings visible, polished anime illustration, single character, no text, no logo, no watermark",
-          "version": 1,
-          "checked": false,
-          "requestStatus": "idle",
-          "tags": [],
-          "assets": [],
-          "refs": {
-            "master": "base-sample-character-master",
-            "accessory": [],
-            "expression": [],
-            "clothing": [],
-            "background": []
-          }
-        },
-        {
-          "id": "image-sample-character-rooftop-dusk",
-          "overview": "Aichan full-body scene / AIちゃん全身シーン",
-          "prompt": "full-body illustration of Aichan standing in a clean studio reference pose, black hoodie, purple check dress, horns, wings, tail, boots, faithful to the design sheet, polished anime style, single character, no text, no logo, no watermark",
-          "version": 1,
-          "checked": false,
-          "requestStatus": "idle",
-          "tags": [],
-          "assets": [],
-          "refs": {
-            "master": "base-sample-character-master",
-            "accessory": [],
-            "expression": [],
-            "clothing": [],
-            "background": []
-          }
-        }
-      ],
-      "videos": [
-        {
-          "id": "video-sample-character-dusk-greeting",
-          "overview": "Aichan reference turn, 8s / AIちゃん参照ターン（8秒）",
-          "prompt": "0-2s: start on the Aichan key visual and hold the smiling face. 2-4s: slow push-in while hair and hoodie move subtly. 4-6s: gentle transition toward the design sheet pose, keeping horns, wings, tail, outfit, and eye color consistent. 6-8s: settle on a clean full-body reference view. No text, no logo, no watermark.",
-          "version": 1,
-          "checked": false,
-          "requestStatus": "idle",
-          "tags": [],
-          "assets": [],
-          "startFrame": "",
-          "endFrame": "",
-          "durationSec": 8
-        }
-      ]
+      "images": [],
+      "videos": []
     }
   ],
   "requestDirectory": "requests",

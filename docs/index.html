@@ -88,31 +88,31 @@
 
 <section class="wrap" id="real-screens">
   <h2 data-reveal data-i18n="screens_title">One reference pack, several working views</h2>
-  <p class="sec-sub" data-reveal style="--d:60ms" data-i18n="screens_sub">The page now shows the different states image-arranger manages: a source sheet, adopted images, request files, and gallery output.</p>
-  <div class="screen-showcase">
-    <figure class="screen-frame showcase-main" data-reveal>
-      <div class="bar"><i></i><i></i><i></i><span class="url" data-i18n="screens_base_bar">Reference pack — Aichan source of truth</span></div>
-      <img src="assets/base/aichan_design.png" alt="Aichan design sheet used as the sample character source of truth" width="1491" height="1055">
-      <figcaption data-i18n="screens_base_caption">The design sheet is the source material, not the same screenshot repeated through the page.</figcaption>
-    </figure>
-    <div class="screen-stack">
-      <figure class="screen-frame state-card" data-reveal style="--d:80ms">
-        <div class="state-card-head">
-          <span data-i18n="screens_kit_card_title">Request file</span>
-          <b>requested</b>
-        </div>
-        <pre>{
-  "service": "chatgpt",
-  "target": "image",
-  "refImages": 1
+  <p class="sec-sub" data-reveal style="--d:60ms" data-i18n="screens_sub">After the source sheet is imported, the app manages smaller working states: parts, color decisions, queue files, and adopted results.</p>
+  <div class="truth-grid">
+    <article class="truth-card" data-reveal>
+      <span class="truth-kicker">Base</span>
+      <h3 data-i18n="screens_base_title">Real references only</h3>
+      <p data-i18n="screens_base_caption">The bundled sample keeps only the two real Aichan reference files. Empty part rows are not prefilled.</p>
+      <code>base.master: assets/base/aichan_design.png</code>
+      <code>base.key: assets/base/aichan.png</code>
+    </article>
+    <article class="truth-card" data-reveal style="--d:80ms">
+      <span class="truth-kicker">Queue</span>
+      <h3 data-i18n="screens_queue_title">Requests stay inspectable</h3>
+      <p data-i18n="screens_queue_caption">Generation work appears as plain JSON only after the operator queues it. A fresh clone starts with no pending request files.</p>
+      <pre>{
+  "targets": [],
+  "results": []
 }</pre>
-        <figcaption data-i18n="screens_kit_caption">Queue work is plain JSON you can inspect before anything runs.</figcaption>
-      </figure>
-      <figure class="screen-frame" data-reveal style="--d:140ms">
-        <img src="assets/base/aichan.png" alt="Aichan key visual shown as an adopted gallery image" width="430" height="330">
-        <figcaption data-i18n="screens_gallery_caption">Gallery uses adopted images, so the approved visual stays easy to find.</figcaption>
-      </figure>
-    </div>
+    </article>
+    <article class="truth-card" data-reveal style="--d:140ms">
+      <span class="truth-kicker">Gallery</span>
+      <h3 data-i18n="screens_gallery_title">Only adopted assets appear</h3>
+      <p data-i18n="screens_gallery_caption">The gallery does not invent thumbnails. It shows files that were registered and adopted by the operator.</p>
+      <code>images: []</code>
+      <code>videos: []</code>
+    </article>
   </div>
 </section>
 
@@ -133,14 +133,15 @@
         <div class="n" data-i18n="wf_kit_label">01 · CREATE KIT</div>
         <h3 data-i18n="wf_kit_title">Identity sheet</h3>
         <p data-i18n="wf_kit_body">One-shot generate the character's canonical sheet from a reusable prompt template. Fix one part without rerolling everything: decompose into per-part references.</p>
-        <figure class="wf-shot wf-visual wf-kit-visual">
+        <figure class="wf-shot wf-data-card wf-kit-visual">
           <div class="visual-toolbar"><span>Create kit</span><b>2 sources</b></div>
-          <div class="kit-canvas">
-            <div class="ref-thumb sheet"><img src="assets/base/aichan_design.png" alt=""></div>
-            <div class="kit-arrow">→</div>
-            <div class="request-pill">sheet request</div>
-            <div class="ref-thumb key"><img src="assets/base/aichan.png" alt=""></div>
-          </div>
+          <pre>{
+  "sourceFiles": [
+    "assets/base/aichan_design.png",
+    "assets/base/aichan.png"
+  ],
+  "creates": "base.master"
+}</pre>
           <figcaption data-i18n="wf_kit_caption">Create kit view: source images become a structured character sheet request.</figcaption>
         </figure>
       </article>
@@ -148,13 +149,12 @@
         <div class="n" data-i18n="wf_base_label">02 · BASE</div>
         <h3 data-i18n="wf_base_title">Part references</h3>
         <p data-i18n="wf_base_body">Manage per-part reference entries (face, expression, outfit…) with candidates. Only approved ones get adopted.</p>
-        <figure class="wf-shot wf-visual wf-base-visual">
+        <figure class="wf-shot wf-data-card wf-base-visual">
           <div class="visual-toolbar"><span>Base</span><b>canonical</b></div>
           <div class="base-ledger">
-            <span><b>Master</b><em>adopted</em></span>
-            <span><b>Face</b><em>linked</em></span>
-            <span><b>Outfit</b><em>reviewed</em></span>
-            <span><b>Parts</b><em>resolved</em></span>
+            <span><b>Master</b><code>assets/base/aichan_design.png</code></span>
+            <span><b>Key visual</b><code>assets/base/aichan.png</code></span>
+            <span><b>Part rows</b><em data-i18n="wf_base_no_prefill">created only from real registered outputs</em></span>
           </div>
           <figcaption data-i18n="wf_base_caption">Base view: approved references are tracked by role instead of loose files.</figcaption>
         </figure>
@@ -163,35 +163,35 @@
         <div class="n" data-i18n="wf_image_label">03 · IMAGE</div>
         <h3 data-i18n="wf_image_title">One prompt, one output</h3>
         <p data-i18n="wf_image_body">Compose prompts that attach adopted images as source inputs. Improve or retry; adoption stays exclusive.</p>
-        <figure class="wf-shot wf-visual wf-image-visual">
+        <figure class="wf-shot wf-data-card wf-image-visual">
           <div class="visual-toolbar"><span>Image</span><b>one output</b></div>
-          <div class="candidate-row">
-            <div class="candidate-card adopted"><img src="assets/base/aichan.png" alt=""><span>adopted</span></div>
-            <div class="candidate-card"><div class="candidate-empty"></div><span>candidate</span></div>
-            <div class="candidate-card queued"><div class="candidate-lines"></div><span>queued</span></div>
-          </div>
+          <pre>{
+  "action": "generate",
+  "refImages": ["base.master"],
+  "results": []
+}</pre>
           <figcaption data-i18n="wf_image_caption">Image view: candidates, adoption state, and retry intent stay separate.</figcaption>
         </figure>
       </article>
       <article class="wf-step" data-reveal>
         <div class="n" data-i18n="wf_video_label">04 · VIDEO</div>
-        <h3 data-i18n="wf_video_title">Frames for i2v</h3>
-        <p data-i18n="wf_video_body">Point start/end frames at adopted images for image-to-video services like Vidu.</p>
-        <figure class="wf-shot wf-visual wf-video-visual">
-          <div class="visual-toolbar"><span>Video</span><b>i2v frames</b></div>
-          <div class="frame-pair">
-            <div class="frame-card"><img src="assets/base/aichan.png" alt=""><span>start frame</span></div>
-            <div class="motion-line">motion prompt</div>
-            <div class="frame-card end"><img src="assets/base/aichan.png" alt=""><span>end frame</span></div>
-          </div>
-          <figcaption data-i18n="wf_video_caption">Video view: start and end frames are explicit inputs for Vidu-style workflows.</figcaption>
+        <h3 data-i18n="wf_video_title">Scene stills only</h3>
+        <p data-i18n="wf_video_body">Queue video only after a real adopted scene still exists. For locked-camera motion, reuse the same adopted still as both start and end.</p>
+        <figure class="wf-shot wf-data-card wf-video-visual">
+          <div class="visual-toolbar"><span>Video</span><b>real inputs</b></div>
+          <ul class="process-list">
+            <li data-i18n="wf_video_step_one">Requires a real adopted scene still.</li>
+            <li data-i18n="wf_video_step_two">Uses explicit startFrame and endFrame paths.</li>
+            <li data-i18n="wf_video_step_three">Shows no completed clip until a real MP4 is registered.</li>
+          </ul>
+          <figcaption data-i18n="wf_video_caption">Video view: no fake completed clips; start/end frame fields point to adopted stills from the same scene.</figcaption>
         </figure>
       </article>
       <article class="wf-step" data-reveal>
         <div class="n" data-i18n="wf_queue_label">05 · QUEUE</div>
         <h3 data-i18n="wf_queue_title">Requests as files</h3>
         <p data-i18n="wf_queue_body">Each request is a JSON file with prompt, references and output dir. Edit, cancel or complete from the UI — or hand the folder to an agent.</p>
-        <figure class="wf-shot wf-visual wf-queue-visual">
+        <figure class="wf-shot wf-data-card wf-queue-visual">
           <div class="visual-toolbar"><span>Queue</span><b>request file</b></div>
           <pre>{
   "status": "requested",
@@ -225,13 +225,11 @@
       <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg></div>
       <h3 data-i18n="feature_adoption_title">Adoption, not chaos</h3>
       <p data-i18n="feature_adoption_body">Every output is a candidate; you adopt the good ones. Adopted images become the canonical references for the next round — per part, per character — and source links always resolve to the <em>current</em> canonical at queue time.</p>
-      <div class="adoption-flow" aria-label="Candidate adoption flow">
-        <div class="adoption-card"><img src="assets/base/aichan.png" alt=""><span>candidate</span></div>
-        <span class="flow-arrow">→</span>
-        <div class="adoption-card adopted"><img src="assets/base/aichan.png" alt=""><span>adopted</span></div>
-        <span class="flow-arrow">→</span>
-        <div class="adoption-card reference"><span>next reference</span></div>
-      </div>
+      <ol class="adoption-steps" aria-label="Candidate adoption flow">
+        <li><b>candidate</b><span data-i18n="feature_adoption_step_candidate">a real exported file is registered</span></li>
+        <li><b>adopted</b><span data-i18n="feature_adoption_step_adopted">the operator approves one current asset</span></li>
+        <li><b>next reference</b><span data-i18n="feature_adoption_step_reference">future requests resolve to that asset</span></li>
+      </ol>
     </div>
     <div class="cell" data-reveal>
       <div class="ico"><svg viewBox="0 0 24 24"><rect x="5" y="7" width="14" height="12" rx="2"/><path d="M12 7V4"/><circle cx="9.5" cy="12" r="1"/><circle cx="14.5" cy="12" r="1"/><path d="M9 16h6"/></svg></div>

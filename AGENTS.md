@@ -68,6 +68,54 @@ node server.mjs --workspace ./workspace/sample --init sample --port 4321
 - If `workspace/_LOCAL_RULES.md` exists, read it first. It is gitignored and may
   contain local operator-specific rules that override the generic rules above.
 
+## Absolute Pre-Push Garbage Gate
+
+Before any commit or push, remove and verify the absence of garbage data. This is
+a hard rule, not a best-effort cleanup.
+
+- Do not push sample rows, request files, output files, history snapshots, or
+  candidates that only exist to make the UI look busy.
+- The bundled sample deck must not contain empty Image or Video entries that
+  display the no-generated-image label (`画像` + `未生成` /
+  `Not generated yet`) on a fresh clone. If an image or video entry is included
+  in sample data, it must have a real bundled asset and a clear reason to appear.
+- Remove obsolete local/generated concepts before push, especially old
+  demonstration-agent remnants, placeholder outputs, cached screenshots, old
+  review artifacts, old sample-game asset rows, old base-sample-game rows,
+  rejected non-Aichan character-name variants, and any generated image/video
+  that was not intentionally adopted as public sample data.
+- Never create demonstration-only images, mock generated images, screenshots, or
+  placeholder media to make the app, README, landing page, queue, sample deck, or
+  tests look more complete. If an image or video is not a real operator-provided
+  reference, a real generated service export, or an intentionally adopted public
+  sample asset with provenance, it must not be created, committed, registered as
+  a candidate, or used to complete a request.
+- Never replace missing assets with decorative stand-ins: abstract cards,
+  gradient-only thumbnails, blurred blobs, CSS-only proxy visuals, invented
+  adoption states, synthetic request panels, or status art that suggests an asset
+  exists. If the real file does not exist, show honest text/data or remove that
+  visual section.
+- Check both tracked and untracked files. If an HTML/JS/CSS file references an
+  untracked asset, either track that asset or remove the reference before commit.
+- Check ignored local workspaces separately. `workspace/sample`, `.history`,
+  `deck.json.bak`, `requests/`, `outputs/`, and `agent-logs/` are not pushed, but
+  they can still mislead local verification. Clean or regenerate them before
+  reporting the screen as verified.
+- The final pre-push step must explicitly confirm that no demonstration-only,
+  mock, screenshot-derived, cache-derived, or placeholder image/video remains in
+  tracked files, untracked files, ignored local workspaces, request results,
+  output folders, README/LP assets, or sample deck asset lists.
+- The same final check must cover HTML/CSS/JS that fabricates missing images,
+  videos, parts, candidates, or queue states with decorative panels instead of
+  real files and real state.
+- Run the CI deny-list scan before push. The exact removed-processing terms and
+  rejected non-Aichan character-name variants are encoded in
+  `.github/workflows/ci.yml`; do not reintroduce those terms in tracked source,
+  sample data, docs, or filenames.
+- Run the relevant tests/checks after cleanup. Do not describe the repo as clean
+  until the current app state and the committed sample seed both show no garbage
+  rows.
+
 ## GUI/UX Verification
 
 For frontend changes or user-reported UI bugs, verify the actual screen as a user.

@@ -56,6 +56,9 @@ async function withServer(callback, options = {}) {
     projectRoot,
     init: options.init ?? "sample",
   });
+  if ((options.init ?? "sample") !== "empty" && options.testImageEntry !== false) {
+    addTestImageEntry(created.context);
+  }
   await new Promise((resolve) => created.server.listen(0, "127.0.0.1", resolve));
   const port = created.server.address().port;
   try {
@@ -65,6 +68,33 @@ async function withServer(callback, options = {}) {
   }
 }
 
+function addTestImageEntry(context) {
+  const state = JSON.parse(readFileSync(context.stateFile, "utf8"));
+  const character = state.characters?.find((item) => item.id === "sample-character") ?? state.characters?.[0];
+  if (!character) return;
+  character.images = character.images ?? [];
+  if (character.images.some((entry) => entry.id === "image-test-entry")) return;
+  character.images.unshift({
+    id: "image-test-entry",
+    overview: "Test image entry",
+    prompt: "test-only image prompt",
+    version: 1,
+    checked: false,
+    requestStatus: "idle",
+    tags: ["test-only"],
+    assets: [],
+    refs: {
+      master: "base-sample-character-master",
+      accessory: [],
+      expression: [],
+      clothing: [],
+      background: [],
+    },
+  });
+  state.updatedAt = new Date().toISOString();
+  writeFileSync(context.stateFile, `${JSON.stringify(state, null, 2)}\n`);
+}
+
 test("default seed state is public-safe sample data", () => {
   const state = createSeedState();
   const character = state.characters[0];
@@ -72,7 +102,8 @@ test("default seed state is public-safe sample data", () => {
   assert.equal(state.schema, "image-arranger.v1");
   assert.equal(character.id, "sample-character");
   assert.equal(character.workflow, "character");
-  assert.ok(character.images.some((entry) => entry.id === "image-sample-character-studio-smile"));
+  assert.deepEqual(character.images, [], "sample seed should not show ungenerated image rows on clone");
+  assert.deepEqual(character.videos, [], "sample seed should not show ungenerated video rows on clone");
   const nonMasterBaseRows = Object.entries(character.base ?? {})
     .filter(([category]) => category !== "master")
     .flatMap(([, rows]) => rows ?? []);
@@ -528,7 +559,7 @@ test("server creates characters and registers copied asset candidates", async ()
 
     assert.equal(assetResult.ok, true);
     assert.equal(assetResult.asset.adopted, true);
-    assert.match(assetResult.asset.file, /assets\/sample-character\/image-sample-character-studio-smile\/candidate-a\.png/);
+    assert.match(assetResult.asset.file, /assets\/sample-character\/image-test-entry\/candidate-a\.png/);
     assert.equal(assetResult.state.characters[0].images[0].assets.at(-1).name, "candidate-a");
   }, { projectRoot: tempProject, assetDir: join(tempProject, "assets") });
 });
