@@ -10,7 +10,7 @@
   (operator-specific; overrides defaults). Use throwaway workspaces for
   automated tests that do not need an operator-provided workspace, and close any
   browser tab you open.
-- Use `AGENTS.md` for the current start/test/demo commands, including non-default
+- Use `AGENTS.md` for the current start, test, and sample commands, including non-default
   port or workspace examples.
 - For image-arranger queued image generation, follow the ChatGPT-first rule in
   `AGENTS.md`; do not use Codex's built-in image generation unless the operator
