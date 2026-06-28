@@ -108,8 +108,9 @@ node scripts/process-service-queue.mjs --check --service vidu
 node scripts/process-service-queue.mjs
 ```
 
-- Requires **Node 22+** (the server itself runs on Node 20+) and a Chrome/Chromium install. ChatGPT and Vidu processing use already-open marker tabs in the selected normal Chrome profile on macOS. Vidu injects the requested start/end frames into that tab, submits through Vidu's visible UI, saves the MP4, and reports completion; it must not fall back to a generated automation profile.
-- New browser-based service drivers should use `scripts/service-browser-profile.mjs` for profile listing, selection, saved-config validation, and rejected automation-profile detection before they open a service page.
+- Requires **Node 22+** (the server itself runs on Node 20+) and a Chrome/Chromium install. ChatGPT and Vidu processing use already-open marker tabs in the selected normal Chrome profile. Vidu injects the requested start/end frames into that tab, submits through Vidu's visible UI, saves the MP4, and reports completion; it must not fall back to a generated automation profile.
+- Windows ChatGPT and Vidu browser automation use the unpacked Chrome bridge extension in `extensions/chrome-bridge`; see [Windows Chrome Bridge Setup](docs/windows-chrome-bridge.md). Without that extension connected from the selected Chrome profile, service drivers stop instead of opening a different profile.
+- New browser-based service drivers should use `scripts/service-browser-profile.mjs` for profile listing, selection, saved-config validation, and rejected automation-profile detection before they open a service page. Tab control must go through `scripts/service-browser-route.mjs`, with macOS behavior isolated in `scripts/chrome-route-macos.mjs` / `*-route-macos.mjs` and Windows behavior isolated in `scripts/chrome-route-windows.mjs` / `*-route-windows.mjs`.
 - **Disclaimer**: it drives *your* browser with *your* account at *your* responsibility, and may conflict with the generation service's terms of service — review them before use. The stable interface is the [request-file contract](docs/request-spec.md); the driver is a replaceable convenience, and you can always process requests by hand or with your own tooling.
 
 ### Bundled Codex skill
@@ -131,7 +132,7 @@ For agents that support repository-local skills, image-arranger ships its GUI/UX
 | Layer | Requirement | Status |
 |-------|-------------|--------|
 | **Server** (`server.mjs`, UI, request files) | Any OS with **Node 20+** | Supported everywhere Node runs |
-| **Scripted processor** (`scripts/`) | **Node 22+** (uses the global `WebSocket`) + Chrome/Chromium | The service queue entrypoint uses a saved normal Chrome profile first, then reuses an already-open marker tab in that profile. ChatGPT and Vidu processing are macOS-tested; Vidu saves MP4 results from the normal UI or direct result URL. The old CDP queue driver is disabled |
+| **Scripted processor** (`scripts/`) | **Node 22+** (uses the global `WebSocket`) + Chrome/Chromium | The service queue entrypoint uses a saved normal Chrome profile first, then reuses an already-open marker tab in that profile. ChatGPT and Vidu processing are macOS-tested; Windows ChatGPT and Vidu require the Chrome bridge extension. Vidu saves MP4 results from the normal UI or direct result URL. The old CDP queue driver is disabled |
 | **Manual keystroke fallback** (in [AGENTS.md](AGENTS.md) / [docs/manual-fallback.md](docs/manual-fallback.md)) | macOS (`osascript` / `pbcopy` / `pbpaste`) | **macOS only**; Windows/Linux equivalents are not established |
 
 Note the version split: the **server needs Node 20+**, but the **scripted processor needs Node 22+** for the global `WebSocket`. The processor prints a clear message and exits cleanly on Node 20.

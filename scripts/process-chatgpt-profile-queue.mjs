@@ -4,19 +4,25 @@
 // Codex image generation. See skills/image-arranger-queue-processing/SKILL.md.
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
+import * as chatgptMacRoute from "./chatgpt-route-macos.mjs";
+import * as chatgptWindowsRoute from "./chatgpt-route-windows.mjs";
 import {
-  assertChromeRunning,
   assertNoUserDataDirProcesses,
   assertRequiredChromeProfile,
   listChromeProfiles,
-  osaString,
   printServiceProfileCandidates,
   readServiceProfileConfig,
-  runAppleScript,
-  runChromeTabJsByUrlPart,
   setupServiceChromeProfile,
 } from "./service-browser-profile.mjs";
+import {
+  assertChromeRunning,
+  assertSingleBridgeCandidateForProfile,
+  findChromeTabByUrlPart,
+  runChromeTabJsByUrlPart,
+  usesChromeBridgeRoute,
+} from "./service-browser-route.mjs";
 
 const args = process.argv.slice(2);
 const SERVER = option("--server", process.env.IMAGE_ARRANGER_SERVER ?? "http://127.0.0.1:4217").replace(/\/$/, "");
@@ -34,11 +40,13 @@ const PROFILE_CONFIG_PATH = resolve(option("--profile-config", "workspace/.local
 const CHATGPT_MARKER_BASE_URL = "https://chatgpt.com/";
 const CHATGPT_MARKER_WORK = "image-arranger";
 const CHATGPT_MARKER_BASE_PART = `agent-work=${CHATGPT_MARKER_WORK}`;
-const DOWNLOAD_DIR = join(process.env.HOME ?? "", "Downloads");
-const DISALLOWED_PROFILE = `${process.env.HOME ?? ""}/.image-arranger/agent-chrome`;
+const DOWNLOAD_DIR = resolve(option("--download-dir", process.env.IMAGE_ARRANGER_CHATGPT_DOWNLOAD_DIR ?? join(homedir(), "Downloads")));
+const DISALLOWED_PROFILE = join(homedir(), ".image-arranger", "agent-chrome");
 const SERVICE = "chatgpt";
 const SERVICE_LABEL = "ChatGPT";
 let currentChatgptMarkerPart = CHATGPT_MARKER_BASE_PART;
+let currentChatgptProfile = null;
+let currentChatgptTabId = null;
 
 if (flag("--help") || flag("-h")) {
   console.log(`Existing-profile ChatGPT queue processor.
@@ -57,9 +65,11 @@ Options:
   --request <id>   process one request id
   --max <n>        max targets to process (default 1)
   --check          verify the approved route preconditions only
-  --ensure-tab     with --check, create/reuse the ChatGPT marker tab and verify login/composer
+  --ensure-tab     with --check, reuse the ChatGPT marker tab and verify login/composer
   --dry-run        list eligible queued ChatGPT image targets
   --keep-modal     leave the ChatGPT image modal open after saving
+  --download-dir <dir>
+                  normal Chrome download directory (default ${DOWNLOAD_DIR})
   --setup-profile  list Chrome profiles, let the operator choose, and save local config
   --profile-choice <n>
                   non-interactive selection for --setup-profile
@@ -143,10 +153,28 @@ function markerPartForProfile(profile) {
   return markerParamsForProfile(profile).toString();
 }
 
-function runTabJs(targetPart, js, { activate = true } = {}) {
+function runTabJs(targetPart, js, { activate = true, tabId = null } = {}) {
   return runChromeTabJsByUrlPart(targetPart, js, {
     activate,
     errorLabel: "ChatGPT tab",
+    profile: currentChatgptProfile,
+    profileConfigPath: PROFILE_CONFIG_PATH,
+    tabId,
+  });
+}
+
+function activeChatgptTargetPart(conversationPart = "") {
+  return usesChromeBridgeRoute() ? currentChatgptMarkerPart : conversationPart;
+}
+
+function activeChatgptTabId() {
+  return usesChromeBridgeRoute() ? currentChatgptTabId : null;
+}
+
+function runActiveChatgptJs(conversationPart, js, { activate = false } = {}) {
+  return runTabJs(activeChatgptTargetPart(conversationPart), js, {
+    activate,
+    tabId: activeChatgptTabId(),
   });
 }
 
@@ -195,6 +223,8 @@ async function routePreflight({ ensureTab = false } = {}) {
   assertChromeRunning();
   assertNoDisallowedChrome();
   const approvedProfile = assertRequiredProfile(profileConfig);
+  currentChatgptProfile = approvedProfile;
+  assertSingleBridgeCandidateForProfile(approvedProfile);
   currentChatgptMarkerPart = markerPartForProfile(approvedProfile);
   const markerUrl = markerUrlForProfile(approvedProfile);
   const queue = await api("/api/requests");
@@ -209,6 +239,18 @@ async function routePreflight({ ensureTab = false } = {}) {
     markerTab: null,
   };
   if (ensureTab) {
+    const existing = findChromeTabByUrlPart(currentChatgptMarkerPart, {
+      activate: true,
+      profile: approvedProfile,
+      profileConfigPath: PROFILE_CONFIG_PATH,
+    });
+    if (!existing) {
+      throw new Error(`ChatGPT marker tab was not found for the selected Chrome profile. Open this exact URL in ${approvedProfile.profileName} / ${approvedProfile.email}, then rerun. This script must not create tabs itself: ${markerUrl}.`);
+    }
+    currentChatgptTabId = existing.tabId ?? null;
+    if (usesChromeBridgeRoute() && currentChatgptTabId == null) {
+      throw new Error("ChatGPT marker tab was found through the Chrome bridge, but the bridge did not return tabId. Windows ChatGPT processing must stop because the tab cannot be followed after the marker URL changes to a conversation URL.");
+    }
     try {
       result.markerTab = runTabJs(currentChatgptMarkerPart, `
       const body = document.body.innerText || "";
@@ -220,7 +262,7 @@ async function routePreflight({ ensureTab = false } = {}) {
         composerExists: Boolean(composer),
         bodyStart: body.slice(0, 120)
       };
-      `);
+      `, { tabId: currentChatgptTabId });
     } catch (error) {
       throw new Error(`ChatGPT marker tab was not found for the selected Chrome profile. Open this exact URL in ${approvedProfile.profileName} / ${approvedProfile.email}, then rerun. This script must not create tabs itself: ${markerUrl}. Original error: ${error.message}`);
     }
@@ -241,11 +283,16 @@ function eligibleTargets(queue) {
 
 function cleanComposer() {
   return runTabJs(currentChatgptMarkerPart, `
-    const isPastedImageLabel = (label) => label.includes('image(') && label.includes(').png');
+    const isAttachmentLabel = (label) => {
+      const value = label || '';
+      return (value.includes('image(') && value.includes(').png'))
+        || /\\.(png|jpe?g|webp|gif)\\b/i.test(value)
+        || /uploaded image|open image|アップロード済み|添付済み/i.test(value);
+    };
     const buttons = Array.from(document.querySelectorAll('button'));
     for (const button of buttons) {
       const label = button.getAttribute('aria-label') || button.innerText || '';
-      if (isPastedImageLabel(label) || (/delete|remove/i.test(label) && /image|file/i.test(label))) {
+      if (isAttachmentLabel(label) || (/delete|remove|削除/i.test(label) && /image|file|画像|ファイル/i.test(label))) {
         button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
         button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
         button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
@@ -267,10 +314,10 @@ function cleanComposer() {
       composerTextLength: (ed.innerText || ed.textContent || '').length,
       deleteButtonCount: Array.from(document.querySelectorAll('button')).filter((button) => {
         const label = button.getAttribute('aria-label') || button.innerText || '';
-        return isPastedImageLabel(label) || (/delete|remove/i.test(label) && /image|file/i.test(label));
+        return isAttachmentLabel(label) || (/delete|remove|削除/i.test(label) && /image|file|画像|ファイル/i.test(label));
       }).length
     };
-  `);
+  `, { tabId: activeChatgptTabId() });
 }
 
 async function waitForNoAttachments(timeoutMs = 30000) {
@@ -278,47 +325,37 @@ async function waitForNoAttachments(timeoutMs = 30000) {
   let state = null;
   while (Date.now() - started < timeoutMs) {
     state = runTabJs(currentChatgptMarkerPart, `
-      const isPastedImageLabel = (label) => label.includes('image(') && label.includes(').png');
+      const isAttachmentLabel = (label) => {
+        const value = label || '';
+        return (value.includes('image(') && value.includes(').png'))
+          || /\\.(png|jpe?g|webp|gif)\\b/i.test(value)
+          || /uploaded image|open image|アップロード済み|添付済み/i.test(value);
+      };
       const labels = Array.from(document.querySelectorAll('button'))
         .map((button) => button.getAttribute('aria-label') || button.innerText || '');
-      const attachmentLabels = labels.filter((label) => isPastedImageLabel(label)
-        || /アップロード|uploaded image|open image/i.test(label));
+      const attachmentLabels = labels.filter((label) => isAttachmentLabel(label)
+        || (/delete|remove|削除/i.test(label) && /image|file|画像|ファイル/i.test(label)));
       return { attachmentCount: attachmentLabels.length, attachmentLabels };
-    `, { activate: false });
+    `, { activate: false, tabId: activeChatgptTabId() });
     if (state.attachmentCount === 0) return state;
     await sleep(1000);
   }
   throw new Error(`Timed out waiting for old ChatGPT attachments to clear: ${JSON.stringify(state)}`);
 }
 
-function setClipboardPngAndPaste(absPath) {
-  const script = `
-set imagePath to "${osaString(absPath)}"
-set the clipboard to (read (POSIX file imagePath) as «class PNGf»)
-set foundTab to false
-tell application "Google Chrome"
-  repeat with wi from 1 to count of windows
-    set w to window wi
-    repeat with ti from 1 to count of tabs of w
-      set t to tab ti of w
-      if (URL of t contains "${osaString(currentChatgptMarkerPart)}") then
-        set active tab index of w to ti
-        set index of w to 1
-        activate
-        execute t javascript "(() => { const ed = document.querySelector('#prompt-textarea, div[contenteditable=\\\"true\\\"]'); if (ed) ed.focus(); return 'focused'; })();"
-        set foundTab to true
-        exit repeat
-      end if
-    end repeat
-    if foundTab then exit repeat
-  end repeat
-end tell
-if not foundTab then error "ChatGPT marker tab was not found"
-delay 0.4
-tell application "System Events" to keystroke "v" using command down
-delay 1
-`;
-  runAppleScript(script);
+function attachReference(absPath) {
+  if (usesChromeBridgeRoute()) {
+    return chatgptWindowsRoute.attachReference({
+      absPath,
+      markerPart: currentChatgptMarkerPart,
+      runTabJs,
+      tabId: activeChatgptTabId(),
+    });
+  }
+  return chatgptMacRoute.attachReference({
+    absPath,
+    markerPart: currentChatgptMarkerPart,
+  });
 }
 
 async function waitForAttachmentCount(expectedCount, timeoutMs = 240000) {
@@ -326,22 +363,38 @@ async function waitForAttachmentCount(expectedCount, timeoutMs = 240000) {
   let state = null;
   while (Date.now() - started < timeoutMs) {
     state = runTabJs(currentChatgptMarkerPart, `
-      const isPastedImageLabel = (label) => label.includes('image(') && label.includes(').png');
-      const buttons = Array.from(document.querySelectorAll('button'));
-      const labels = buttons.map((button) => button.getAttribute('aria-label') || button.innerText || '');
+      const isAttachmentLabel = (label) => {
+        const value = label || '';
+        return (value.includes('image(') && value.includes(').png'))
+          || /\\.(png|jpe?g|webp|gif)\\b/i.test(value)
+          || /uploaded image|open image|アップロード済み|添付済み/i.test(value);
+      };
+      const composer = document.querySelector('#prompt-textarea, div[contenteditable="true"]');
+      const root = composer?.closest('form') || composer?.parentElement?.parentElement || document.body;
+      const scopedButtons = Array.from(root.querySelectorAll('button'));
+      const labels = scopedButtons.map((button) => button.getAttribute('aria-label') || button.innerText || '');
       const deleteButtons = labels
-        .filter((label) => isPastedImageLabel(label) || (/delete|remove/i.test(label) && /image|file/i.test(label)));
+        .filter((label) => isAttachmentLabel(label) || (/delete|remove|削除/i.test(label) && /image|file|画像|ファイル/i.test(label)));
       const uploadedImageButtons = labels
-        .filter((label) => /アップロード|uploaded image|open image/i.test(label));
+        .filter((label) => /uploaded image|open image|アップロード済み|添付済み/i.test(label));
+      const thumbnailImages = Array.from(root.querySelectorAll('img'))
+        .filter((img) => {
+          const src = img.currentSrc || img.src || '';
+          const alt = img.alt || '';
+          const rect = img.getBoundingClientRect();
+          return rect.width > 20 && rect.height > 20
+            && (src.startsWith('blob:') || src.startsWith('data:') || /\\.(png|jpe?g|webp|gif)\\b/i.test(alt));
+        });
       const send = document.querySelector('[data-testid="send-button"]');
       return {
-        attachmentCount: Math.max(deleteButtons.length, uploadedImageButtons.length),
+        attachmentCount: Math.max(deleteButtons.length, uploadedImageButtons.length, thumbnailImages.length),
         deleteButtonCount: deleteButtons.length,
         deleteButtons,
         uploadedImageButtons,
+        thumbnailImageCount: thumbnailImages.length,
         sendDisabled: send ? (send.disabled || send.getAttribute('aria-disabled') === 'true') : null
       };
-    `, { activate: false });
+    `, { activate: false, tabId: activeChatgptTabId() });
     if (state.attachmentCount >= expectedCount) return state;
     await sleep(1000);
   }
@@ -374,7 +427,7 @@ function insertPrompt(prompt) {
       endsCorrect: normalizedInnerText.endsWith(expected.slice(-80)),
       sendDisabled: send ? (send.disabled || send.getAttribute('aria-disabled') === 'true') : null
     };
-  `);
+  `, { tabId: activeChatgptTabId() });
 }
 
 async function waitForSendReady(prompt, timeoutMs = 120000) {
@@ -398,7 +451,7 @@ async function waitForSendReady(prompt, timeoutMs = 120000) {
         sendExists: Boolean(send),
         uploadTextPresent: /アップロード中|Uploading|処理中|Processing/i.test(document.body.innerText || '')
       };
-    `, { activate: false });
+    `, { activate: false, tabId: activeChatgptTabId() });
     if (!state.ok) throw new Error(`Prompt changed while waiting to send: ${JSON.stringify(state)}`);
     if (state.sendExists && !state.sendDisabled) return state;
     await sleep(1000);
@@ -406,51 +459,25 @@ async function waitForSendReady(prompt, timeoutMs = 120000) {
   throw new Error(`Timed out waiting for ChatGPT send button to enable: ${JSON.stringify(state)}`);
 }
 
-function sendPrompt() {
-  const script = `
-set foundTab to false
-set resultText to ""
-tell application "Google Chrome"
-  repeat with wi from 1 to count of windows
-    set w to window wi
-    repeat with ti from 1 to count of tabs of w
-      set t to tab ti of w
-      if (URL of t contains "${osaString(currentChatgptMarkerPart)}") then
-        set active tab index of w to ti
-        set index of w to 1
-        activate
-        execute t javascript "(() => { const ed = document.querySelector('#prompt-textarea, div[contenteditable=\\\"true\\\"]'); if (ed) ed.focus(); return 'focused'; })();"
-        set foundTab to true
-        exit repeat
-      end if
-    end repeat
-    if foundTab then exit repeat
-  end repeat
-end tell
-if not foundTab then error "ChatGPT marker tab was not found"
-delay 0.3
-tell application "System Events" to key code 36
-delay 1
-tell application "Google Chrome"
-  repeat 120 times
-    try
-      set t to active tab of front window
-      set resultText to execute t javascript "JSON.stringify((() => ({url: location.href, title: document.title, hasMarker: location.href.includes('${osaString(currentChatgptMarkerPart)}'), hasConversation: location.href.includes('/c/'), hasStopButton: !!document.querySelector('[data-testid=\\\"stop-button\\\"]'), composerExists: !!document.querySelector('#prompt-textarea, div[contenteditable=\\\"true\\\"]')}))())"
-      if resultText contains "\\"hasConversation\\":true" then return resultText
-    end try
-    delay 1
-  end repeat
-end tell
-error "sent ChatGPT conversation tab did not leave the marker tab: " & resultText
-`;
-  return JSON.parse(runAppleScript(script));
+async function sendPrompt() {
+  if (usesChromeBridgeRoute()) {
+    return chatgptWindowsRoute.sendPrompt({
+      markerPart: currentChatgptMarkerPart,
+      runTabJs,
+      tabId: activeChatgptTabId(),
+      sleep,
+    });
+  }
+  return chatgptMacRoute.sendPrompt({
+    markerPart: currentChatgptMarkerPart,
+  });
 }
 
 async function waitForGeneratedImage(conversationPart, timeoutMs = 15 * 60 * 1000) {
   const started = Date.now();
   let state = null;
   while (Date.now() - started < timeoutMs) {
-    state = runTabJs(conversationPart, `
+    state = runActiveChatgptJs(conversationPart, `
       const isUploadedImageAlt = (alt) => {
         const value = (alt || '').trim();
         return value.startsWith('image(') && value.endsWith(').png') && value.length <= 32;
@@ -506,7 +533,7 @@ function listDownloadImages() {
 
 async function saveGeneratedImage(conversationPart) {
   const before = Date.now();
-  const opened = runTabJs(conversationPart, `
+  const opened = runActiveChatgptJs(conversationPart, `
     const isUploadedImageAlt = (alt) => {
       const value = (alt || '').trim();
       return value.startsWith('image(') && value.endsWith(').png') && value.length <= 32;
@@ -529,7 +556,7 @@ async function saveGeneratedImage(conversationPart) {
   `);
   if (!opened.ok) throw new Error(`Could not open generated image: ${JSON.stringify(opened)}`);
   await sleep(1200);
-  const saved = runTabJs(conversationPart, `
+  const saved = runActiveChatgptJs(conversationPart, `
     const buttons = Array.from(document.querySelectorAll('button'));
     const saveCandidates = buttons.map((button) => {
       const label = (button.getAttribute('aria-label') || button.innerText || '').trim();
@@ -559,7 +586,7 @@ async function saveGeneratedImage(conversationPart) {
   }
   if (!found) throw new Error("ChatGPT save did not create a new image file in Downloads");
   if (!KEEP_MODAL) {
-    runTabJs(conversationPart, `
+    runActiveChatgptJs(conversationPart, `
       const close = Array.from(document.querySelectorAll('button')).find((button) => (button.getAttribute('aria-label') || '') === '全画面表示を閉じる');
       if (close) close.click();
       return { closed: Boolean(close) };
@@ -602,7 +629,7 @@ async function processTarget(queue, target) {
     if (!existsSync(abs)) throw new Error(`Reference image does not exist: ${abs}`);
     expectedAttachments += 1;
     console.log(`[${target.requestId}:${target.targetIndex}] attach ${ref}`);
-    setClipboardPngAndPaste(abs);
+    attachReference(abs);
     await waitForAttachmentCount(expectedAttachments);
   }
 
@@ -617,7 +644,7 @@ async function processTarget(queue, target) {
     throw new Error(`ChatGPT send button stayed disabled before send: ${JSON.stringify(sendReady)}`);
   }
   console.log(`[${target.requestId}:${target.targetIndex}] prompt verified, sending`);
-  const sent = sendPrompt();
+  const sent = await sendPrompt();
   if (!sent.url || !sent.url.includes("/c/")) throw new Error(`Could not confirm sent ChatGPT conversation: ${JSON.stringify(sent)}`);
   const conversationPart = sent.url.split("/c/")[1]?.split(/[?#]/)[0] ?? sent.url;
 

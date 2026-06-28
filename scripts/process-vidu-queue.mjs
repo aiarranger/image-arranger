@@ -22,13 +22,22 @@ import { basename, extname, isAbsolute, join, resolve } from "node:path";
 import { RunLog } from "./agent-browser.mjs";
 import {
   assertNoUserDataDirProcesses,
-  findChromeTabByUrlPart,
   listChromeProfiles,
   loadServiceChromeProfile,
   printServiceProfileCandidates,
-  runChromeTabJsByUrlPart,
   setupServiceChromeProfile,
 } from "./service-browser-profile.mjs";
+import {
+  assertSingleBridgeCandidateForProfile,
+  findChromeTabByUrlPart,
+  runChromeTabJsByUrlPart,
+} from "./service-browser-route.mjs";
+import {
+  buildViduMarkerUrl as buildViduMarkerUrlForProfile,
+  isViduLoggedOutPageState,
+  legacyMarkerPartForViduProfile,
+  markerPartForViduProfile,
+} from "./vidu-route-helpers.mjs";
 
 const args = process.argv.slice(2);
 function flag(name) { return args.includes(name); }
@@ -91,6 +100,7 @@ const SERVICE = "vidu";
 const SERVICE_LABEL = "Vidu";
 const BROWSER_UPLOAD_CHUNK_SIZE = 24000;
 const MIN_VIDEO_BYTES = 100000;
+let currentViduProfile = null;
 
 const delay = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 
@@ -140,22 +150,19 @@ function assertNoLegacyViduAutomationChrome() {
 }
 
 function buildViduMarkerUrl(profile, runId = "") {
-  const url = new URL(VIDU_URL);
-  url.searchParams.set("agent-work", "image-arranger-vidu");
-  url.searchParams.set("profile-directory", profile.profileDir);
-  if (runId) url.searchParams.set("run", runId);
-  return url.toString();
+  return buildViduMarkerUrlForProfile({ viduUrl: VIDU_URL, profile, runId });
 }
 
 function markerPartForProfile(profile) {
-  const profileMarker = new URLSearchParams({ "profile-directory": profile.profileDir }).toString();
-  return `agent-work=image-arranger-vidu&${profileMarker}`;
+  return markerPartForViduProfile(profile);
 }
 
 function runViduJs(markerPart, js, { activate = false } = {}) {
   return runChromeTabJsByUrlPart(markerPart, js, {
     activate,
     errorLabel: "Vidu marker tab",
+    profile: currentViduProfile,
+    profileConfigPath: PROFILE_CONFIG_PATH,
   });
 }
 
@@ -179,8 +186,27 @@ async function waitForState(label, getter, predicate, { timeoutMs = 30000, inter
 async function waitForNormalProfileViduPage(profile, runLog) {
   const url = buildViduMarkerUrl(profile);
   const markerPart = markerPartForProfile(profile);
-  const existing = findChromeTabByUrlPart(markerPart, { activate: true });
+  const existing = findChromeTabByUrlPart(markerPart, {
+    activate: true,
+    profile,
+    profileConfigPath: PROFILE_CONFIG_PATH,
+  });
   if (!existing) {
+    const legacyPart = legacyMarkerPartForViduProfile(profile);
+    const legacy = (() => {
+      try {
+        return findChromeTabByUrlPart(legacyPart, {
+          activate: false,
+          profile,
+          profileConfigPath: PROFILE_CONFIG_PATH,
+        });
+      } catch {
+        return null;
+      }
+    })();
+    if (legacy) {
+      throw new Error(`A legacy Vidu marker tab is open but it lacks profile-email, so it is not a safe profile proof. Reopen this exact URL in ${profile.profileName} / ${profile.email}, then rerun: ${url}`);
+    }
     throw new Error(`Vidu marker tab was not found for the selected Chrome profile. Open this exact URL in ${profile.profileName} / ${profile.email}, then rerun. This script must not create tabs itself: ${url}`);
   }
   runLog.log(`reusing selected-profile Vidu marker tab: ${existing.url}`);
@@ -301,6 +327,15 @@ function viduState(markerPart) {
         href: item.href || "",
       }))
       .filter((item) => /download|ダウンロード|保存/i.test(item.text) || /\\.mp4(\\?|$)/i.test(item.href));
+    const visibleActionTexts = buttons
+      .filter((item) => visible(item))
+      .map((item) => normalize(item.innerText || item.getAttribute("aria-label") || item.getAttribute("title") || ""))
+      .filter(Boolean);
+    const loggedOut = (${isViduLoggedOutPageState.toString()})({
+      pathname: location.pathname,
+      body,
+      visibleActionTexts,
+    });
     const fileInputs = [...document.querySelectorAll("input[type=file]")];
     return {
       url: location.href,
@@ -315,7 +350,7 @@ function viduState(markerPart) {
       submitText: normalize(submit?.innerText ?? submit?.getAttribute("aria-label") ?? ""),
       submitDisabled: !submit || submit.disabled || submit.getAttribute("aria-disabled") === "true",
       uploading: /アップロード中|Uploading/i.test(body),
-      loggedOut: /ログイン|Sign in|Log in|Login/i.test(body),
+      loggedOut,
       videos,
       directVideos,
       downloadButtons,
@@ -669,6 +704,8 @@ async function main() {
   }
 
   const viduProfile = loadViduProfileConfig();
+  currentViduProfile = viduProfile.chrome;
+  assertSingleBridgeCandidateForProfile(viduProfile.chrome);
   const markerPart = markerPartForProfile(viduProfile.chrome);
   runLog.log(`Vidu profile config ${viduProfile.configPath}`);
   runLog.log(`Vidu selected normal Chrome profile ${viduProfile.chrome.profileName} / ${viduProfile.chrome.email} / ${viduProfile.chrome.profileDir}`);

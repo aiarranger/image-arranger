@@ -36,6 +36,18 @@ entrypoint and drivers:
 - use `scripts/service-browser-profile.mjs` as the single shared implementation
   for candidate listing, setup config writing, stale-config detection, signed-in
   email validation, and rejected automation-profile detection
+- use `scripts/service-browser-route.mjs` as the single shared tab-control
+  boundary; macOS AppleScript behavior lives in `scripts/chrome-route-macos.mjs`
+  and Windows Chrome bridge behavior lives in `scripts/chrome-route-windows.mjs`
+- keep ChatGPT OS-specific attach/send behavior split between
+  `scripts/chatgpt-route-macos.mjs` and `scripts/chatgpt-route-windows.mjs`;
+  do not add macOS and Windows fixes back into one mixed driver function
+- on Windows ChatGPT and Vidu runs, use the repository Chrome bridge host/client plus the unpacked
+  `extensions/chrome-bridge` extension installed in the selected normal Chrome
+  profile; the bridge is the only approved non-macOS tab-control route, and the
+  first successful `--check` binds `bridgeClientId` / `bridgeExtensionId` into
+  `workspace/.local/<service>-profile.json` so later runs cannot drift to another
+  profile extension
 - routes `service: "chatgpt"` image targets to
   `scripts/process-chatgpt-profile-queue.mjs`
 - routes `service: "vidu"` video targets to `scripts/process-vidu-queue.mjs`
@@ -48,9 +60,14 @@ entrypoint and drivers:
 - reuses exactly one already-open ChatGPT marker tab whose URL includes
   `agent-work=image-arranger`, `profile-directory`, and `profile-email` for the
   saved profile
+- reuses exactly one already-open Vidu marker tab whose URL includes
+  `agent-work=image-arranger-vidu`, `profile-directory`, and `profile-email` for
+  the saved profile
 - refuses to create service tabs itself; if the marker tab is missing, it prints
   the exact URL that must be opened in the saved Chrome profile and stops
-- attaches references with the real macOS PNG clipboard and real `Cmd+V`
+- attaches ChatGPT references through the OS-specific approved route: real macOS
+  PNG clipboard on macOS, browser `File` injection through the bound Chrome
+  bridge tab on Windows
 - inserts and verifies the queue prompt before sending
 - waits for the visible ChatGPT send button to become enabled after the
   reference upload finishes
@@ -84,6 +101,10 @@ leave the request pending/error with the real reason.
 
 ChatGPT, Vidu, and any future browser-based generation service must use the same
 startup/profile contract. Do not add a service-specific startup path.
+They must also use the same browser route split: profile/config logic remains in
+`scripts/service-browser-profile.mjs`, tab discovery and page JavaScript go
+through `scripts/service-browser-route.mjs`, and operating-system behavior stays
+inside `*-route-macos.mjs` or `*-route-windows.mjs` files.
 
 1. `--list-profiles` prints Chrome profile candidates from Chrome `Local State`.
 2. `--setup-profile --service <service> --profile-choice <n>` saves the selected
@@ -101,6 +122,18 @@ startup/profile contract. Do not add a service-specific startup path.
    generation.
 6. A new service driver may add page-specific upload, submit, download, and
    registration logic only after this shared profile guard has passed.
+   If any of that page logic must differ by operating system, create separate
+   macOS and Windows route files first and keep the service driver as the
+   coordinator.
+7. On Windows ChatGPT and Vidu runs, the shared profile guard must use
+   `extensions/chrome-bridge` plus `scripts/chrome-bridge-host.mjs`; if the
+   bridge extension is not connected from the saved profile, stop before service
+   work begins. The first successful check binds the extension client id and
+   extension id into the saved profile config; after that, commands must go only
+   to that bound extension client. Before the first bind, the selected email
+   must be unique in Chrome `Local State`; if multiple profiles use the same
+   email, stop instead of guessing. ChatGPT attach/send/save on Windows must use
+   that same bound bridge tab.
 
 The old Vidu generated-profile startup and the old ChatGPT CDP automation
 startup are rejected routes, not templates. Do not copy them into new services.
@@ -139,11 +172,12 @@ ChatGPT route:
    saved profile. Reuse that tab for the whole queue attempt. The script must
    not create this tab; if it is missing, it stops and prints the exact URL to
    open in the saved profile.
-6. Attach each reference image with the real macOS clipboard route:
-   - set the system clipboard to the PNG file with `osascript` as `«class PNGf»`
-   - activate the marked ChatGPT tab
-   - focus the composer
-   - send a real `Cmd+V` through System Events
+6. Attach each reference image through the approved route for the current OS:
+   - on macOS, set the system clipboard to the PNG file with `osascript` as
+     `«class PNGf»`, activate the marked ChatGPT tab, focus the composer, and
+     send a real `Cmd+V` through System Events
+   - on Windows, use the Chrome bridge to inject the image as a browser `File`
+     into the already-open bound marker tab
    - wait until ChatGPT shows the uploaded image chip/thumbnail
 7. Insert the prompt with page-context `document.execCommand("insertText", false,
    prompt)` or another verified normal text-entry path. Verify the full prompt is
@@ -153,6 +187,9 @@ ChatGPT route:
 8. Send through the visible ChatGPT composer, wait for generation to finish, save
    the result through the normal ChatGPT image UI, then report completion through
    `POST /api/requests/complete`.
+9. On Windows, process ChatGPT image queues through the same bound Chrome bridge
+   route used by preflight. Do not switch to `Start-Process chrome`, a generated
+   profile, Codex image generation, file chooser fallback, or virtual clipboard.
 
 Vidu route:
 
@@ -172,7 +209,8 @@ Vidu route:
    `~/.image-arranger/agent-chrome` profile. The check must reuse a Vidu marker
    tab that is already open in the selected profile, such as
    `kaminokuresse@gmail.com` / `ユーザー 1`; it must not launch Chrome or create
-   the tab itself.
+   the tab itself. The Vidu marker URL must include `profile-email`; a
+   `profile-directory=Default` marker without email is not enough.
 5. Provide exactly `inputs.startFrame` and `inputs.endFrame`; Vidu processing
    does not use the ChatGPT reference-image paste route.
 6. The Vidu driver injects those two files into the existing Vidu marker tab as
@@ -184,9 +222,11 @@ Vidu route:
    operator intentionally reruns with `--allow-paid`. Do not bypass this by
    switching service, browser profile, or generation tool.
 
-## Successful Route Evidence
+## macOS Successful Route Evidence
 
-The successful 2026-06-27 run used this exact flow:
+The successful 2026-06-27 ChatGPT run used this macOS-specific flow. Keep these
+details for macOS regressions, but do not treat them as a Windows fallback. On
+Windows, ChatGPT must use the bound Chrome bridge route described above.
 
 1. `curl -s http://127.0.0.1:4217/api/requests` found
    `req_20260627103340_379d378d` / `targetIndex: 0`.
@@ -213,8 +253,8 @@ The successful 2026-06-27 run used this exact flow:
     must be UTF-8 decoded before `eval`, and send tracking must stay on the
     marker tab until it becomes the new conversation URL.
 
-These details are not optional alternatives. They are the known-good path to
-reproduce.
+These details are not optional alternatives for the macOS route. They are not a
+replacement for the Windows bridge route.
 
 ## Rejected Routes
 
@@ -227,6 +267,8 @@ image-arranger queues:
   disabled and must not be re-enabled for queue processing.
 - `open -a "Google Chrome" ... --profile-directory=...` service startup. In a
   running multi-profile Chrome, it can place the URL in the wrong profile.
+- Windows `start chrome`, PowerShell `Start-Process chrome`, or any equivalent
+  profile-directory launch. It has the same wrong-profile failure mode.
 - Vidu's old implicit `~/.image-arranger/vidu-chrome` or generated
   `~/.image-arranger/vidu-profiles/*` startup. It launches a browser that was not
   the selected normal Chrome profile. Vidu must use the profile saved by
@@ -244,7 +286,8 @@ reason, when any of these happens:
 
 - the saved Chrome profile is unavailable or cannot be confirmed
 - the ChatGPT tab redirects to `/auth/login`
-- the real clipboard paste does not show an uploaded image chip/thumbnail
+- the OS-specific ChatGPT reference attach step does not show an uploaded image
+  chip/thumbnail
 - the full prompt cannot be verified in the composer before sending
 - the visible ChatGPT UI refuses, errors, or never produces a downloadable result
 - the Vidu create page is logged out or not usable

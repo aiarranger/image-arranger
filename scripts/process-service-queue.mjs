@@ -39,7 +39,7 @@ Options:
 
 ChatGPT passthrough:
   --setup-profile, --list-profiles, --profile-choice <n>, --profile-config <path>,
-  --ensure-tab, --keep-modal
+  --ensure-tab, --keep-modal, --download-dir <dir>
 
 Vidu passthrough:
   --setup-profile, --list-profiles, --profile-choice <n>, --profile-config <path>,
@@ -141,6 +141,7 @@ function chatgptArgs() {
     ...commonArgs(),
     ...passIfPresent("--profile-choice"),
     ...passIfPresent("--profile-config"),
+    ...passIfPresent("--download-dir"),
   ];
   if (flag("--ensure-tab")) next.push("--ensure-tab");
   if (flag("--keep-modal")) next.push("--keep-modal");

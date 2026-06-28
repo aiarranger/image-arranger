@@ -5,24 +5,6 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as defaultStdin, stdout as defaultStdout } from "node:process";
 
-export function run(command, commandArgs, options = {}) {
-  const result = spawnSync(command, commandArgs, { encoding: "utf8", ...options });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    const detail = [result.stderr, result.stdout].filter(Boolean).join("\n").trim();
-    throw new Error(`${command} ${commandArgs.join(" ")} failed${detail ? `: ${detail}` : ""}`);
-  }
-  return result.stdout;
-}
-
-export function runAppleScript(script) {
-  return run("osascript", [], { input: script }).trim();
-}
-
-export function osaString(value) {
-  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
 export function processCommandLines() {
   if (process.platform === "win32") {
     const script = "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
@@ -197,6 +179,8 @@ function normalizeServiceProfileConfig(raw, { service, serviceLabel, profileConf
     profileDir: source.profileDir,
     profileName: source.profileName,
     email: source.email || "",
+    bridgeClientId: source.bridgeClientId || raw?.bridgeClientId || "",
+    bridgeExtensionId: source.bridgeExtensionId || raw?.bridgeExtensionId || "",
   };
   if (!config.profileDir || !config.profileName || !config.email) {
     throw new Error(`Invalid ${serviceLabel} Chrome profile config. Re-run --setup-profile --service ${service}; config path: ${profileConfigPath}`);
@@ -224,6 +208,8 @@ export function assertRequiredChromeProfile(profileConfig, { service, serviceLab
     profileDir: profileConfig.profileDir,
     profileName: profile.name || profile.shortcut_name || profileConfig.profileDir,
     email: profile.user_name || "",
+    bridgeClientId: profileConfig.bridgeClientId || "",
+    bridgeExtensionId: profileConfig.bridgeExtensionId || "",
   };
   if (actual.profileName !== profileConfig.profileName || actual.email !== profileConfig.email) {
     throw new Error(`${serviceLabel} profile config no longer matches Chrome Local State. Re-run --setup-profile --service ${service}: ${JSON.stringify({
@@ -245,84 +231,40 @@ export function loadServiceChromeProfile({ service, serviceLabel, profileConfigP
   };
 }
 
-export function assertChromeRunning(message = "Google Chrome is not running. Start the selected normal Chrome profile first; this script must not switch to another browser route.") {
-  const result = process.platform === "win32"
-    ? spawnSync("powershell.exe", ["-NoProfile", "-Command", "Get-Process chrome -ErrorAction SilentlyContinue"], { encoding: "utf8" })
-    : spawnSync("pgrep", ["-x", "Google Chrome"], { encoding: "utf8" });
-  if (result.status !== 0) throw new Error(message);
-}
-
 export function assertNoUserDataDirProcesses({ label, rejectedPaths }) {
+  const normalizedRejected = rejectedPaths.flatMap((path) => {
+    const value = String(path);
+    return [value, value.replaceAll("\\", "/"), value.replaceAll("/", "\\")];
+  });
   const bad = processCommandLines().filter((line) => (
     line.includes("--user-data-dir=")
-    && rejectedPaths.some((path) => line.includes(path))
+    && normalizedRejected.some((path) => line.includes(path))
   ));
   if (bad.length) {
     throw new Error(`${label} is still running. Close it before using the selected normal Chrome profile route:\n${bad.join("\n")}`);
   }
 }
 
-export function findChromeTabByUrlPart(urlPart, { activate = true } = {}) {
-  if (process.platform !== "darwin") return null;
-  const script = `
-set targetPart to "${osaString(urlPart)}"
-tell application "Google Chrome"
-  repeat with wi from 1 to count of windows
-    set w to window wi
-    repeat with ti from 1 to count of tabs of w
-      set t to tab ti of w
-      if (URL of t contains targetPart) then
-        if ${activate ? "true" : "false"} then
-          set active tab index of w to ti
-          set index of w to 1
-          activate
-        end if
-        return (URL of t) & linefeed & (title of t)
-      end if
-    end repeat
-  end repeat
-end tell
-return ""
-`;
-  const output = runAppleScript(script);
-  if (!output) return null;
-  const [foundUrl = "", title = ""] = output.split(/\r?\n/);
-  return { url: foundUrl, title };
-}
-
-export function runChromeTabJsByUrlPart(urlPart, js, { activate = true, errorLabel = "Chrome tab" } = {}) {
-  if (process.platform !== "darwin") {
-    throw new Error(`${errorLabel} page inspection is currently implemented for macOS Chrome only.`);
-  }
-  const encoded = Buffer.from(`JSON.stringify((() => { ${js} })())`, "utf8").toString("base64");
-  const script = `
-set targetPart to "${osaString(urlPart)}"
-set foundTab to false
-set resultText to ""
-tell application "Google Chrome"
-  if (count of windows) is 0 then error "Google Chrome has no open windows"
-  repeat with wi from 1 to count of windows
-    set w to window wi
-    repeat with ti from 1 to count of tabs of w
-      set t to tab ti of w
-      if (URL of t contains targetPart) then
-        if ${activate ? "true" : "false"} then
-          set active tab index of w to ti
-          set index of w to 1
-          activate
-        end if
-        set resultText to execute t javascript "eval(new TextDecoder().decode(Uint8Array.from(atob('${encoded}'), (ch) => ch.charCodeAt(0))))"
-        set foundTab to true
-        exit repeat
-      end if
-    end repeat
-    if foundTab then exit repeat
-  end repeat
-end tell
-if not foundTab then error "target tab not found: " & targetPart
-return resultText
-`;
-  const raw = runAppleScript(script);
-  if (!raw || raw === "missing value") throw new Error(`AppleScript returned no value for ${errorLabel} ${urlPart}`);
-  return JSON.parse(raw);
+export function bindServiceBridgeClientId({ profileConfigPath, profile, bridgeClientId, bridgeExtensionId = "" }) {
+  if (!profileConfigPath || !profile || !bridgeClientId) return profile;
+  if (profile.bridgeClientId === bridgeClientId && (!bridgeExtensionId || profile.bridgeExtensionId === bridgeExtensionId)) return profile;
+  const parsed = existsSync(profileConfigPath)
+    ? JSON.parse(readFileSync(profileConfigPath, "utf8"))
+    : {};
+  const next = {
+    ...parsed,
+    chrome: {
+      ...(parsed.chrome ?? {}),
+      profileDir: profile.profileDir,
+      profileName: profile.profileName,
+      email: profile.email,
+      bridgeClientId,
+      bridgeExtensionId,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  writeFileSync(profileConfigPath, `${JSON.stringify(next, null, 2)}\n`);
+  profile.bridgeClientId = bridgeClientId;
+  if (bridgeExtensionId) profile.bridgeExtensionId = bridgeExtensionId;
+  return profile;
 }

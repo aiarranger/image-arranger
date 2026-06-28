@@ -515,6 +515,17 @@ shared profile guard:
   lists Chrome profile candidates, saves the selected signed-in normal profile,
   verifies saved configs against Chrome `Local State`, and rejects old
   automation-profile configs before any service page is opened.
+- [`scripts/service-browser-route.mjs`](../scripts/service-browser-route.mjs)
+  is the single tab-control boundary. macOS behavior belongs in
+  [`scripts/chrome-route-macos.mjs`](../scripts/chrome-route-macos.mjs) or a
+  service-specific `*-route-macos.mjs`; Windows behavior belongs in
+  [`scripts/chrome-route-windows.mjs`](../scripts/chrome-route-windows.mjs) or a
+  service-specific `*-route-windows.mjs`.
+- [`extensions/chrome-bridge`](../extensions/chrome-bridge) plus
+  [`scripts/chrome-bridge-host.mjs`](../scripts/chrome-bridge-host.mjs) provide
+  the Windows tab-control route. The extension must be installed in the selected
+  signed-in Chrome profile and connected to the local host before service work
+  begins.
 
 Do not add a new browser driver that silently launches an unspecified default
 profile, a generated `~/.image-arranger/<service>-chrome` profile, a generated
@@ -523,7 +534,10 @@ profile, a generated `~/.image-arranger/<service>-chrome` profile, a generated
 driver; a running multi-profile Chrome can place the URL in the wrong profile.
 If the profile is not configured, or if the required service marker tab is not
 already open in the selected profile, the driver must stop before touching the
-service page.
+service page. Marker URLs must include `agent-work`, `profile-directory`, and
+`profile-email`; service drivers must reject marker commands that omit any of
+those fields. A directory name alone is not a sufficient profile proof when
+multiple Chrome profiles can each have a `Default` directory.
 
 To drive a new service, fetch `GET /api/requests`, filter targets you can handle, and for
 each one reproduce the request contract: attach `inputs.refImages` for image

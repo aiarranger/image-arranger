@@ -114,18 +114,30 @@ route, then rerun from the beginning.
    The local selection is saved in `workspace/.local/chatgpt-profile.json`,
    which is ignored by git. This selection is written and verified only through
    `scripts/service-browser-profile.mjs`.
-3. Select that Chrome backend explicitly through `agent.browsers.list()` by
-   matching the saved profile name. Do not use the default `extension` backend
-   blindly.
+   Browser tab control is routed through `scripts/service-browser-route.mjs`;
+   macOS-specific AppleScript code lives in `scripts/chrome-route-macos.mjs`,
+   and Windows Chrome bridge code lives in `scripts/chrome-route-windows.mjs`.
+   Do not add OS-specific browser control back into service drivers or
+   `scripts/service-browser-profile.mjs`.
+3. Do not operate the service Chrome profile through ad-hoc Browser Use backend
+   selection during normal queue processing. The scripts perform tab discovery
+   through `scripts/service-browser-route.mjs`. If a human debugging step
+   explicitly requires Browser Use, select the backend by saved profile name and
+   never use the default `extension` backend blindly.
 4. Use one ChatGPT work tab with a marker URL that includes
    `agent-work=image-arranger`, `profile-directory`, and `profile-email` for the
    saved profile. Reuse that tab for the whole queue attempt. The script must
    not create this tab; if it is missing, it stops and prints the exact URL to
    open in the saved Chrome profile.
-5. Attach reference images with the macOS real clipboard route only:
-   `osascript` sets the clipboard to the PNG as `«class PNGf»`, the marked
-   ChatGPT tab is brought to the front, the composer is focused, and System
-   Events sends a real `Cmd+V`.
+5. Attach reference images through the approved route for the current OS. On
+   macOS, `osascript` sets the clipboard to the PNG as `«class PNGf»`, the
+   marked ChatGPT tab is brought to the front, the composer is focused, and
+   System Events sends a real `Cmd+V`. On Windows, the Chrome bridge injects the
+   reference as a browser `File` into the already-open bound marker tab; it does
+   not use Codex image generation, a file chooser fallback, or a generated
+   browser profile. ChatGPT-specific macOS attach/send code lives in
+   `scripts/chatgpt-route-macos.mjs`; ChatGPT-specific Windows attach/send code
+   lives in `scripts/chatgpt-route-windows.mjs`.
 6. Insert the prompt into the composer with page-context
    `document.execCommand("insertText", false, prompt)` or an equally verified
    normal text-entry path, then verify the full prompt is visible and the send
@@ -144,13 +156,21 @@ route, then rerun from the beginning.
    a generated `~/.image-arranger/vidu-*` profile. Do not use the rejected
    `~/.image-arranger/agent-chrome` profile for ChatGPT or Vidu. The Vidu driver
    must not launch Chrome or create a tab; it may only reuse a Vidu marker URL
-   that is already open in the saved profile.
+   that is already open in the saved profile. The Vidu marker URL must include
+   both `profile-directory` and `profile-email`; `profile-directory=Default`
+   alone is not a safe profile proof.
 
 ### Common Service Browser Profile Contract
 
 Every browser-based generation service driver must use
 `scripts/service-browser-profile.mjs` for the startup/profile phase. This is the
 only approved startup contract for ChatGPT, Vidu, and future service drivers.
+It must also use `scripts/service-browser-route.mjs` for tab discovery and page
+JavaScript execution. Mac-only changes belong in `scripts/chrome-route-macos.mjs`
+or a service-specific `*-route-macos.mjs`; Windows-only changes belong in
+`scripts/chrome-route-windows.mjs` or a service-specific
+`*-route-windows.mjs`. Do not mix both operating systems in one service driver
+when a route file can isolate the behavior.
 
 Required flow:
 
@@ -171,6 +191,22 @@ Required flow:
 6. A new service may add only the service-specific page logic after this common
    profile guard. It must not copy back the removed Vidu generated-profile
    startup or the old ChatGPT CDP automation startup.
+   If the service needs OS-specific attach, upload, send, save, or download
+   behavior, add separate macOS and Windows route files first, then call them
+   from the service driver through the common route boundary.
+7. On Windows ChatGPT and Vidu runs, tab control must go through the local Chrome bridge:
+   `scripts/chrome-bridge-host.mjs` plus the unpacked extension in
+   `extensions/chrome-bridge`, installed in the selected normal Chrome profile.
+   The first successful `--check` binds that extension's `bridgeClientId` and
+   `bridgeExtensionId` into `workspace/.local/<service>-profile.json`; later runs
+   must send commands only to that bound extension client. Before the first
+   bind, the selected email must be unique in Chrome `Local State`; if multiple
+   profiles use the same email, stop instead of guessing. If that extension is
+   not connected from the selected profile, the service driver must stop. Do not
+   replace it with `Start-Process chrome`, `--profile-directory`, a new
+   `--user-data-dir`, or Codex image generation. ChatGPT attach/send/save on
+   Windows must stay on the same bound bridge tab until the generated image has
+   been saved and registered.
 
 When maintaining `scripts/process-service-queue.mjs` or the delegated ChatGPT
 driver, preserve these implementation constraints:
@@ -183,6 +219,10 @@ driver, preserve these implementation constraints:
   text or generated images.
 - `hasStopButton: true` on the marker URL means ChatGPT accepted the send but
   the URL has not settled yet. Keep waiting for the conversation URL.
+- On Windows, ChatGPT image queues use the same bound Chrome bridge route as
+  preflight. Reference images are injected as browser `File` objects, sending is
+  done through the visible ChatGPT send button, and saving is done through the
+  normal ChatGPT image UI into the configured download directory.
 
 Rejected routes from the 2026-06-27 audit:
 
@@ -193,6 +233,9 @@ Rejected routes from the 2026-06-27 audit:
 - `open -a "Google Chrome" ... --profile-directory=...` service startup:
   already-running multi-profile Chrome can place the URL in the wrong profile.
   Service drivers must not use it to open ChatGPT, Vidu, or future services.
+- Windows `Start-Process chrome`, `start chrome`, or equivalent
+  `--profile-directory` launch paths: they can reproduce the same wrong-profile
+  failure. Use the Chrome bridge extension in the selected profile instead.
 - Chrome file chooser / `fileChooser.setFiles`: failed with `Not allowed`.
 - Browser tab virtual clipboard for PNG via `tab.clipboard.write`: dropped the
   Chrome extension pipe (`native pipe closed before response`).
@@ -247,9 +290,12 @@ browser instance.
   the same profile.
 - Do not work around a profile conflict by switching to Codex image generation,
   screenshots, placeholder output, or any non-service-generated image.
-- On Windows, if Chrome upload, clipboard paste, profile startup, login, or
-  remote-control attachment fails, leave the request uncompleted and report the
-  browser failure. Do not substitute another generation path.
+- On Windows, ChatGPT and Vidu profile startup and tab-control failures must use
+  the documented Chrome bridge setup in
+  [docs/windows-chrome-bridge.md](docs/windows-chrome-bridge.md). If the bridge
+  is not connected from the selected profile or still cannot operate the service
+  page, leave the request uncompleted and report the browser failure. Do not
+  substitute another generation path.
 
 Do not run `scripts/process-queue.mjs` for this operator's ChatGPT image queues.
 Use `scripts/process-service-queue.mjs` via `skills/image-arranger-queue-processing`
@@ -407,18 +453,19 @@ failure reason. Do not use Codex image generation, placeholder files,
 screenshots, or cached/internal browser blobs as substitutes for the service
 export.
 
-Detailed attach/prompt/wait/collect guidance for macOS keystroke fallback lives in
-[docs/manual-fallback.md](docs/manual-fallback.md).
+Detailed attach/prompt/wait/collect guidance for the macOS keystroke fallback
+lives in [docs/manual-fallback.md](docs/manual-fallback.md). It applies only to
+macOS runs. Windows ChatGPT runs use the bound Chrome bridge route above.
 
 ### One-time macOS Setup for Real-OS Keystrokes
 
 The manual fallback in `docs/manual-fallback.md` uses `osascript`, `pbcopy`, and
-`pbpaste` to paste images or text into a browser when no CDP/scripted path is
-available. On macOS, grant Automation and Accessibility permission to the
-terminal app or agent runner that executes those commands. For this operator's
-ChatGPT image queues, this real-OS route is the approved route because it keeps
-the work inside the locally selected Chrome profile and avoids the rejected CDP
-automation profile, file chooser, and virtual-clipboard paths.
+`pbpaste` to paste images or text into a browser when the macOS scripted path
+needs real OS keystrokes. On macOS, grant Automation and Accessibility
+permission to the terminal app or agent runner that executes those commands.
+This macOS-only route keeps the work inside the locally selected Chrome profile
+and avoids the rejected CDP automation profile, file chooser, and
+virtual-clipboard paths. It is not the Windows route.
 
 ## Base Kit Analysis (`analyze`)
 
