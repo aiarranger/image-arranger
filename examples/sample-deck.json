@@ -27,64 +27,10 @@
             "assets": []
           }
         ],
-        "accessory": [
-          {
-            "id": "base-sample-character-accessory-cap",
-            "overview": "Horns, wings, and tail / 角・羽・しっぽ",
-            "prompt": "Aichan attached parts reference: red curved horns on upper head, compact red-black bat wings on upper back, long purple devil tail with red heart tip attached at lower back; preserve size, curve, colors, and attachment points; no text, no logo, no watermark",
-            "version": 1,
-            "checked": false,
-            "requestStatus": "idle",
-            "tags": [],
-            "assets": []
-          }
-        ],
-        "expression": [
-          {
-            "id": "base-sample-character-expression-smile",
-            "overview": "Smile expression / 笑顔",
-            "prompt": "Aichan face close-up with bright smile, red eyes, magenta-violet layered hair, red horns, black choker, faithful to the base references; no text, no logo, no watermark",
-            "version": 1,
-            "checked": false,
-            "requestStatus": "idle",
-            "tags": [],
-            "assets": []
-          },
-          {
-            "id": "base-sample-character-expression-focus",
-            "overview": "Neutral expression / 真顔",
-            "prompt": "Aichan face close-up with neutral expression, red eyes, magenta-violet layered hair, red horns, black choker, faithful to the base references; no text, no logo, no watermark",
-            "version": 1,
-            "checked": false,
-            "requestStatus": "idle",
-            "tags": [],
-            "assets": []
-          }
-        ],
-        "clothing": [
-          {
-            "id": "base-sample-character-clothing-casual",
-            "overview": "Hoodie and dress outfit / パーカーとワンピース",
-            "prompt": "Aichan outfit reference: black oversized hoodie over purple check dress with lace trim, black choker with ring, fingerless gloves, thigh-high stockings with garter strap, chunky black boots; preserve silhouette and colors; no text, no logo, no watermark",
-            "version": 1,
-            "checked": false,
-            "requestStatus": "idle",
-            "tags": [],
-            "assets": []
-          }
-        ],
-        "background": [
-          {
-            "id": "base-sample-character-background-studio",
-            "overview": "Clean reference background / 設定資料用背景",
-            "prompt": "clean neutral reference-sheet background, white or light gray, no scene props, no text, no logo, no watermark",
-            "version": 1,
-            "checked": false,
-            "requestStatus": "idle",
-            "tags": [],
-            "assets": []
-          }
-        ]
+        "accessory": [],
+        "expression": [],
+        "clothing": [],
+        "background": []
       },
       "images": [
         {
@@ -98,18 +44,10 @@
           "assets": [],
           "refs": {
             "master": "base-sample-character-master",
-            "accessory": [
-              "base-sample-character-accessory-cap"
-            ],
-            "expression": [
-              "base-sample-character-expression-smile"
-            ],
-            "clothing": [
-              "base-sample-character-clothing-casual"
-            ],
-            "background": [
-              "base-sample-character-background-studio"
-            ]
+            "accessory": [],
+            "expression": [],
+            "clothing": [],
+            "background": []
           }
         },
         {
@@ -123,15 +61,9 @@
           "assets": [],
           "refs": {
             "master": "base-sample-character-master",
-            "accessory": [
-              "base-sample-character-accessory-cap"
-            ],
-            "expression": [
-              "base-sample-character-expression-smile"
-            ],
-            "clothing": [
-              "base-sample-character-clothing-casual"
-            ],
+            "accessory": [],
+            "expression": [],
+            "clothing": [],
             "background": []
           }
         }
@@ -151,95 +83,6 @@
           "durationSec": 8
         }
       ]
-    },
-    {
-      "id": "sample-game-assets",
-      "name": "Sample Game Assets",
-      "workflow": "material",
-      "categoryLabels": {
-        "expression": {
-          "ja": "場面/用途",
-          "en": "Scene / Use"
-        },
-        "clothing": {
-          "ja": "形式",
-          "en": "Format"
-        }
-      },
-      "description": "Public sample for standalone image and video asset prompts. / 単発の画像・動画素材プロンプトを管理するサンプル。",
-      "base": {
-        "master": [
-          {
-            "id": "base-sample-game-rule",
-            "overview": "Common rules / 共通ルール",
-            "prompt": "one asset per prompt, no text, no logo, no watermark, clean reusable game material",
-            "version": 1,
-            "checked": false,
-            "requestStatus": "idle",
-            "tags": [],
-            "assets": []
-          }
-        ],
-        "accessory": [
-          {
-            "id": "base-sample-game-single-image",
-            "overview": "Single image only / 1画像のみ",
-            "prompt": "create exactly one image, not a grid or collage",
-            "version": 1,
-            "checked": false,
-            "requestStatus": "idle",
-            "tags": [],
-            "assets": []
-          }
-        ],
-        "expression": [
-          {
-            "id": "base-sample-game-scene-static",
-            "overview": "Still image / 静止画像",
-            "prompt": "stable image for a reusable asset library",
-            "version": 1,
-            "checked": false,
-            "requestStatus": "idle",
-            "tags": [],
-            "assets": []
-          }
-        ],
-        "clothing": [
-          {
-            "id": "base-sample-game-format-wide",
-            "overview": "Wide background / 横長背景",
-            "prompt": "wide game background, readable center area, no UI",
-            "version": 1,
-            "checked": false,
-            "requestStatus": "idle",
-            "tags": [],
-            "assets": []
-          }
-        ],
-        "background": []
-      },
-      "images": [
-        {
-          "id": "image-sample-wide-background",
-          "overview": "Wide background sample / 横長背景サンプル",
-          "prompt": "wide clean training-room background, late afternoon light through tall windows, readable center area for UI overlays, no characters, no UI, no text",
-          "version": 1,
-          "checked": false,
-          "requestStatus": "idle",
-          "tags": [],
-          "assets": [],
-          "refs": {
-            "master": "base-sample-game-rule",
-            "accessory": [
-              "base-sample-game-single-image"
-            ],
-            "expression": "base-sample-game-scene-static",
-            "clothing": "base-sample-game-format-wide",
-            "background": ""
-          }
-        }
-      ],
-      "videos": []
     }
   ],
   "requestDirectory": "requests",

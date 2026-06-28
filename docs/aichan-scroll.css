@@ -1,0 +1,123 @@
+:root {
+  --ia-aichan-track-top: 18px;
+  --ia-aichan-track-bottom: 18px;
+  --ia-aichan-track-right: max(12px, env(safe-area-inset-right));
+  --ia-aichan-track-width: 14px;
+  --ia-aichan-asset-width: clamp(108px, 11vw, 168px);
+  --ia-aichan-pole-offset: calc(var(--ia-aichan-asset-width) * 0.3);
+  --ia-aichan-z: 18;
+}
+
+.ia-aichan-scroll {
+  position: fixed;
+  top: var(--ia-aichan-track-top);
+  right: var(--ia-aichan-track-right);
+  width: var(--ia-aichan-asset-width);
+  height: calc(100svh - var(--ia-aichan-track-top) - var(--ia-aichan-track-bottom));
+  pointer-events: none;
+  z-index: var(--ia-aichan-z);
+  opacity: 0;
+  transition: opacity 180ms ease;
+  overflow: clip;
+  contain: layout paint;
+}
+
+.ia-aichan-scroll.is-ready { opacity: .96; }
+
+.ia-aichan-track {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--ia-aichan-track-width);
+  overflow: hidden;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, .24), transparent 30%, rgba(255, 255, 255, .18) 52%, transparent 70%),
+    linear-gradient(180deg, #3d3550, #1f1a2b);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, .18),
+    inset -3px 0 0 rgba(0, 0, 0, .24),
+    0 16px 28px rgba(61, 53, 80, .24);
+}
+
+.ia-aichan-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0%;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, .62), transparent 38%),
+    linear-gradient(180deg, #ff8ec4, #9b7dff 58%, #ff6b9d);
+  box-shadow:
+    0 0 18px rgba(255, 142, 196, .62),
+    0 0 30px rgba(155, 125, 255, .42);
+  transition: height 90ms linear;
+}
+
+.ia-aichan-character {
+  position: absolute;
+  top: 0;
+  right: calc((var(--ia-aichan-track-width) / 2) - var(--ia-aichan-pole-offset));
+  width: var(--ia-aichan-asset-width);
+  height: auto;
+  transform: translate3d(0, var(--ia-aichan-y, 0px), 0);
+  will-change: transform;
+  filter: drop-shadow(0 16px 24px rgba(39, 9, 50, .24));
+  transition: transform 90ms linear;
+}
+
+.ia-aichan-character img {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.ia-aichan-character.is-surprised { animation: iaAichanWobble .32s ease-out both; }
+.ia-aichan-character.is-yay { animation: iaAichanPop .44s cubic-bezier(.2, 1.55, .32, 1) both; }
+.ia-aichan-character.is-back { animation: iaAichanClimb .38s ease-out both; }
+
+@keyframes iaAichanWobble {
+  0% { transform: translate3d(0, var(--ia-aichan-y, 0px), 0) rotate(0deg); }
+  35% { transform: translate3d(-3px, var(--ia-aichan-y, 0px), 0) rotate(-2deg); }
+  70% { transform: translate3d(3px, var(--ia-aichan-y, 0px), 0) rotate(2deg); }
+  100% { transform: translate3d(0, var(--ia-aichan-y, 0px), 0) rotate(0deg); }
+}
+
+@keyframes iaAichanPop {
+  0% { transform: translate3d(0, var(--ia-aichan-y, 0px), 0) scale(.96); }
+  60% { transform: translate3d(0, var(--ia-aichan-y, 0px), 0) scale(1.05); }
+  100% { transform: translate3d(0, var(--ia-aichan-y, 0px), 0) scale(1); }
+}
+
+@keyframes iaAichanClimb {
+  0% { transform: translate3d(0, calc(var(--ia-aichan-y, 0px) + 4px), 0); }
+  100% { transform: translate3d(0, var(--ia-aichan-y, 0px), 0); }
+}
+
+@media (max-width: 720px) {
+  .ia-aichan-scroll { display: none; }
+}
+
+@media (min-width: 721px) and (max-width: 1100px) {
+  :root {
+    --ia-aichan-track-top: 14px;
+    --ia-aichan-track-bottom: 14px;
+    --ia-aichan-track-right: max(8px, env(safe-area-inset-right));
+    --ia-aichan-track-width: 11px;
+    --ia-aichan-asset-width: 104px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ia-aichan-scroll,
+  .ia-aichan-fill,
+  .ia-aichan-character {
+    transition: none;
+    animation: none !important;
+  }
+}

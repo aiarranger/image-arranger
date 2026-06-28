@@ -73,6 +73,11 @@ test("default seed state is public-safe sample data", () => {
   assert.equal(character.id, "sample-character");
   assert.equal(character.workflow, "character");
   assert.ok(character.images.some((entry) => entry.id === "image-sample-character-studio-smile"));
+  const nonMasterBaseRows = Object.entries(character.base ?? {})
+    .filter(([category]) => category !== "master")
+    .flatMap(([, rows]) => rows ?? []);
+  assert.deepEqual(nonMasterBaseRows, [], "sample seed should not show empty part rows on clone");
+  assert.equal(state.characters.length, 1, "sample seed should only include the Aichan sample character");
   assert.doesNotMatch(JSON.stringify(state), /Fishing Fitness|Punching Arranger|\/Users\//);
 });
 
@@ -135,11 +140,11 @@ test("server preserves qualityGate requests and completion reports", async () =>
       enabled: true,
       maxAttempts: 4,
       requiredParts: [{
-        entryId: "base-sample-character-accessory-cap",
-        category: "accessory",
-        overview: "Sky-blue cap",
-        prompt: "sky-blue cap reference",
-        file: "assets/base-cap-adopted.png",
+        entryId: "base-sample-character-master",
+        category: "master",
+        overview: "Aichan base references",
+        prompt: "Aichan base reference",
+        file: "assets/base-master-adopted.png",
       }],
     };
     const created = await fetch(`${baseUrl}/api/requests`, {
@@ -166,7 +171,7 @@ test("server preserves qualityGate requests and completion reports", async () =>
 
     const listed = await fetch(`${baseUrl}/api/requests`).then((response) => response.json());
     const row = listed.requests.find((item) => item.requestId === created.request.requestId);
-    assert.equal(row.qualityGate.requiredParts[0].entryId, "base-sample-character-accessory-cap");
+    assert.equal(row.qualityGate.requiredParts[0].entryId, "base-sample-character-master");
 
     const qualityReport = {
       enabled: true,
@@ -533,6 +538,16 @@ test("server updates characters and cascades queued targets on delete", async ()
     const initial = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
     const character = initial.characters[0];
     const entryId = character.images[0].id;
+    const spareCharacter = await fetch(`${baseUrl}/api/characters`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Spare Character",
+        description: "keeps the deck non-empty during delete",
+      }),
+    }).then((response) => response.json());
+    assert.equal(spareCharacter.ok, true);
+
     const queueResult = await fetch(`${baseUrl}/api/requests`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
