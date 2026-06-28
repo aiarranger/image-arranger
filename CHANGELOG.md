@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- Fake queue processors and pre-seeded queue work. The sample deck now starts with real base references only; users must explicitly queue work and complete it with a real generated result.
+- Local queue processors that created non-service results, plus pre-seeded queue work. The sample deck now starts with real base references only; users must explicitly queue work and complete it with a real generated result.
 
 ### Added
 

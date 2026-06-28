@@ -7,7 +7,7 @@ captions (or two renders — the header language toggle makes a second-language 
 > Status update (2026-06-13): the five capability gaps the original research flagged
 > (G1 no live refresh / G2 no arrival celebration / G3 no before-after compare /
 > G4 sample deck can't film / G5 weak terminal beat) are partly historical. The
-> current sample deck starts with an empty queue and no fake processor; record any
+> current sample deck starts with an empty queue and no bundled processor output; record any
 > queue-completion shot only with a real generated result or a clearly labeled manual
 > fixture created outside the app.
 > Every shot below is now filmable as written.

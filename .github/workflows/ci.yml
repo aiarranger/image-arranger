@@ -31,6 +31,38 @@ jobs:
             echo "Private local paths or internal review URLs found in tracked files."
             exit 1
           fi
+          node - <<'NODE'
+          const { execFileSync } = await import("node:child_process");
+          const { readFileSync } = await import("node:fs");
+          const deny = [
+            "d" + "emo-agent",
+            "workspace/" + "d" + "emo",
+            "\u30c7\u30e2",
+            "fake" + " processor",
+            "fake queue" + " processor",
+            "placeholder" + " generation",
+          ];
+          const files = execFileSync("git", ["ls-files"], { encoding: "utf8" })
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .filter((file) => file !== ".github/workflows/ci.yml");
+          const failures = [];
+          for (const file of files) {
+            const bytes = readFileSync(file);
+            if (bytes.includes(0)) continue;
+            const text = bytes.toString("utf8");
+            const lower = text.toLowerCase();
+            for (const term of deny) {
+              if (lower.includes(term.toLowerCase())) failures.push(`${file}: ${term}`);
+            }
+          }
+          if (failures.length) {
+            console.error("Removed processing terms must not be committed.");
+            console.error(failures.join("\n"));
+            process.exit(1);
+          }
+          NODE
       - name: Syntax check
         run: npm run check
       - name: Tests
