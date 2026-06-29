@@ -155,6 +155,43 @@ environment; it delegates to the ChatGPT or Vidu driver based on each queued
 target's `service`. Use manual browser operations only to repair that same
 route, then rerun from the beginning.
 
+Important distinction: a service driver must not silently launch Chrome,
+choose a profile, or switch profiles during normal queue processing. That does not
+mean the agent should stop and ask the operator to open a marker URL whenever a
+marker tab is missing. Preparing the marker tab is a setup/repair step. If Codex
+has a safe Chrome-control route for the saved normal profile, it should open or
+activate the exact marker URL itself, then rerun `--check`. Ask the operator to
+open the URL only when profile-safe Chrome control is unavailable, the selected
+profile cannot be proven, or a hard human gate such as login, 2FA, CAPTCHA,
+payment confirmation, or final submit is shown.
+
+For macOS, prefer opening the Vidu marker tab in the same Chrome window as an
+already verified ChatGPT/image-arranger marker tab for the same saved
+`profile-directory` and `profile-email`. Do not use `open -a "Google Chrome"
+... --profile-directory=...`, because a running multi-profile Chrome can route
+the URL to the wrong profile. For Windows, use the bound Chrome bridge route for
+the selected profile. If neither safe route is available, report that limitation
+instead of presenting the URL as ordinary user work.
+
+For music-video or storyboard work that alternates ChatGPT keyframes and Vidu
+clips, do not create all ChatGPT images in one continuous batch. Continuous
+ChatGPT image generation triggers temporary "too many requests" protection in
+this operator environment and stalls the queue. Process one clip as a unit:
+create at most two ChatGPT keyframe images, use those two images to complete one
+Vidu video target, wait until the Vidu result is saved and registered, then
+return to ChatGPT for the next two keyframes. If ChatGPT shows a rate-limit or
+"リクエストが多すぎます" message, stop with the remaining targets still
+requested; do not keep retrying the same ChatGPT target in a tight loop.
+
+When ChatGPT's active Pro-mode model is failing image generation, use the
+normal-profile route's model guard instead of changing browser profiles or
+generation services. Pass `--image-model 高` to
+`scripts/process-service-queue.mjs`, or set `IMAGE_ARRANGER_IMAGE_MODEL=高`, so
+the ChatGPT driver attempts to select the matching non-Pro model before each
+generation. This switch is advisory: if ChatGPT's model picker is unavailable or
+no menu item matches, the driver logs a warning and continues with the currently
+active model rather than switching routes.
+
 1. Keep image-arranger itself in the Codex in-app browser at
    `http://127.0.0.1:4217/` for local app inspection and queue state.
 2. Operate ChatGPT only in the already-running external Chrome profile selected
@@ -174,14 +211,15 @@ route, then rerun from the beginning.
    never use the default `extension` backend blindly.
 4. Use one ChatGPT work tab with a marker URL that includes
    `agent-work=image-arranger`, `profile-directory`, and `profile-email` for the
-   saved profile. Reuse that tab for the whole queue attempt. The script must
-   not create this tab; if it is missing, it stops and prints the exact URL to
-   open in the saved Chrome profile.
+   saved profile. Reuse that tab for the whole queue attempt. If it is missing,
+   prepare it through a profile-safe setup/repair route in the already-running
+   selected profile, then rerun the check. Do not launch a second browser
+   instance for the same profile.
 5. Attach reference images through the approved route for the current OS. On
    macOS, `osascript` sets the clipboard to the PNG as `«class PNGf»`, the
    marked ChatGPT tab is brought to the front, the composer is focused, and
    System Events sends a real `Cmd+V`. On Windows, the Chrome bridge injects the
-   reference as a browser `File` into the already-open bound marker tab; it does
+   reference as a browser `File` into the prepared bound marker tab; it does
    not use Codex image generation, a file chooser fallback, or a generated
    browser profile. ChatGPT-specific macOS attach/send code lives in
    `scripts/chatgpt-route-macos.mjs`; ChatGPT-specific Windows attach/send code
@@ -203,10 +241,12 @@ route, then rerun from the beginning.
    Chrome profile, for example `kaminokuresse@gmail.com` / `ユーザー 1`, not in
    a generated `~/.image-arranger/vidu-*` profile. Do not use the rejected
    `~/.image-arranger/agent-chrome` profile for ChatGPT or Vidu. The Vidu driver
-   must not launch Chrome or create a tab; it may only reuse a Vidu marker URL
-   that is already open in the saved profile. The Vidu marker URL must include
-   both `profile-directory` and `profile-email`; `profile-directory=Default`
-   alone is not a safe profile proof.
+   itself must not launch another Chrome/Chromium instance for the same profile;
+   it must use a Vidu marker URL in the saved profile. If the marker is missing,
+   perform the profile-safe marker-tab setup described above, then rerun the Vidu
+   check. The Vidu marker URL must include both
+   `profile-directory` and `profile-email`; `profile-directory=Default` alone is
+   not a safe profile proof.
 
 ### Common Service Browser Profile Contract
 
@@ -230,12 +270,16 @@ Required flow:
 4. If the config is missing, stale, unsigned, or contains any `automationChrome`
    / `viduAutomationChrome` style field, the driver must print candidates and
    stop before opening Chrome.
-5. The service driver may only reuse a marker tab that is already open in the
-   saved normal Chrome profile. It must not open Chrome, create a new tab, create
-   a service-specific `~/.image-arranger/<service>-chrome`,
+5. During normal service processing, the service driver may only use a marker
+   tab in the saved normal Chrome profile. It must not open a second
+   Chrome/Chromium instance, create a service-specific `~/.image-arranger/<service>-chrome`,
    `~/.image-arranger/<service>-profiles/*`, temporary `--user-data-dir`, CDP
    automation profile, unspecified default Chrome profile, or Codex-local
    generation fallback.
+   This restriction is for browser/profile startup, not for tabs inside the
+   already-running selected profile. If the marker tab is missing, first use the
+   approved profile-safe setup/repair route to open or activate the exact marker
+   URL in that same profile, then rerun `--check`.
 6. A new service may add only the service-specific page logic after this common
    profile guard. It must not copy back the removed Vidu generated-profile
    startup or the old ChatGPT CDP automation startup.
@@ -325,15 +369,12 @@ browser instance.
   instance for the same profile. Reuse the running browser when the driver can do
   so safely. If it cannot be reused safely, stop and report the profile conflict.
 - Do not process image-arranger queues from any other Google/ChatGPT profile,
-  including the default automation profile, an unsigned profile, or a newly
-  created temporary profile that was not created from the saved ChatGPT/Vidu
-  profile configuration.
-- Before launching Chrome/Chromium for a dedicated profile, check whether that
-  profile is already running.
-- If the intended profile is already running, reuse that running browser when the
-  driver supports it. If it cannot be reused safely, stop and report the exact
-  profile and process conflict. Do not launch a second browser with the same
-  profile.
+  including automation profiles, unsigned profiles, or any newly created
+  temporary profile, even if it was derived from the saved configuration.
+- Before any setup/repair step, confirm whether the selected normal Chrome
+  profile is already running. Do not launch another Chrome/Chromium instance for
+  that profile; open or activate marker URLs only through an approved
+  profile-safe route in the existing selected profile.
 - Do not run both a normal Chrome window and an automation Chrome window against
   the same profile.
 - Do not work around a profile conflict by switching to Codex image generation,
@@ -358,12 +399,12 @@ node scripts/process-service-queue.mjs --check --service vidu --server http://12
 node scripts/process-service-queue.mjs --service vidu --server http://127.0.0.1:4217
 ```
 
-The Vidu script reuses the selected normal Chrome profile's already-open marker
-tab, injects exactly `inputs.startFrame` and `inputs.endFrame` into the Vidu UI,
-submits through Vidu's visible create button, saves the MP4 into `outputDir`, and
-reports completion through `POST /api/requests/complete`. It must not launch
-Chrome, create tabs, use CDP file chooser upload, or switch back to any generated
-automation profile. If Vidu visibly shows a non-zero credit cost, stop unless
+The Vidu script uses the selected normal Chrome profile's marker tab, injects
+exactly `inputs.startFrame` and `inputs.endFrame` into the Vidu UI, submits
+through Vidu's visible create button, saves the MP4 into `outputDir`, and reports
+completion through `POST /api/requests/complete`. It must not launch a second
+Chrome/Chromium instance, use CDP file chooser upload, or switch back to any
+generated automation profile. If Vidu visibly shows a non-zero credit cost, stop unless
 the operator intentionally reruns with `--allow-paid`.
 
 Division of labour:
@@ -377,8 +418,10 @@ Division of labour:
   `POST /api/requests/complete`; the scripted browser drivers do not process
   them.
 If a script exits with an error, read `agent-logs/run-*/log.md` first. Fix the
-cause when possible, then rerun. Fall back to manual processing when the script
-itself cannot be repaired or when the target service is unsupported.
+cause when possible, then rerun. For supported ChatGPT/Vidu targets, manual
+fallback must still use the selected normal profile and the real service UI. Do
+not use manual fallback to bypass the profile-safe route, switch profiles, or
+replace the service result.
 
 ## Request Files
 

@@ -51,6 +51,69 @@ return ""
   return { url: foundUrl, title };
 }
 
+function profileProofParts(profile) {
+  return {
+    directoryPart: profile.profileDir ? `profile-directory=${encodeURIComponent(profile.profileDir)}` : "",
+    emailPart: profile.email ? `profile-email=${encodeURIComponent(profile.email)}` : "",
+  };
+}
+
+export function openChromeTabProfileSafe(url, {
+  activate = true,
+  profile = null,
+  proofAgentWorks = ["image-arranger", "image-arranger-vidu"],
+} = {}) {
+  if (process.platform !== "darwin") return null;
+  const target = new URL(url);
+  if (!["https:", "http:"].includes(target.protocol)) {
+    throw new Error(`Refusing to open non-http marker URL: ${url}`);
+  }
+  if (!profile?.profileDir || !profile?.email) {
+    throw new Error("profile-safe tab creation needs profileDir and email");
+  }
+  const { directoryPart, emailPart } = profileProofParts(profile);
+  if (!directoryPart || !emailPart) {
+    throw new Error("profile-safe tab creation needs marker profile-directory and profile-email proof parts");
+  }
+  const workChecks = proofAgentWorks
+    .map((work) => `(u contains "agent-work=${osaString(work)}")`)
+    .join(" or ");
+  const script = `
+set targetUrl to "${osaString(target.toString())}"
+set directoryPart to "${osaString(directoryPart)}"
+set emailPart to "${osaString(emailPart)}"
+set foundWindow to false
+set resultText to ""
+tell application "Google Chrome"
+  repeat with wi from 1 to count of windows
+    set w to window wi
+    repeat with ti from 1 to count of tabs of w
+      set t to tab ti of w
+      set u to URL of t
+      if (u contains directoryPart) and (u contains emailPart) and (${workChecks}) then
+        set newTab to make new tab at end of tabs of w with properties {URL:targetUrl}
+        set active tab index of w to (count of tabs of w)
+        if ${activate ? "true" : "false"} then
+          set index of w to 1
+          activate
+        end if
+        delay 0.5
+        set resultText to (URL of newTab) & linefeed & (title of newTab)
+        set foundWindow to true
+        exit repeat
+      end if
+    end repeat
+    if foundWindow then exit repeat
+  end repeat
+end tell
+if not foundWindow then error "No existing profile-proof marker tab found for " & directoryPart & " / " & emailPart
+return resultText
+`;
+  const output = runAppleScript(script);
+  const [foundUrl = "", title = ""] = output.split(/\r?\n/);
+  return { url: foundUrl, title, opened: true };
+}
+
 export function runChromeTabJsByUrlPart(urlPart, js, {
   activate = true,
   errorLabel = "Chrome tab",
@@ -70,12 +133,12 @@ tell application "Google Chrome"
     repeat with ti from 1 to count of tabs of w
       set t to tab ti of w
       if (URL of t contains targetPart) then
+        set active tab index of w to ti
         if ${activate ? "true" : "false"} then
-          set active tab index of w to ti
           set index of w to 1
           activate
         end if
-        set resultText to execute t javascript "eval(new TextDecoder().decode(Uint8Array.from(atob('${encoded}'), (ch) => ch.charCodeAt(0))))"
+        set resultText to execute active tab of w javascript "eval(new TextDecoder().decode(Uint8Array.from(atob('${encoded}'), (ch) => ch.charCodeAt(0))))"
         set foundTab to true
         exit repeat
       end if
@@ -86,7 +149,20 @@ end tell
 if not foundTab then error "target tab not found: " & targetPart
 return resultText
 `;
-  const raw = runAppleScript(script);
-  if (!raw || raw === "missing value") throw new Error(`AppleScript returned no value for ${errorLabel} ${urlPart}`);
-  return JSON.parse(raw);
+  let lastError = null;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      const raw = runAppleScript(script);
+      if (!raw || raw === "missing value") throw new Error(`AppleScript returned no value for ${errorLabel} ${urlPart}`);
+      return JSON.parse(raw);
+    } catch (error) {
+      lastError = error;
+      const message = String(error?.message ?? error);
+      if (!/target tab not found|正しくないインデックス|invalid index|can.?t get tab|cannot get tab|tab .*を取り出すことはできません/i.test(message)) {
+        throw error;
+      }
+      run("sleep", ["1"]);
+    }
+  }
+  throw lastError;
 }

@@ -183,6 +183,16 @@ async function runJs(command) {
   }
 }
 
+async function openTab(command) {
+  const target = new URL(command.url || "");
+  if (!["https:", "http:"].includes(target.protocol)) {
+    throw new Error(`Refusing to open non-http marker URL: ${command.url}`);
+  }
+  const created = await chrome.tabs.create({ url: target.toString(), active: command.activate !== false });
+  if (command.activate !== false) await focusTab(created);
+  return tabResult(created, "opened");
+}
+
 async function handleCommand(command) {
   if (command.type === "noop") return;
   const clientId = await getClientId();
@@ -193,6 +203,11 @@ async function handleCommand(command) {
   }
   if (command.type === "run-js") {
     const result = await runJs(command);
+    await postJson("/extension/result", { id: command.id, clientId, extensionId: chrome.runtime.id, ok: true, result });
+    return;
+  }
+  if (command.type === "open-tab") {
+    const result = await openTab(command);
     await postJson("/extension/result", { id: command.id, clientId, extensionId: chrome.runtime.id, ok: true, result });
     return;
   }

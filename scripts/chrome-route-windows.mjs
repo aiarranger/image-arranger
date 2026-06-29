@@ -65,6 +65,33 @@ export function findChromeTabByUrlPart(urlPart, {
   } : null;
 }
 
+export function openChromeTabProfileSafe(url, {
+  activate = true,
+  profile = null,
+  profileConfigPath = "",
+} = {}) {
+  if (!usesWindowsChromeBridgeRoute()) return null;
+  const target = new URL(url);
+  const urlPart = target.search.replace(/^\?/, "");
+  const result = runChromeBridgeCommand({
+    type: "open-tab",
+    url: target.toString(),
+    urlPart,
+    activate,
+    expectedClientId: profile?.bridgeClientId || "",
+    expectedExtensionId: profile?.bridgeExtensionId || "",
+  }, { errorLabel: "Chrome bridge open-tab" });
+  if (result?.bridgeClientId && profile && (!profile.bridgeClientId || (result.bridgeExtensionId && !profile.bridgeExtensionId))) {
+    bindServiceBridgeClientId({
+      profileConfigPath,
+      profile,
+      bridgeClientId: result.bridgeClientId,
+      bridgeExtensionId: result.bridgeExtensionId || "",
+    });
+  }
+  return result;
+}
+
 export function runChromeTabJsByUrlPart(urlPart, js, {
   activate = true,
   errorLabel = "Chrome tab",
@@ -75,7 +102,7 @@ export function runChromeTabJsByUrlPart(urlPart, js, {
     throw new Error(`${errorLabel} page inspection needs the Windows Chrome bridge on this route.`);
   }
   if (!profile?.bridgeClientId) {
-    throw new Error(`${errorLabel} needs a bound Chrome bridge client id. Run the service --check after opening the marker URL in the selected profile.`);
+    throw new Error(`${errorLabel} needs a bound Chrome bridge client id. Run the service --check after preparing the marker URL through a profile-safe setup/repair route in the selected profile; manual opening in that selected profile is the fallback.`);
   }
   return runChromeBridgeCommand({
     type: "run-js",

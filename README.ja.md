@@ -107,7 +107,8 @@ node scripts/process-service-queue.mjs --check --service vidu
 node scripts/process-service-queue.mjs
 ```
 
-- **Node 22+**（サーバ本体は Node 20+ で動作）と Chrome/Chromium が必要です。ChatGPT と Vidu は選択済みの通常 Chrome プロファイルにすでに開いている marker タブを再利用します。Windows の ChatGPT/Vidu 自動操作では `extensions/chrome-bridge` の Chrome 拡張を選択済みプロファイルに読み込みます（[Windows Chrome Bridge Setup](docs/windows-chrome-bridge.md)）。ChatGPT は参照画像投入・送信・保存を bound bridge tab 上で行います。Vidu は start/end フレームをそのタブへ投入し、Vidu の通常 UI で作成、MP4 保存、完了報告まで行います。生成された自動化用プロファイルへ戻ることは禁止です。新しいブラウザサービスを追加する場合、プロファイル選択と設定検証は `scripts/service-browser-profile.mjs`、タブ操作の入口は `scripts/service-browser-route.mjs` に置き、macOS 固有処理は `scripts/chrome-route-macos.mjs` / `*-route-macos.mjs`、Windows 固有処理は `scripts/chrome-route-windows.mjs` / `*-route-windows.mjs` に分けます。
+- **Node 22+**（サーバ本体は Node 20+ で動作）と Chrome/Chromium が必要です。ChatGPT と Vidu は選択済みの通常 Chrome プロファイルにある marker タブを使います。marker タブがない場合は、同じプロファイルで安全に準備または有効化してから処理します。禁止されているのは、同じプロファイル用に 2 つ目の Chrome/Chromium インスタンスを起動すること、別プロファイルへ切り替えること、自動生成プロファイルへ戻ることです。Windows の ChatGPT/Vidu 自動操作では `extensions/chrome-bridge` の Chrome 拡張を選択済みプロファイルに読み込みます（[Windows Chrome Bridge Setup](docs/windows-chrome-bridge.md)）。ChatGPT は参照画像投入・送信・保存を bound bridge tab 上で行います。Vidu は start/end フレームをそのタブへ投入し、Vidu の通常 UI で作成、MP4 保存、完了報告まで行います。新しいブラウザサービスを追加する場合、プロファイル選択と設定検証は `scripts/service-browser-profile.mjs`、タブ操作の入口は `scripts/service-browser-route.mjs` に置き、macOS 固有処理は `scripts/chrome-route-macos.mjs` / `*-route-macos.mjs`、Windows 固有処理は `scripts/chrome-route-windows.mjs` / `*-route-windows.mjs` に分けます。
+- ChatGPT のモデル選択は `--image-model <pattern>` または `IMAGE_ARRANGER_IMAGE_MODEL` で保護できます。たとえば、現在の Pro モードで画像生成が失敗する場合は `--image-model 高` を使います。この保護は補助的なものです。モデルピッカーを使えない場合は警告を出し、現在のモデルのまま続行します。
 - **免責**：これは *あなたのブラウザ*を *あなたのアカウント*で *あなたの責任*において操作し、生成サービスの利用規約と衝突しうるため、使用前に必ず確認してください。安定したインターフェースは [依頼ファイル契約](docs/request-spec.md) であり、このドライバは差し替え可能な便宜ツールです。手動でも、独自ツールでも依頼を処理できます。
 
 ### 同梱 Codex skill
@@ -129,7 +130,7 @@ node scripts/process-service-queue.mjs
 | 層 | 要件 | 状態 |
 |----|------|------|
 | **サーバ**（`server.mjs`・UI・依頼ファイル） | Node 20+ が動く任意の OS | Node が動く環境すべてでサポート |
-| **スクリプト処理**（`scripts/`） | **Node 22+**（グローバル `WebSocket` を使用）＋ Chrome/Chromium | 共通入口が保存済み通常 Chrome プロファイルを確認し、そのプロファイルで開いている marker タブを再利用する。ChatGPT と Vidu は macOS でテスト済み。Windows の ChatGPT と Vidu は Chrome bridge 拡張を使う。Vidu は通常 UI または直接結果 URL から MP4 を保存する。旧 CDP キュードライバは無効 |
+| **スクリプト処理**（`scripts/`） | **Node 22+**（グローバル `WebSocket` を使用）＋ Chrome/Chromium | 共通入口が保存済み通常 Chrome プロファイルを確認し、そのプロファイルの marker タブを使う。marker タブがない場合は、同じプロファイルで安全に準備または有効化してから処理する。ChatGPT と Vidu は macOS でテスト済み。Windows の ChatGPT と Vidu は Chrome bridge 拡張を使う。Vidu は通常 UI または直接結果 URL から MP4 を保存する。旧 CDP キュードライバは無効 |
 | **手動キーストロークのフォールバック**（[AGENTS.md](AGENTS.md) ／ [docs/manual-fallback.md](docs/manual-fallback.md)） | macOS（`osascript` / `pbcopy` / `pbpaste`） | **macOS のみ**。Windows/Linux 相当は未確立 |
 
 バージョンの差分に注意：**サーバは Node 20+** で動きますが、**スクリプト処理はグローバル `WebSocket` のため Node 22+** が必要です。Node 20 ではスクリプトが明確なメッセージを表示してクリーンに終了します。

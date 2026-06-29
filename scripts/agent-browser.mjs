@@ -1,8 +1,9 @@
 // Legacy CDP helpers for the disabled process-queue.mjs path and shared RunLog.
 // Do not use these helpers as the startup route for image-arranger queue
 // processing. Browser-based service drivers must start from
-// process-service-queue.mjs plus service-browser-profile.mjs, then reuse an
-// already-open marker tab in the saved normal Chrome profile.
+// process-service-queue.mjs plus service-browser-profile.mjs, then use a marker
+// tab in the saved normal Chrome profile. Missing marker tabs are handled by a
+// profile-safe setup/repair step, not by switching profiles.
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, appendFileSync } from "node:fs";

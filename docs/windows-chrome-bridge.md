@@ -37,8 +37,10 @@ to Codex-local image generation.
    - The extension must show the `identity.email` permission. Without it, Chrome
      does not expose the signed-in profile email and the bridge fails closed.
 
-4. Open the marker URL printed by the check command in the same selected Chrome
-   profile. The URL must include both `profile-directory` and `profile-email`.
+4. Ensure the marker URL printed by the check command is open in the same
+   selected Chrome profile. Prefer a profile-safe Chrome-control setup/repair
+   route when available; manual opening in that selected profile is the
+   fallback. The URL must include both `profile-directory` and `profile-email`.
    Example:
 
    ```text
@@ -111,8 +113,9 @@ through the normal Vidu UI.
   signed in to the intended profile.
 - If `allConnectedClients` shows a different email, the extension is loaded in
   the wrong Chrome profile. Install it in the selected profile instead.
-- If the check finds no marker tab, open the exact URL printed by the script in
-  the selected profile.
+- If the check finds no marker tab, prepare the exact URL printed by the script
+  in the selected profile. Use a profile-safe Chrome-control route when
+  available; manual opening in that selected profile is the fallback.
 - If the Chrome extension shows a debugger warning, that is expected. The bridge
   uses Chrome's extension `debugger` permission to evaluate page JavaScript in the
   marker tab without launching a CDP automation profile.

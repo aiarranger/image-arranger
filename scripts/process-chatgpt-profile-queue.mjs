@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Operator-specific ChatGPT queue processor for the existing Chrome profile.
-// It intentionally does not launch Chrome, does not use CDP, and does not use
-// Codex image generation. See skills/image-arranger-queue-processing/SKILL.md.
+// It intentionally does not launch a second Chrome/Chromium instance, does not
+// use CDP, and does not use Codex image generation. Missing marker tabs are a
+// profile-safe setup/repair concern; see skills/image-arranger-queue-processing/SKILL.md.
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -20,6 +21,7 @@ import {
   assertChromeRunning,
   assertSingleBridgeCandidateForProfile,
   findChromeTabByUrlPart,
+  openChromeTabProfileSafe,
   runChromeTabJsByUrlPart,
   usesChromeBridgeRoute,
 } from "./service-browser-route.mjs";
@@ -41,6 +43,8 @@ const CHATGPT_MARKER_BASE_URL = "https://chatgpt.com/";
 const CHATGPT_MARKER_WORK = "image-arranger";
 const CHATGPT_MARKER_BASE_PART = `agent-work=${CHATGPT_MARKER_WORK}`;
 const DOWNLOAD_DIR = resolve(option("--download-dir", process.env.IMAGE_ARRANGER_CHATGPT_DOWNLOAD_DIR ?? join(homedir(), "Downloads")));
+const IMAGE_MODEL = option("--image-model", process.env.IMAGE_ARRANGER_IMAGE_MODEL ?? null);
+const MODEL_SWITCH_TIMEOUT_MS = 12000;
 const DISALLOWED_PROFILE = join(homedir(), ".image-arranger", "agent-chrome");
 const SERVICE = "chatgpt";
 const SERVICE_LABEL = "ChatGPT";
@@ -65,11 +69,14 @@ Options:
   --request <id>   process one request id
   --max <n>        max targets to process (default 1)
   --check          verify the approved route preconditions only
-  --ensure-tab     with --check, reuse the ChatGPT marker tab and verify login/composer
+  --ensure-tab     with --check, verify the ChatGPT marker tab and login/composer
   --dry-run        list eligible queued ChatGPT image targets
   --keep-modal     leave the ChatGPT image modal open after saving
   --download-dir <dir>
                   normal Chrome download directory (default ${DOWNLOAD_DIR})
+  --image-model <pattern>
+                  switch ChatGPT to the matching model before generation
+                  (also supported through IMAGE_ARRANGER_IMAGE_MODEL)
   --setup-profile  list Chrome profiles, let the operator choose, and save local config
   --profile-choice <n>
                   non-interactive selection for --setup-profile
@@ -79,8 +86,9 @@ Options:
 
 Hard rules:
   - use only the locally selected existing Google Chrome profile
-  - do not launch Chrome or Chromium
-  - do not create service tabs; reuse the exact marker URL already open in the selected profile
+  - do not launch another Chrome/Chromium instance for the same profile
+  - if the marker tab is missing, prepare it through a profile-safe setup/repair route in the selected profile before processing
+  - --image-model is advisory; if the model picker cannot be used, generation continues with the active model
   - do not use scripts/process-queue.mjs, CDP, file chooser, virtual PNG clipboard, or Codex image generation`);
   process.exit(0);
 }
@@ -178,6 +186,36 @@ function runActiveChatgptJs(conversationPart, js, { activate = false } = {}) {
   });
 }
 
+async function resetActiveTabToMarker(conversationPart) {
+  const markerUrl = markerUrlForProfile(currentChatgptProfile);
+  const started = Date.now();
+  runActiveChatgptJs(conversationPart, `
+    location.href = ${JSON.stringify(markerUrl)};
+    return { ok: true, url: location.href };
+  `, { activate: true });
+
+  let state = null;
+  while (Date.now() - started < 60000) {
+    try {
+      state = runTabJs(currentChatgptMarkerPart, `
+        const composer = document.querySelector('#prompt-textarea, div[contenteditable="true"]');
+        return {
+          url: location.href,
+          title: document.title,
+          isAuthLogin: location.href.includes('/auth/login'),
+          composerExists: Boolean(composer),
+          readyState: document.readyState
+        };
+      `, { activate: true, tabId: activeChatgptTabId() });
+      if (!state.isAuthLogin && state.composerExists) return state;
+    } catch {
+      // The same tab may still be navigating from /c/... back to the marker URL.
+    }
+    await sleep(1000);
+  }
+  throw new Error(`ChatGPT marker tab did not become ready after reset: ${JSON.stringify(state)}`);
+}
+
 function assertNoDisallowedChrome() {
   assertNoUserDataDirProcesses({
     label: "Rejected ChatGPT automation Chrome profile",
@@ -218,6 +256,16 @@ function assertRequiredProfile(profileConfig) {
   });
 }
 
+function markerTabMissingMessage(profile, markerUrl, suffix = "") {
+  return [
+    `ChatGPT marker tab was not found for the selected Chrome profile ${profile.profileName} / ${profile.email}.`,
+    "Prepare the marker tab through a profile-safe setup/repair route in the already-running selected profile, then rerun.",
+    "Do not launch a second Chrome/Chromium instance for this profile.",
+    `If no profile-safe route is available, ask the operator to open exactly: ${markerUrl}.`,
+    suffix,
+  ].filter(Boolean).join(" ");
+}
+
 async function routePreflight({ ensureTab = false } = {}) {
   const profileConfig = loadProfileConfig();
   assertChromeRunning();
@@ -239,13 +287,30 @@ async function routePreflight({ ensureTab = false } = {}) {
     markerTab: null,
   };
   if (ensureTab) {
-    const existing = findChromeTabByUrlPart(currentChatgptMarkerPart, {
+    let existing = findChromeTabByUrlPart(currentChatgptMarkerPart, {
       activate: true,
       profile: approvedProfile,
       profileConfigPath: PROFILE_CONFIG_PATH,
     });
     if (!existing) {
-      throw new Error(`ChatGPT marker tab was not found for the selected Chrome profile. Open this exact URL in ${approvedProfile.profileName} / ${approvedProfile.email}, then rerun. This script must not create tabs itself: ${markerUrl}.`);
+      try {
+        openChromeTabProfileSafe(markerUrl, {
+          activate: true,
+          profile: approvedProfile,
+          profileConfigPath: PROFILE_CONFIG_PATH,
+        });
+        await sleep(1500);
+        existing = findChromeTabByUrlPart(currentChatgptMarkerPart, {
+          activate: true,
+          profile: approvedProfile,
+          profileConfigPath: PROFILE_CONFIG_PATH,
+        });
+      } catch (error) {
+        throw new Error(markerTabMissingMessage(approvedProfile, markerUrl, `Profile-safe repair failed: ${error.message}`));
+      }
+      if (!existing) {
+        throw new Error(markerTabMissingMessage(approvedProfile, markerUrl, "Profile-safe repair ran, but the marker tab was still not found."));
+      }
     }
     currentChatgptTabId = existing.tabId ?? null;
     if (usesChromeBridgeRoute() && currentChatgptTabId == null) {
@@ -264,7 +329,7 @@ async function routePreflight({ ensureTab = false } = {}) {
       };
       `, { tabId: currentChatgptTabId });
     } catch (error) {
-      throw new Error(`ChatGPT marker tab was not found for the selected Chrome profile. Open this exact URL in ${approvedProfile.profileName} / ${approvedProfile.email}, then rerun. This script must not create tabs itself: ${markerUrl}. Original error: ${error.message}`);
+      throw new Error(markerTabMissingMessage(approvedProfile, markerUrl, `Original error: ${error.message}`));
     }
     if (result.markerTab.isAuthLogin || !result.markerTab.composerExists) {
       throw new Error(`ChatGPT marker tab is not ready: ${JSON.stringify(result.markerTab)}`);
@@ -343,6 +408,125 @@ async function waitForNoAttachments(timeoutMs = 30000) {
   throw new Error(`Timed out waiting for old ChatGPT attachments to clear: ${JSON.stringify(state)}`);
 }
 
+function modelPickerJs(body) {
+  return `
+    const normalizeModelLabel = (value) => String(value || "").replace(/\\s+/g, " ").trim();
+    const compactModelLabel = (value) => normalizeModelLabel(value).replace(/\\s+/g, "");
+    const modelButton = () => document.querySelector('[data-testid="model-switcher-dropdown-button"]')
+      ?? Array.from(document.querySelectorAll('header button[aria-haspopup="menu"], main button[aria-haspopup="menu"], form button[aria-haspopup="menu"], button[aria-haspopup="menu"]'))
+        .find((button) => /gpt|model|thinking|pro|auto|instant|最速|標準|最高|^高$/i.test(compactModelLabel(button.innerText || button.getAttribute("aria-label") || "")));
+    const firePointerSequence = (element) => {
+      for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+        const Ctor = type.startsWith("pointer") && window.PointerEvent ? PointerEvent : MouseEvent;
+        element.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, view: window, buttons: 1, pointerId: 1 }));
+      }
+    };
+    const modelMatcher = (pattern) => {
+      const want = normalizeModelLabel(pattern);
+      const hasRegexMeta = /[.*+?^$\\[\\]\\\\()|{}]/.test(String(pattern));
+      const shortNonAsciiExact = !hasRegexMeta && /[^\\x00-\\x7F]/.test(want) && Array.from(want).length <= 2;
+      return (label) => {
+        const normalized = normalizeModelLabel(label);
+        if (normalized === want) return true;
+        if (shortNonAsciiExact) return false;
+        try {
+          return new RegExp(String(pattern), "i").test(normalized);
+        } catch {
+          return normalized.toLowerCase().includes(want.toLowerCase());
+        }
+      };
+    };
+    ${body}
+  `;
+}
+
+function readChatgptModelButton() {
+  return runTabJs(currentChatgptMarkerPart, modelPickerJs(`
+    const button = modelButton();
+    if (!button) return { found: false, url: location.href, title: document.title };
+    return {
+      found: true,
+      text: normalizeModelLabel(button.innerText || button.getAttribute("aria-label") || ""),
+      url: location.href,
+      title: document.title
+    };
+  `), { activate: false, tabId: activeChatgptTabId() });
+}
+
+function closeChatgptModelMenu() {
+  try {
+    runTabJs(currentChatgptMarkerPart, `
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      return { ok: true };
+    `, { activate: false, tabId: activeChatgptTabId() });
+  } catch {
+    // Best effort only. Model switching is advisory and must not stop generation.
+  }
+}
+
+async function ensureChatgptModel(pattern, { timeoutMs = MODEL_SWITCH_TIMEOUT_MS } = {}) {
+  const started = Date.now();
+  let current = readChatgptModelButton();
+  while (!current?.found && Date.now() - started < Math.min(6000, timeoutMs)) {
+    await sleep(500);
+    current = readChatgptModelButton();
+  }
+  if (!current?.found) {
+    return { status: "unavailable", reason: "model switcher button not found" };
+  }
+
+  let matches = runTabJs(currentChatgptMarkerPart, modelPickerJs(`
+    const matches = modelMatcher(${JSON.stringify(pattern)});
+    return { ok: matches(${JSON.stringify(current.text ?? "")}) };
+  `), { activate: false, tabId: activeChatgptTabId() });
+  if (matches.ok) {
+    return { status: "ok", model: current.text, changed: false };
+  }
+
+  const opened = runTabJs(currentChatgptMarkerPart, modelPickerJs(`
+    const button = modelButton();
+    if (!button) return { ok: false, reason: "model switcher disappeared before it could be opened" };
+    firePointerSequence(button);
+    return { ok: true, model: normalizeModelLabel(button.innerText || button.getAttribute("aria-label") || "") };
+  `), { activate: true, tabId: activeChatgptTabId() });
+  if (!opened.ok) return { status: "unavailable", reason: opened.reason };
+
+  let picked = null;
+  while (Date.now() - started < timeoutMs) {
+    picked = runTabJs(currentChatgptMarkerPart, modelPickerJs(`
+      const matches = modelMatcher(${JSON.stringify(pattern)});
+      const items = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="menuitemradio"], [role="listbox"] [role="option"]'));
+      const seen = items.map((item) => normalizeModelLabel(item.innerText || item.getAttribute("aria-label") || "")).filter(Boolean);
+      const item = items.find((candidate) => matches(candidate.innerText || candidate.getAttribute("aria-label") || ""));
+      if (!item) return { ok: false, seen };
+      const chosen = normalizeModelLabel(item.innerText || item.getAttribute("aria-label") || "");
+      firePointerSequence(item);
+      return { ok: true, chosen, seen };
+    `), { activate: true, tabId: activeChatgptTabId() });
+    if (picked.ok) break;
+    await sleep(500);
+  }
+
+  if (!picked?.ok) {
+    closeChatgptModelMenu();
+    return { status: "unavailable", reason: `no menu item matched /${pattern}/i (saw: ${(picked?.seen ?? []).join(" | ") || "nothing"})` };
+  }
+
+  while (Date.now() - started < timeoutMs) {
+    current = readChatgptModelButton();
+    matches = runTabJs(currentChatgptMarkerPart, modelPickerJs(`
+      const matches = modelMatcher(${JSON.stringify(pattern)});
+      return { ok: matches(${JSON.stringify(current?.text ?? "")}) };
+    `), { activate: false, tabId: activeChatgptTabId() });
+    if (current?.found && matches.ok) {
+      return { status: "ok", model: current.text, changed: true };
+    }
+    await sleep(500);
+  }
+  return { status: "unavailable", reason: `clicked ${picked.chosen}, but the switcher label did not change` };
+}
+
 function attachReference(absPath) {
   if (usesChromeBridgeRoute()) {
     return chatgptWindowsRoute.attachReference({
@@ -371,6 +555,7 @@ async function waitForAttachmentCount(expectedCount, timeoutMs = 240000) {
       };
       const composer = document.querySelector('#prompt-textarea, div[contenteditable="true"]');
       const root = composer?.closest('form') || composer?.parentElement?.parentElement || document.body;
+      const body = document.body.innerText || '';
       const scopedButtons = Array.from(root.querySelectorAll('button'));
       const labels = scopedButtons.map((button) => button.getAttribute('aria-label') || button.innerText || '');
       const deleteButtons = labels
@@ -392,9 +577,14 @@ async function waitForAttachmentCount(expectedCount, timeoutMs = 240000) {
         deleteButtons,
         uploadedImageButtons,
         thumbnailImageCount: thumbnailImages.length,
-        sendDisabled: send ? (send.disabled || send.getAttribute('aria-disabled') === 'true') : null
+        sendDisabled: send ? (send.disabled || send.getAttribute('aria-disabled') === 'true') : null,
+        rateLimited: /リクエストが多すぎます|Too many requests|rate limit/i.test(body),
+        bodyTail: body.slice(-500)
       };
     `, { activate: false, tabId: activeChatgptTabId() });
+    if (state.rateLimited) {
+      throw new Error(`ChatGPT is temporarily rate limited before attachment completed: ${JSON.stringify(state)}`);
+    }
     if (state.attachmentCount >= expectedCount) return state;
     await sleep(1000);
   }
@@ -506,11 +696,15 @@ async function waitForGeneratedImage(conversationPart, timeoutMs = 15 * 60 * 100
         hasStopButton: Boolean(document.querySelector('[data-testid="stop-button"]')),
         generatedCount: generated.length,
         generated,
+        policyBlocked: /コンテンツポリシーに違反|content policy violation|violates? (the )?content policy|generated image[^\\n]{0,160}policy/i.test(body.slice(-3000)),
         refused: /申し訳|できません|I can.?t|cannot|policy|ポリシー/i.test(body.slice(-2000)),
         bodyTail: body.slice(-500)
       };
     `, { activate: false });
     if (!state.hasStopButton && state.generatedCount > 0) return state;
+    if (state.policyBlocked && state.generatedCount === 0) {
+      throw new Error(`ChatGPT image generation was blocked by policy: ${state.bodyTail}`);
+    }
     if (!state.hasStopButton && state.refused && state.generatedCount === 0) {
       throw new Error(`ChatGPT appears to have refused or errored: ${state.bodyTail}`);
     }
@@ -623,6 +817,15 @@ async function processTarget(queue, target) {
   if (!cleaned.ok) throw new Error(`Could not clean composer: ${JSON.stringify(cleaned)}`);
   await waitForNoAttachments();
 
+  if (IMAGE_MODEL) {
+    const model = await ensureChatgptModel(IMAGE_MODEL);
+    if (model.status === "ok") {
+      console.log(`[${target.requestId}:${target.targetIndex}] model: ${model.model}${model.changed ? " (switched)" : ""}`);
+    } else {
+      console.warn(`[${target.requestId}:${target.targetIndex}] could not switch the model to "${IMAGE_MODEL}": ${model.reason}; generating with the current model`);
+    }
+  }
+
   let expectedAttachments = 0;
   for (const ref of refs) {
     const abs = resolveProjectPath(projectRoot, ref);
@@ -630,7 +833,13 @@ async function processTarget(queue, target) {
     expectedAttachments += 1;
     console.log(`[${target.requestId}:${target.targetIndex}] attach ${ref}`);
     attachReference(abs);
-    await waitForAttachmentCount(expectedAttachments);
+    try {
+      await waitForAttachmentCount(expectedAttachments);
+    } catch (error) {
+      console.warn(`[${target.requestId}:${target.targetIndex}] attachment did not appear after paste; retrying once for ${ref}: ${error.message}`);
+      attachReference(abs);
+      await waitForAttachmentCount(expectedAttachments);
+    }
   }
 
   const promptState = insertPrompt(target.prompt ?? "");
@@ -663,6 +872,10 @@ async function processTarget(queue, target) {
     results: [{ file: output.rel }],
   });
   console.log(`[${target.requestId}:${target.targetIndex}] complete ok; queue remaining ${(complete.requests ?? []).length}`);
+  if ((complete.requests ?? []).some((row) => row.service === "chatgpt" || !row.service)) {
+    const reset = await resetActiveTabToMarker(conversationPart);
+    console.log(`[${target.requestId}:${target.targetIndex}] marker tab ready for next target (${reset.title})`);
+  }
   return { target, output, saveResult, complete };
 }
 

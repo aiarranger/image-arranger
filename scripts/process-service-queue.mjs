@@ -39,11 +39,14 @@ Options:
 
 ChatGPT passthrough:
   --setup-profile, --list-profiles, --profile-choice <n>, --profile-config <path>,
-  --ensure-tab, --keep-modal, --download-dir <dir>
+  --ensure-tab, --keep-modal, --download-dir <dir>, --image-model <pattern>
 
 Vidu passthrough:
   --setup-profile, --list-profiles, --profile-choice <n>, --profile-config <path>,
   --vidu-url <url>, --download-dir <dir>, --timeout-min <n>, --allow-paid, --keep-tabs
+
+Vidu --check always verifies the selected profile marker tab and attempts the
+profile-safe setup/repair route when that marker tab is missing.
 
 Profile setup/list always requires --service chatgpt or --service vidu.`);
   process.exit(0);
@@ -142,6 +145,7 @@ function chatgptArgs() {
     ...passIfPresent("--profile-choice"),
     ...passIfPresent("--profile-config"),
     ...passIfPresent("--download-dir"),
+    ...passIfPresent("--image-model"),
   ];
   if (flag("--ensure-tab")) next.push("--ensure-tab");
   if (flag("--keep-modal")) next.push("--keep-modal");

@@ -21,6 +21,12 @@ export function findChromeTabByUrlPart(urlPart, options = {}) {
     : macosRoute.findChromeTabByUrlPart(urlPart, options);
 }
 
+export function openChromeTabProfileSafe(url, options = {}) {
+  return usesChromeBridgeRoute()
+    ? windowsRoute.openChromeTabProfileSafe(url, options)
+    : macosRoute.openChromeTabProfileSafe(url, options);
+}
+
 export function runChromeTabJsByUrlPart(urlPart, js, options = {}) {
   return usesChromeBridgeRoute()
     ? windowsRoute.runChromeTabJsByUrlPart(urlPart, js, options)

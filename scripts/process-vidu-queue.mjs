@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Scripted Vidu queue processor. It reuses an already-open marker tab in the
-// operator-selected normal Chrome profile; it must not launch Chrome, create a
-// service tab, or fall back to generated automation profiles.
+// Scripted Vidu queue processor. It uses a marker tab in the operator-selected
+// normal Chrome profile; it must not launch a second Chrome/Chromium instance
+// or fall back to generated automation profiles. Missing marker tabs are a
+// profile-safe setup/repair concern, not a reason to switch profiles.
 
 if (typeof WebSocket === "undefined") {
   console.error("scripts/process-vidu-queue.mjs needs Node 22+ (global WebSocket). The server itself runs on Node 20+.");
@@ -28,8 +29,10 @@ import {
   setupServiceChromeProfile,
 } from "./service-browser-profile.mjs";
 import {
+  assertChromeRunning,
   assertSingleBridgeCandidateForProfile,
   findChromeTabByUrlPart,
+  openChromeTabProfileSafe,
   runChromeTabJsByUrlPart,
 } from "./service-browser-route.mjs";
 import {
@@ -47,7 +50,7 @@ function option(name, fallback = null) {
 }
 
 const HELP = `Vidu queue processor — processes queued image-to-video targets in
-an already-open Vidu marker tab in the selected normal Chrome profile.
+a Vidu marker tab in the selected normal Chrome profile.
 
 Usage:
   node scripts/process-vidu-queue.mjs --check
@@ -74,7 +77,8 @@ Options:
 
 Hard rules:
   - Vidu uses the selected normal Chrome profile, not a separate automation profile
-  - this script never launches Chrome and never creates service tabs
+  - this script never launches another Chrome/Chromium instance for the same profile
+  - if the marker tab is missing, this script first tries the profile-safe setup/repair route before processing
   - the previous implicit ~/.image-arranger/vidu-chrome and ~/.image-arranger/vidu-profiles profiles are not used
   - do not use Codex image generation as a fallback for queued Vidu work`;
 
@@ -186,7 +190,7 @@ async function waitForState(label, getter, predicate, { timeoutMs = 30000, inter
 async function waitForNormalProfileViduPage(profile, runLog) {
   const url = buildViduMarkerUrl(profile);
   const markerPart = markerPartForProfile(profile);
-  const existing = findChromeTabByUrlPart(markerPart, {
+  let existing = findChromeTabByUrlPart(markerPart, {
     activate: true,
     profile,
     profileConfigPath: PROFILE_CONFIG_PATH,
@@ -204,10 +208,27 @@ async function waitForNormalProfileViduPage(profile, runLog) {
         return null;
       }
     })();
-    if (legacy) {
-      throw new Error(`A legacy Vidu marker tab is open but it lacks profile-email, so it is not a safe profile proof. Reopen this exact URL in ${profile.profileName} / ${profile.email}, then rerun: ${url}`);
+    try {
+      openChromeTabProfileSafe(url, {
+        activate: true,
+        profile,
+        profileConfigPath: PROFILE_CONFIG_PATH,
+      });
+      await delay(1500);
+      existing = findChromeTabByUrlPart(markerPart, {
+        activate: true,
+        profile,
+        profileConfigPath: PROFILE_CONFIG_PATH,
+      });
+    } catch (error) {
+      const legacyHint = legacy
+        ? " A legacy Vidu marker tab is open but it lacks profile-email, so it is not a safe profile proof."
+        : "";
+      throw new Error(`Vidu marker tab was not found for the selected Chrome profile.${legacyHint} Profile-safe setup/repair failed for ${profile.profileName} / ${profile.email}: ${error.message}. If no profile-safe route is available, ask the operator to open exactly: ${url}. Do not launch a second Chrome/Chromium instance for this profile.`);
     }
-    throw new Error(`Vidu marker tab was not found for the selected Chrome profile. Open this exact URL in ${profile.profileName} / ${profile.email}, then rerun. This script must not create tabs itself: ${url}`);
+    if (!existing) {
+      throw new Error(`Profile-safe Vidu marker-tab setup/repair ran, but the marker tab was still not found for ${profile.profileName} / ${profile.email}. If no profile-safe route is available, ask the operator to open exactly: ${url}. Do not launch a second Chrome/Chromium instance for this profile.`);
+    }
   }
   runLog.log(`reusing selected-profile Vidu marker tab: ${existing.url}`);
 
@@ -553,7 +574,7 @@ async function waitForNewVideo(markerPart, beforeVideos, { onTick = null } = {})
     if (freshVideos.length && state.downloadButtons.length) {
       return { status: "video", src: freshVideos[0], state, browserDownload: true };
     }
-    if (/生成に失敗|失敗しました|Failed|error|insufficient|クレジット不足|policy|規約違反/i.test(state.body)) {
+    if (/生成に失敗|失敗しました|Generation failed|Failed to generate|Insufficient credits|クレジット不足|ポリシーに違反|policy violation|規約違反/i.test(state.body)) {
       return { status: "error", message: state.body.slice(0, 800), state };
     }
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
@@ -704,6 +725,7 @@ async function main() {
   }
 
   const viduProfile = loadViduProfileConfig();
+  assertChromeRunning();
   currentViduProfile = viduProfile.chrome;
   assertSingleBridgeCandidateForProfile(viduProfile.chrome);
   const markerPart = markerPartForProfile(viduProfile.chrome);

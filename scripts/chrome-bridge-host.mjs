@@ -215,6 +215,7 @@ async function handleDriverCommand(request, response) {
     id: randomUUID(),
     type: String(body.type || ""),
     urlPart: String(body.urlPart || ""),
+    url: String(body.url || ""),
     js: String(body.js || ""),
     activate: Boolean(body.activate),
     tabId: body.tabId == null || body.tabId === "" ? null : Number(body.tabId),
@@ -225,7 +226,7 @@ async function handleDriverCommand(request, response) {
     createdAt: new Date().toISOString(),
     attemptedClients: [],
   };
-  if (!["find-tab", "run-js"].includes(command.type)) {
+  if (!["find-tab", "run-js", "open-tab"].includes(command.type)) {
     sendJson(request, response, 400, { ok: false, error: `Unsupported bridge command type: ${command.type}` });
     return;
   }

@@ -532,12 +532,14 @@ profile, a generated `~/.image-arranger/<service>-chrome` profile, a generated
 `~/.image-arranger/<service>-profiles/*` profile, or a temporary
 `--user-data-dir`. Do not launch Chrome with `--profile-directory` from a service
 driver; a running multi-profile Chrome can place the URL in the wrong profile.
-If the profile is not configured, or if the required service marker tab is not
-already open in the selected profile, the driver must stop before touching the
-service page. Marker URLs must include `agent-work`, `profile-directory`, and
-`profile-email`; service drivers must reject marker commands that omit any of
-those fields. A directory name alone is not a sufficient profile proof when
-multiple Chrome profiles can each have a `Default` directory.
+If the profile is not configured, the driver must stop before touching the
+service page. If the required service marker tab is missing, prepare it through a
+profile-safe setup/repair route in the already-running selected profile, then
+rerun the check; do not launch a second browser instance or switch profiles.
+Marker URLs must include `agent-work`, `profile-directory`, and `profile-email`;
+service drivers must reject marker commands that omit any of those fields. A
+directory name alone is not a sufficient profile proof when multiple Chrome
+profiles can each have a `Default` directory.
 
 To drive a new service, fetch `GET /api/requests`, filter targets you can handle, and for
 each one reproduce the request contract: attach `inputs.refImages` for image

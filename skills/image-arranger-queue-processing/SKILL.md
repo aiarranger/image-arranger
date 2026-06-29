@@ -57,20 +57,31 @@ entrypoint and drivers:
 - refuses the rejected `~/.image-arranger/agent-chrome` automation profile
 - verifies the saved Chrome profile directory, display name, and email against
   Chrome `Local State` before touching ChatGPT
-- reuses exactly one already-open ChatGPT marker tab whose URL includes
+- uses exactly one ChatGPT marker tab whose URL includes
   `agent-work=image-arranger`, `profile-directory`, and `profile-email` for the
   saved profile
-- reuses exactly one already-open Vidu marker tab whose URL includes
+- uses exactly one Vidu marker tab whose URL includes
   `agent-work=image-arranger-vidu`, `profile-directory`, and `profile-email` for
   the saved profile
-- refuses to create service tabs itself; if the marker tab is missing, it prints
-  the exact URL that must be opened in the saved Chrome profile and stops
+- refuses to launch another Chrome/Chromium instance for the same profile during
+  normal queue processing; marker tab creation or activation is a separate
+  profile-safe setup/repair step, not a service/profile switch
+- if a marker tab is missing and Codex has a profile-safe Chrome-control route,
+  Codex should open or activate the exact marker URL itself, rerun `--check`,
+  and continue; ask the operator to open the URL only when profile-safe Chrome
+  control is unavailable, the selected profile cannot be proven, or a hard human
+  gate such as login, 2FA, CAPTCHA, payment confirmation, or final submit is
+  shown
 - attaches ChatGPT references through the OS-specific approved route: real macOS
   PNG clipboard on macOS, browser `File` injection through the bound Chrome
   bridge tab on Windows
 - inserts and verifies the queue prompt before sending
 - waits for the visible ChatGPT send button to become enabled after the
   reference upload finishes
+- optionally selects a non-Pro ChatGPT model before generation when
+  `--image-model <pattern>` or `IMAGE_ARRANGER_IMAGE_MODEL` is set; this is an
+  advisory guard, so picker failures are logged and generation continues with
+  the active model
 - waits for the ChatGPT-generated image
 - opens the generated image and clicks the normal ChatGPT `保存` button
 - copies the downloaded file into the target `outputDir`
@@ -114,12 +125,16 @@ inside `*-route-macos.mjs` or `*-route-windows.mjs` files.
 4. If the config is missing, stale, unsigned, belongs to a different service, or
    contains `automationChrome` / `viduAutomationChrome`, the driver must print
    candidates and stop before opening Chrome.
-5. The driver may only reuse a marker tab that is already open in the saved
-   normal Chrome profile. It must never open Chrome, create a new tab, create or
-   use `~/.image-arranger/<service>-chrome`,
+5. During normal service processing, the driver may only use a marker tab in the
+   saved normal Chrome profile. It must never open a second Chrome/Chromium
+   instance, create or use `~/.image-arranger/<service>-chrome`,
    `~/.image-arranger/<service>-profiles/*`, temporary `--user-data-dir`, a CDP
    automation profile, an unspecified default Chrome profile, or Codex image
    generation.
+   This restriction is for browser/profile startup, not for tabs inside the
+   already-running selected profile. If the marker tab is missing, Codex should
+   first perform a profile-safe setup/repair step to open or activate the exact
+   marker URL in that same profile, then rerun `--check`.
 6. A new service driver may add page-specific upload, submit, download, and
    registration logic only after this shared profile guard has passed.
    If any of that page logic must differ by operating system, create separate
@@ -169,25 +184,32 @@ ChatGPT route:
    profile check from Chrome `Local State` and does not launch Chrome.
 5. Use one ChatGPT work tab with a marker URL that includes
    `agent-work=image-arranger`, `profile-directory`, and `profile-email` for the
-   saved profile. Reuse that tab for the whole queue attempt. The script must
-   not create this tab; if it is missing, it stops and prints the exact URL to
-   open in the saved profile.
+   saved profile. Reuse that tab for the whole queue attempt. If it is missing,
+   prepare it through a profile-safe setup/repair route in the already-running
+   selected profile, then rerun the check. Do not launch a second browser
+   instance for the same profile.
 6. Attach each reference image through the approved route for the current OS:
    - on macOS, set the system clipboard to the PNG file with `osascript` as
      `«class PNGf»`, activate the marked ChatGPT tab, focus the composer, and
      send a real `Cmd+V` through System Events
    - on Windows, use the Chrome bridge to inject the image as a browser `File`
-     into the already-open bound marker tab
+     into the prepared bound marker tab
    - wait until ChatGPT shows the uploaded image chip/thumbnail
 7. Insert the prompt with page-context `document.execCommand("insertText", false,
    prompt)` or another verified normal text-entry path. Verify the full prompt is
    present, then wait for the visible send button to become enabled before
    sending. A verified prompt with a disabled send button usually means the
    reference image is still being accepted by ChatGPT.
-8. Send through the visible ChatGPT composer, wait for generation to finish, save
+8. If the active ChatGPT Pro-mode model is failing image generation, run the
+   common entrypoint with `--image-model 高` or set
+   `IMAGE_ARRANGER_IMAGE_MODEL=高`. The driver attempts to select the matching
+   model before sending each target. If the model picker cannot be used, this is
+   reported as a warning and the driver continues with the current model; do not
+   treat picker failure as permission to switch browser profiles or services.
+9. Send through the visible ChatGPT composer, wait for generation to finish, save
    the result through the normal ChatGPT image UI, then report completion through
    `POST /api/requests/complete`.
-9. On Windows, process ChatGPT image queues through the same bound Chrome bridge
+10. On Windows, process ChatGPT image queues through the same bound Chrome bridge
    route used by preflight. Do not switch to `Start-Process chrome`, a generated
    profile, Codex image generation, file chooser fallback, or virtual clipboard.
 
@@ -206,11 +228,18 @@ Vidu route:
 4. Vidu uses the selected normal Chrome profile recorded in that config. Do not
    use an unspecified default profile, a generated
    `~/.image-arranger/vidu-*` profile, or the rejected
-   `~/.image-arranger/agent-chrome` profile. The check must reuse a Vidu marker
-   tab that is already open in the selected profile, such as
-   `kaminokuresse@gmail.com` / `ユーザー 1`; it must not launch Chrome or create
-   the tab itself. The Vidu marker URL must include `profile-email`; a
-   `profile-directory=Default` marker without email is not enough.
+   `~/.image-arranger/agent-chrome` profile. The check must use a Vidu marker
+   tab in the selected profile, such as `kaminokuresse@gmail.com` / `ユーザー 1`;
+   the Vidu driver itself must not launch another Chrome/Chromium instance for
+   the same profile. If the marker is missing, prepare it first through a
+   profile-safe setup/repair route, then rerun the check. On macOS, prefer
+   opening the Vidu marker in the same Chrome
+   window as an already verified ChatGPT/image-arranger marker tab for the same
+   saved `profile-directory` and `profile-email`. On Windows, use the bound
+   Chrome bridge route. Do not use `open -a "Google Chrome" ... --profile-directory=...`
+   or equivalent wrong-profile-prone startup paths. The Vidu marker URL must
+   include `profile-email`; a `profile-directory=Default` marker without email is
+   not enough.
 5. Provide exactly `inputs.startFrame` and `inputs.endFrame`; Vidu processing
    does not use the ChatGPT reference-image paste route.
 6. The Vidu driver injects those two files into the existing Vidu marker tab as
