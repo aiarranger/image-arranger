@@ -150,8 +150,8 @@ contact sheets, or A/B variants for a single target.
 | Field | Type | Meaning |
 |-------|------|---------|
 | `refImages` | string[] | Files to attach to the generation/analysis. These are the user's adopted identity references (or, for improve, the source plus references). Attach **only** these; do not add other candidates. |
-| `startFrame` | string \| null | Video: the start-frame image path. |
-| `endFrame` | string \| null | Video: the end-frame image path. |
+| `startFrame` | string \| null | Video: the required start-frame image path. |
+| `endFrame` | string \| null | Video: the optional end-frame image path. Leave null for start-only image-to-video generation. |
 | `durationSec` | number | Video: requested clip length in seconds. |
 | `sourceAsset` | string \| null | Improve: the primary asset being improved. |
 
@@ -229,7 +229,7 @@ Process a target only when both the request `status` and the target `status` are
 - **`generate`** (or missing `action`) — produce one new image or video. Attach
   `inputs.refImages`, save into `outputDir`, optionally run `qualityGate` if present,
   register the passing result as a candidate asset, then report completion. For video,
-  also pass `inputs.startFrame` / `inputs.endFrame` / `inputs.durationSec`.
+  also pass `inputs.startFrame`, optional `inputs.endFrame`, and `inputs.durationSec`.
 - **`improve`** — regenerate from an existing asset. Treat `inputs.sourceAsset` /
   `assetFile` as the primary reference and follow `improvementPrompt`.
 - **`analyze`** — base-kit analysis. **No image is generated.** The deliverable is JSON
@@ -543,7 +543,7 @@ profiles can each have a `Default` directory.
 
 To drive a new service, fetch `GET /api/requests`, filter targets you can handle, and for
 each one reproduce the request contract: attach `inputs.refImages` for image
-targets or `inputs.startFrame`/`inputs.endFrame` for image-to-video targets, set
+targets or `inputs.startFrame` plus optional `inputs.endFrame` for image-to-video targets, set
 `prompt`, send, wait for exactly one result, save into `outputDir`, then POST the
 completion. Add only the service-specific page actions after the shared profile guard.
 The Vidu driver follows this normal-profile route end to end for MP4 results.

@@ -325,7 +325,9 @@ async function routePreflight({ ensureTab = false } = {}) {
         title: document.title,
         isAuthLogin: location.href.includes('/auth/login'),
         composerExists: Boolean(composer),
-        bodyStart: body.slice(0, 120)
+        rateLimited: /リクエストが多すぎます|Too many requests|rate limit/i.test(body),
+        bodyStart: body.slice(0, 120),
+        bodyTail: body.slice(-500)
       };
       `, { tabId: currentChatgptTabId });
     } catch (error) {
@@ -333,6 +335,9 @@ async function routePreflight({ ensureTab = false } = {}) {
     }
     if (result.markerTab.isAuthLogin || !result.markerTab.composerExists) {
       throw new Error(`ChatGPT marker tab is not ready: ${JSON.stringify(result.markerTab)}`);
+    }
+    if (result.markerTab.rateLimited) {
+      throw new Error(`ChatGPT marker tab is temporarily rate limited: ${JSON.stringify(result.markerTab)}`);
     }
   }
   return result;
@@ -606,15 +611,20 @@ function insertPrompt(prompt) {
     const innerText = ed.innerText || '';
     const textContent = ed.textContent || '';
     const normalizedInnerText = innerText.replace(/\\n{3,}/g, '\\n\\n');
+    const canonical = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+    const canonicalExpected = canonical(expected);
+    const canonicalInnerText = canonical(innerText);
+    const canonicalTextContent = canonical(textContent);
     const send = document.querySelector('[data-testid="send-button"]');
     return {
-      ok: normalizedInnerText === expected || innerText === expected || textContent === expected,
+      ok: normalizedInnerText === expected || innerText === expected || textContent === expected || canonicalInnerText === canonicalExpected || canonicalTextContent === canonicalExpected,
       innerTextLength: innerText.length,
       textContentLength: textContent.length,
       expectedLength: expected.length,
       normalizedInnerTextEqual: normalizedInnerText === expected,
-      startsCorrect: normalizedInnerText.startsWith(expected.slice(0, 80)),
-      endsCorrect: normalizedInnerText.endsWith(expected.slice(-80)),
+      canonicalEqual: canonicalInnerText === canonicalExpected || canonicalTextContent === canonicalExpected,
+      startsCorrect: canonicalInnerText.startsWith(canonicalExpected.slice(0, 80)),
+      endsCorrect: canonicalInnerText.endsWith(canonicalExpected.slice(-80)),
       sendDisabled: send ? (send.disabled || send.getAttribute('aria-disabled') === 'true') : null
     };
   `, { tabId: activeChatgptTabId() });
@@ -632,11 +642,16 @@ async function waitForSendReady(prompt, timeoutMs = 120000) {
       const innerText = ed.innerText || '';
       const textContent = ed.textContent || '';
       const normalizedInnerText = innerText.replace(/\\n{3,}/g, '\\n\\n');
+      const canonical = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+      const canonicalExpected = canonical(expected);
+      const canonicalInnerText = canonical(innerText);
+      const canonicalTextContent = canonical(textContent);
       return {
-        ok: normalizedInnerText === expected || innerText === expected || textContent === expected,
+        ok: normalizedInnerText === expected || innerText === expected || textContent === expected || canonicalInnerText === canonicalExpected || canonicalTextContent === canonicalExpected,
         innerTextLength: innerText.length,
         textContentLength: textContent.length,
         expectedLength: expected.length,
+        canonicalEqual: canonicalInnerText === canonicalExpected || canonicalTextContent === canonicalExpected,
         sendDisabled: send ? (send.disabled || send.getAttribute('aria-disabled') === 'true') : null,
         sendExists: Boolean(send),
         uploadTextPresent: /アップロード中|Uploading|処理中|Processing/i.test(document.body.innerText || '')

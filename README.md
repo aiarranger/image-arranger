@@ -58,7 +58,7 @@ The tab order *is* the workflow: **Create kit → Base → Image → Video**, wi
 - **Create kit** — pick adopted reference images and one-shot generate the character's canonical identity sheet from a reusable prompt template (bring your favorite community sheet prompt). Need to fix one part without rerolling the whole sheet? Decompose into per-part references, improve just that part, and regenerate the sheet with it attached.
 - **Base** — manage per-part reference entries with candidate assets; mark only approved candidates as adopted.
 - **Image** — one prompt per output image. Attach adopted images as source inputs; they are stored as links and resolve to each linked entry's *current* canonical image at queue time.
-- **Video** — point start/end frames at adopted images for image-to-video services.
+- **Video** — point a start frame, and optionally an end frame, at adopted images for image-to-video services.
 - **Queue** — the outbox: every request you submit becomes a JSON file a human or agent can process. Review, edit, cancel, or complete pending requests here.
 
 A separate **Gallery** view (the *Gallery* button in the header) shows the adopted images of your **Image** entries in one place (Base reference material is deliberately excluded).
@@ -108,7 +108,7 @@ node scripts/process-service-queue.mjs --check --service vidu
 node scripts/process-service-queue.mjs
 ```
 
-- Requires **Node 22+** (the server itself runs on Node 20+) and a Chrome/Chromium install. ChatGPT and Vidu processing use marker tabs in the selected normal Chrome profile. If a marker tab is missing, prepare it through a profile-safe setup/repair route in the already-running selected profile; do not launch a second browser instance or switch profiles. Vidu injects the requested start/end frames into that tab, submits through Vidu's visible UI, saves the MP4, and reports completion; it must not fall back to a generated automation profile.
+- Requires **Node 22+** (the server itself runs on Node 20+) and a Chrome/Chromium install. ChatGPT and Vidu processing use marker tabs in the selected normal Chrome profile. If a marker tab is missing, prepare it through a profile-safe setup/repair route in the already-running selected profile; do not launch a second browser instance or switch profiles. Vidu injects the requested start frame, plus an end frame when present, into that tab, submits through Vidu's visible UI, saves the MP4, and reports completion; it must not fall back to a generated automation profile.
 - Windows ChatGPT and Vidu browser automation use the unpacked Chrome bridge extension in `extensions/chrome-bridge`; see [Windows Chrome Bridge Setup](docs/windows-chrome-bridge.md). Without that extension connected from the selected Chrome profile, service drivers stop instead of opening a different profile.
 - ChatGPT model selection can be guarded with `--image-model <pattern>` or `IMAGE_ARRANGER_IMAGE_MODEL`; for example, use `--image-model 高` when the active Pro-mode model is failing image generation. The guard is advisory and logs a warning if the model picker cannot be used.
 - New browser-based service drivers should use `scripts/service-browser-profile.mjs` for profile listing, selection, saved-config validation, and rejected automation-profile detection before they open a service page. Tab control must go through `scripts/service-browser-route.mjs`, with macOS behavior isolated in `scripts/chrome-route-macos.mjs` / `*-route-macos.mjs` and Windows behavior isolated in `scripts/chrome-route-windows.mjs` / `*-route-windows.mjs`.

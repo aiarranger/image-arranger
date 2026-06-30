@@ -33,7 +33,7 @@ The tab order is the workflow:
 - Create kit: queue a request for a canonical character sheet from adopted references, or decompose an existing sheet into per-part references.
 - Base: manage canonical face / outfit / accessory / background references.
 - Image: queue one image deliverable per prompt.
-- Video: queue image-to-video requests with start and end frames.
+- Video: queue image-to-video requests with a start frame and, when needed, an end frame.
 - Queue: review pending request JSON, copy agent instructions, cancel, edit, or complete requests.
 - Gallery: see adopted images across the deck.
 

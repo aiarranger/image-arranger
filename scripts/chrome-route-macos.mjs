@@ -38,7 +38,12 @@ tell application "Google Chrome"
           set index of w to 1
           activate
         end if
-        return (URL of t) & linefeed & (title of t)
+        set tabUrl to (URL of t as text)
+        set tabTitle to ""
+        try
+          set tabTitle to (title of t as text)
+        end try
+        return tabUrl & linefeed & tabTitle
       end if
     end repeat
   end repeat
@@ -98,7 +103,12 @@ tell application "Google Chrome"
           activate
         end if
         delay 0.5
-        set resultText to (URL of newTab) & linefeed & (title of newTab)
+        set newTabUrl to (URL of newTab as text)
+        set newTabTitle to ""
+        try
+          set newTabTitle to (title of newTab as text)
+        end try
+        set resultText to newTabUrl & linefeed & newTabTitle
         set foundWindow to true
         exit repeat
       end if

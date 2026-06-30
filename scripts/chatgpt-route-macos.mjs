@@ -14,7 +14,7 @@ tell application "Google Chrome"
         set active tab index of w to ti
         set index of w to 1
         activate
-        execute t javascript "(() => { const ed = document.querySelector('#prompt-textarea, div[contenteditable=\\\"true\\\"]'); if (ed) ed.focus(); return 'focused'; })();"
+        execute t javascript "(() => { const ed = document.querySelector('#prompt-textarea, div[contenteditable=\\\"true\\\"]'); if (!ed) return 'no-composer'; ed.scrollIntoView({ block: 'center', inline: 'nearest' }); const rect = ed.getBoundingClientRect(); const opts = { bubbles: true, cancelable: true, view: window, clientX: Math.round(rect.left + rect.width / 2), clientY: Math.round(rect.top + Math.min(rect.height / 2, 24)) }; ed.dispatchEvent(new MouseEvent('mousedown', opts)); ed.focus(); ed.dispatchEvent(new MouseEvent('mouseup', opts)); ed.dispatchEvent(new MouseEvent('click', opts)); return document.activeElement === ed || ed.contains(document.activeElement) ? 'focused' : 'focus-attempted'; })();"
         set foundTab to true
         exit repeat
       end if
@@ -49,7 +49,7 @@ tell application "Google Chrome"
         set active tab index of w to ti
         set index of w to 1
         activate
-        execute t javascript "(() => { const ed = document.querySelector('#prompt-textarea, div[contenteditable=\\\"true\\\"]'); if (ed) ed.focus(); return 'focused'; })();"
+        execute t javascript "(() => { const ed = document.querySelector('#prompt-textarea, div[contenteditable=\\\"true\\\"]'); if (!ed) return 'no-composer'; ed.scrollIntoView({ block: 'center', inline: 'nearest' }); const rect = ed.getBoundingClientRect(); const opts = { bubbles: true, cancelable: true, view: window, clientX: Math.round(rect.left + rect.width / 2), clientY: Math.round(rect.top + Math.min(rect.height / 2, 24)) }; ed.dispatchEvent(new MouseEvent('mousedown', opts)); ed.focus(); ed.dispatchEvent(new MouseEvent('mouseup', opts)); ed.dispatchEvent(new MouseEvent('click', opts)); return document.activeElement === ed || ed.contains(document.activeElement) ? 'focused' : 'focus-attempted'; })();"
         set targetTab to t
         set foundTab to true
         exit repeat
@@ -60,7 +60,13 @@ tell application "Google Chrome"
 end tell
 if not foundTab then error "ChatGPT marker tab was not found"
 delay 0.3
-tell application "System Events" to key code 36
+set clickResult to ""
+tell application "Google Chrome"
+  set clickResult to execute targetTab javascript "JSON.stringify((() => { const send = document.querySelector('[data-testid=\\\"send-button\\\"]'); if (!send) return { ok: false, reason: 'no-send-button' }; const disabled = send.disabled || send.getAttribute('aria-disabled') === 'true'; if (disabled) return { ok: false, reason: 'send-disabled' }; send.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window })); send.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window })); send.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); return { ok: true }; })())"
+end tell
+if clickResult does not contain "\\"ok\\":true" then
+  tell application "System Events" to key code 36
+end if
 delay 1
 tell application "Google Chrome"
   repeat 120 times

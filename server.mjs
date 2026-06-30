@@ -656,7 +656,7 @@ function buildRequest(state, body, context) {
       improvementPrompt: target.improvementPrompt ?? "",
       inputs: target.inputs ?? { startFrame: null, endFrame: null, refImages: [] },
       outputDir: target.outputDir ?? defaultOutputDir,
-      service: target.service ?? (mode === "video" || target.inputs?.endFrame ? "vidu" : "chatgpt"),
+      service: target.service ?? (mode === "video" || target.inputs?.startFrame || target.inputs?.endFrame ? "vidu" : "chatgpt"),
       qualityGate: normalizeQualityGate(target.qualityGate),
       status: "requested",
       results: [],

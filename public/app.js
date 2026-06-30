@@ -155,7 +155,7 @@ const I18N = {
     newEntry: "新規",
     downloadSelected: "選択をDL",
     durationSec: "動画の長さ（秒）",
-    framePair: "フレーム（始まり / 終わり）",
+    framePair: "フレーム（始まり必須 / 終わり任意）",
     clearFrame: "未設定にする",
     addAsset: "素材追加",
     baseRefs: "ベース参照",
@@ -178,6 +178,7 @@ const I18N = {
     adopted: "採用",
     start: "始まり画像",
     end: "終わり画像",
+    endOptional: "終わり画像（任意）",
     output: "出力予定",
     requestFile: "依頼",
     requestedAt: "登録日時",
@@ -473,7 +474,7 @@ const I18N = {
     newEntry: "New",
     downloadSelected: "Download selected",
     durationSec: "Video length (sec)",
-    framePair: "Frames (start / end)",
+    framePair: "Frames (start required / end optional)",
     clearFrame: "Clear",
     addAsset: "Add asset",
     baseRefs: "Base references",
@@ -496,6 +497,7 @@ const I18N = {
     adopted: "Adopted",
     start: "Start frame",
     end: "End frame",
+    endOptional: "End frame (optional)",
     output: "Output draft",
     requestFile: "Request",
     requestedAt: "Queued at",
@@ -2787,7 +2789,7 @@ function renderFormModal() {
       ` : ""}
       ${state.mode === "video" ? `
         ${formFramePicker("startFrame", t("start"), form)}
-        ${formFramePicker("endFrame", t("end"), form)}
+        ${formFramePicker("endFrame", t("endOptional"), form)}
         <label>${t("durationSec")}<select name="durationSec">${optionList([4, 6, 8, 10, 12].map((value) => ({ value: String(value), label: `${value}s` })), "8")}</select></label>
         <label>${t("output")}<input name="outputDraft" placeholder="outputs/${escapeHtml(ch.id)}/new-video.mp4"></label>
       ` : ""}

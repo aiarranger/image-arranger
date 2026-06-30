@@ -163,6 +163,43 @@ test("server creates request files and updates target status", async () => {
   });
 });
 
+test("server treats start-only video frame requests as Vidu targets", async () => {
+  await withServer(async ({ baseUrl, context }) => {
+    const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());
+    const created = await fetch(`${baseUrl}/api/requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        characterId: state.characters[0].id,
+        targets: [{
+          entryId: "video-start-only",
+          overview: "start-only Vidu clip",
+          prompt: "make a short locked-camera motion",
+          inputs: {
+            startFrame: "assets/start-frame.png",
+            endFrame: null,
+            durationSec: 8,
+            refImages: ["assets/start-frame.png"],
+          },
+        }],
+      }),
+    }).then((response) => response.json());
+
+    assert.equal(created.ok, true);
+    assert.equal(created.request.service, "vidu");
+    assert.equal(created.request.targets[0].service, "vidu");
+    assert.equal(created.request.targets[0].inputs.startFrame, "assets/start-frame.png");
+    assert.equal(created.request.targets[0].inputs.endFrame, null);
+
+    const listed = await fetch(`${baseUrl}/api/requests`).then((response) => response.json());
+    const row = listed.requests.find((item) => item.requestId === created.request.requestId);
+    assert.equal(row.service, "vidu");
+    assert.equal(row.inputs.startFrame, "assets/start-frame.png");
+    assert.equal(row.inputs.endFrame, null);
+    assert.match(readFileSync(join(context.requestDir, `${created.request.requestId}.json`), "utf8"), /"service": "vidu"/);
+  });
+});
+
 test("server preserves qualityGate requests and completion reports", async () => {
   await withServer(async ({ baseUrl, context }) => {
     const state = await fetch(`${baseUrl}/api/state`).then((response) => response.json());

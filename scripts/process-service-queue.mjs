@@ -77,13 +77,14 @@ async function api(path) {
 function isChatgptTarget(row) {
   return ["generate", "improve"].includes(row.action)
     && (row.service === "chatgpt" || !row.service)
+    && !row.inputs?.startFrame
     && !row.inputs?.endFrame
     && row.mode !== "video";
 }
 
 function isViduTarget(row) {
   return row.action === "generate"
-    && (row.service === "vidu" || row.mode === "video" || Boolean(row.inputs?.endFrame));
+    && (row.service === "vidu" || row.mode === "video" || Boolean(row.inputs?.startFrame) || Boolean(row.inputs?.endFrame));
 }
 
 function serviceForTarget(row) {

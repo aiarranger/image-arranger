@@ -19,7 +19,7 @@ It is not a generator and it does not call any model API. The idea is to manage 
 - what prompt produced which asset
 - what is still queued
 - which reference images should be attached to the next request
-- start/end frames for image-to-video requests
+- start frames, with optional end frames, for image-to-video requests
 
 The app writes request JSON files. A human can process them manually in whatever service they already use, or a coding agent/custom driver can process them and report completion. Results come back as candidate assets; you adopt only the ones you want to keep using as references.
 

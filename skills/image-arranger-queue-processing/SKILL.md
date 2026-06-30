@@ -78,6 +78,17 @@ entrypoint and drivers:
 - inserts and verifies the queue prompt before sending
 - waits for the visible ChatGPT send button to become enabled after the
   reference upload finishes
+- treats ChatGPT `リクエストが多すぎます`, `Too many requests`, or other visible
+  rate-limit wording as not ready even when the composer exists. A preflight
+  check must inspect the full visible page text, not only the first body lines,
+  and must stop before attachment or prompt insertion while the rate-limit
+  message is visible.
+  After a rate-limit stop, do not poll in a tight loop and do not retry
+  generation manually. Recheck only with the preflight route every 30 minutes:
+  `node scripts/watch-chatgpt-rate-limit.mjs --server http://127.0.0.1:4217`.
+  This watcher runs `--check --service chatgpt --ensure-tab` only; it must not
+  attach references, insert prompts, or send requests. When it exits 0, resume
+  the same pending queue target through the common entrypoint.
 - optionally selects a non-Pro ChatGPT model before generation when
   `--image-model <pattern>` or `IMAGE_ARRANGER_IMAGE_MODEL` is set; this is an
   advisory guard, so picker failures are logged and generation continues with
@@ -86,10 +97,35 @@ entrypoint and drivers:
 - opens the generated image and clicks the normal ChatGPT `保存` button
 - copies the downloaded file into the target `outputDir`
 - reports completion through `POST /api/requests/complete`
-- for Vidu, injects `inputs.startFrame` and `inputs.endFrame` into the selected
-  normal-profile Vidu page, submits through the visible Vidu UI, saves the MP4
-  from Vidu's direct result URL or normal download button, and reports completion
-  through `POST /api/requests/complete`
+- if ChatGPT refuses image generation with policy wording and no image was
+  saved, the target is still incomplete. Keep the same queue target pending,
+  repair the prompt, and retry that same target after preflight. For MV
+  keyframes, the first repair should simplify the prompt: make the scene/action
+  the subject, keep Aichan as a small or shoulder-up figure if possible, and
+  remove unnecessary full-outfit, body-proportion, anatomy-negative, or
+  fanservice-avoidance wording that can itself cause policy friction. Do not
+  create a new replacement request unless the current request has a saved
+  rejected asset or the operator explicitly asks.
+- for Vidu, injects `inputs.startFrame` and, when present, `inputs.endFrame`
+  into the selected normal-profile Vidu page. Start-only Vidu targets are valid;
+  `inputs.startFrame` is required, `inputs.endFrame` is optional. The driver
+  submits through the visible Vidu UI, saves the MP4 from Vidu's direct result
+  URL or normal download button, and reports completion through
+  `POST /api/requests/complete`
+- for Vidu, must stop before upload, prompt insert, or create submit if the
+  selected Vidu page already shows an active upload/generation state such as
+  `アップロード中`, `処理中`, `作成中`, `生成中`, `Uploading`, `Processing`,
+  `Generating`, or `In progress`. A local timeout or request `error` does not
+  prove the Vidu-side job has stopped. Do not submit a replacement while a
+  visible Vidu task is still running; wait for that task to finish/fail, then
+  inspect whether it produced the requested clip before creating another
+  request.
+  Do not treat old history items as an active task just because the page body
+  still contains `処理中` or an older prompt. The stop condition must be tied to
+  the current create/upload form or an explicit currently running task indicator:
+  disabled create button plus visible upload/generation status in the create
+  area, active upload preview, or an unmistakable current task panel. History text
+  alone is evidence to inspect, not a blocker.
 
 Implementation guardrails for the common entrypoint and ChatGPT driver:
 
@@ -209,6 +245,12 @@ ChatGPT route:
 9. Send through the visible ChatGPT composer, wait for generation to finish, save
    the result through the normal ChatGPT image UI, then report completion through
    `POST /api/requests/complete`.
+   If ChatGPT stays on `思考中` / `より詳細な画像を生成中です` until the local
+   timeout, with no generated image, no policy refusal, and no saved output, treat
+   that target as not completed. Confirm the request is still pending, restore or
+   recreate the marker tab in the same approved profile, rerun `--check`, and
+   retry the same target from the queue. Do not advance to the paired target or
+   to Vidu until the first target has a saved ChatGPT image registered.
 10. On Windows, process ChatGPT image queues through the same bound Chrome bridge
    route used by preflight. Do not switch to `Start-Process chrome`, a generated
    profile, Codex image generation, file chooser fallback, or virtual clipboard.
@@ -216,7 +258,7 @@ ChatGPT route:
 Vidu route:
 
 1. Use Vidu only for video `generate` targets whose service is `vidu`, mode is
-   `video`, or `inputs.endFrame` is present.
+   `video`, or `inputs.startFrame` / `inputs.endFrame` is present.
 2. Run `node scripts/process-service-queue.mjs --check --service vidu --server
    http://127.0.0.1:4217` before processing Vidu targets. This delegates to the
    Vidu driver and checks that the Vidu create page is usable.
@@ -240,14 +282,23 @@ Vidu route:
    or equivalent wrong-profile-prone startup paths. The Vidu marker URL must
    include `profile-email`; a `profile-directory=Default` marker without email is
    not enough.
-5. Provide exactly `inputs.startFrame` and `inputs.endFrame`; Vidu processing
-   does not use the ChatGPT reference-image paste route.
-6. The Vidu driver injects those two files into the existing Vidu marker tab as
-   real browser `File` objects, sets the target prompt, optionally sets
+5. Provide `inputs.startFrame`; `inputs.endFrame` may be omitted for start-only
+   Vidu generation. Vidu processing does not use the ChatGPT reference-image
+   paste route.
+6. The Vidu driver injects one start file or two start/end files into the
+   existing Vidu marker tab as real browser `File` objects, sets the target prompt, optionally sets
    `inputs.durationSec`, submits through the visible Vidu create button, waits
    for one generated result, saves the MP4 into `outputDir`, and reports
    completion through `POST /api/requests/complete`.
-7. If Vidu visibly shows a non-zero credit cost, the driver stops unless the
+7. If Vidu visibly shows an active upload or generation task in the current
+   create/upload area, the driver stops before submitting anything. Treat
+   `アップロード中`, disabled create controls with generation wording, active
+   upload previews, or an unmistakable current task panel as "work is already in
+   flight". Do not stop only because an older history item or the full page body
+   contains `処理中` from a previous prompt; inspect the current form state before
+   blocking. Do not start the same cut again until a true current task has
+   finished or failed.
+8. If Vidu visibly shows a non-zero credit cost, the driver stops unless the
    operator intentionally reruns with `--allow-paid`. Do not bypass this by
    switching service, browser profile, or generation tool.
 
@@ -320,7 +371,7 @@ reason, when any of these happens:
 - the full prompt cannot be verified in the composer before sending
 - the visible ChatGPT UI refuses, errors, or never produces a downloadable result
 - the Vidu create page is logged out or not usable
-- a Vidu target is missing either `inputs.startFrame` or `inputs.endFrame`
+- a Vidu target is missing `inputs.startFrame`
 - Vidu does not expose a downloadable MP4 result
 
 Do not switch routes after a stop condition.

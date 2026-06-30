@@ -101,8 +101,8 @@ bound marker tab, insert the prompt, click the visible ChatGPT send button, wait
 on the same bound tab after it becomes `/c/...`, click the normal ChatGPT image
 save button, and copy the downloaded file into the requested `outputDir`.
 
-Vidu targets use `inputs.startFrame` and `inputs.endFrame`, then submit and save
-through the normal Vidu UI.
+Vidu targets use `inputs.startFrame` plus optional `inputs.endFrame`, then submit
+and save through the normal Vidu UI.
 
 ## Troubleshooting
 

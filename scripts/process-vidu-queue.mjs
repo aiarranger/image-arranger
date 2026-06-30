@@ -271,6 +271,7 @@ function isViduTarget(row) {
   return row.action === "generate" && (
     row.service === "vidu"
     || row.mode === "video"
+    || Boolean(row.inputs?.startFrame)
     || Boolean(row.inputs?.endFrame)
   );
 }
@@ -358,6 +359,14 @@ function viduState(markerPart) {
       visibleActionTexts,
     });
     const fileInputs = [...document.querySelectorAll("input[type=file]")];
+    const createRoot = submit?.closest("form")
+      || submit?.closest('[class*="create" i]')
+      || submit?.parentElement
+      || document.body;
+    const createText = normalize(createRoot?.innerText ?? "");
+    const currentFormBusy = /アップロード中|作成中|生成中|Uploading|Processing|Generating|In progress/i.test(createText)
+      && (!submit || submit.disabled || submit.getAttribute("aria-disabled") === "true");
+    const historyHasProcessingText = /処理中|Processing|Generating|In progress/i.test(body);
     return {
       url: location.href,
       title: document.title,
@@ -371,6 +380,8 @@ function viduState(markerPart) {
       submitText: normalize(submit?.innerText ?? submit?.getAttribute("aria-label") ?? ""),
       submitDisabled: !submit || submit.disabled || submit.getAttribute("aria-disabled") === "true",
       uploading: /アップロード中|Uploading/i.test(body),
+      activeTask: currentFormBusy,
+      historyHasProcessingText,
       loggedOut,
       videos,
       directVideos,
@@ -379,8 +390,23 @@ function viduState(markerPart) {
   `);
 }
 
+function assertNoActiveViduTask(state, phase) {
+  if (!state?.activeTask) return;
+  const body = String(state.body ?? state.bodyStart ?? "").slice(0, 1200);
+  throw new Error(`Vidu already has an active upload/generation task during ${phase}; do not submit another Vidu request until the visible task finishes or fails. State: ${JSON.stringify({
+    url: state.url,
+    title: state.title,
+    submitText: state.submitText,
+    uploading: state.uploading,
+    body,
+  })}`);
+}
+
 async function uploadFrames(markerPart, files, runLog, tag) {
-  if (files.length !== 2) throw new Error(`Vidu start/end generation needs exactly 2 frames; got ${files.length}`);
+  if (files.length < 1 || files.length > 2) throw new Error(`Vidu generation needs 1 start frame or 2 start/end frames; got ${files.length}`);
+  assertNoActiveViduTask(viduState(markerPart), "before frame upload");
+  const expectedFileCount = files.length;
+  const frameLabel = expectedFileCount === 1 ? "start frame" : "start/end frames";
   const uploadId = `vidu-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   runViduJs(markerPart, `
     window.__imageArrangerViduUploads = window.__imageArrangerViduUploads || {};
@@ -417,7 +443,8 @@ async function uploadFrames(markerPart, files, runLog, tag) {
   const committed = runViduJs(markerPart, `
     const uploadId = ${JSON.stringify(uploadId)};
     const upload = window.__imageArrangerViduUploads?.[uploadId];
-    if (!upload || upload.files.length !== 2 || upload.files.some((file) => !file?.chunks?.length)) {
+    const expectedFileCount = ${expectedFileCount};
+    if (!upload || upload.files.length !== expectedFileCount || upload.files.some((file) => !file?.chunks?.length)) {
       throw new Error("upload chunks incomplete");
     }
     const input = document.querySelector("input[type=file]");
@@ -445,18 +472,19 @@ async function uploadFrames(markerPart, files, runLog, tag) {
     delete window.__imageArrangerViduUploads[uploadId];
     return { ok: true, fileCount: input.files.length, names: [...input.files].map((file) => file.name) };
   `, { activate: true });
-  if (!committed.ok || committed.fileCount !== 2) {
+  if (!committed.ok || committed.fileCount !== expectedFileCount) {
     throw new Error(`Vidu file injection failed: ${JSON.stringify(committed)}`);
   }
 
   await waitForState(
-    "Vidu start/end frame upload completion",
+    `Vidu ${frameLabel} upload completion`,
     () => viduState(markerPart),
     (state) => {
-      const framePairReady = state.uploadPreviews >= 2
-        || state.fileInputFiles.some((count) => count >= 2)
-        || /フレーム\s*1\s*-\s*フレーム\s*2|Frame\s*1\s*-\s*Frame\s*2|First\s*Frame.*Last\s*Frame/i.test(state.body);
-      return framePairReady && !state.uploading;
+      const uploadedCountReady = state.uploadPreviews >= expectedFileCount
+        || state.fileInputFiles.some((count) => count >= expectedFileCount);
+      const framePairReady = expectedFileCount === 2
+        && /フレーム\s*1\s*-\s*フレーム\s*2|Frame\s*1\s*-\s*Frame\s*2|First\s*Frame.*Last\s*Frame/i.test(state.body);
+      return (uploadedCountReady || framePairReady) && !state.uploading;
     },
     { timeoutMs: 180000, intervalMs: 1000 },
   );
@@ -509,6 +537,7 @@ async function setDurationIfAvailable(markerPart, durationSec) {
 }
 
 async function setViduPrompt(markerPart, prompt) {
+  assertNoActiveViduTask(viduState(markerPart), "before prompt insert");
   const text = String(prompt ?? "").trim();
   if (!text) throw new Error("Vidu target prompt is empty");
   const written = runViduJs(markerPart, `
@@ -549,6 +578,7 @@ async function clickCreate(markerPart) {
   if (cost > 0 && !ALLOW_PAID) {
     throw new Error(`Vidu create button shows a non-zero credit cost (${state.submitText}). Rerun with --allow-paid if this is intended.`);
   }
+  assertNoActiveViduTask(state, "before create submit");
   const clicked = runViduJs(markerPart, `
     const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim();
     const button = document.querySelector('[data-testid="form-submit-button"]')
@@ -744,6 +774,16 @@ async function main() {
   runLog.log("Vidu normal Chrome profile page OK");
 
   if (CHECK_ONLY) {
+    if (pageState.activeTask) {
+      runLog.log(`--check found active Vidu upload/generation; do not submit a new target yet. State: ${JSON.stringify({
+        url: pageState.url,
+        submitText: pageState.submitText,
+        uploading: pageState.uploading,
+        body: String(pageState.body ?? "").slice(0, 1200),
+      })}`, "error");
+      process.exitCode = 2;
+      return;
+    }
     runLog.log("--check finished: selected normal Chrome profile + Vidu page are ready");
     return;
   }
@@ -756,7 +796,10 @@ async function main() {
     runLog.attachJson(`target ${tag}`, row);
 
     const startFrame = assertExistingFile("inputs.startFrame", resolveProjectFile(projectRoot, row.inputs?.startFrame));
-    const endFrame = assertExistingFile("inputs.endFrame", resolveProjectFile(projectRoot, row.inputs?.endFrame));
+    const endFrame = row.inputs?.endFrame
+      ? assertExistingFile("inputs.endFrame", resolveProjectFile(projectRoot, row.inputs.endFrame))
+      : null;
+    const frameFiles = [startFrame, endFrame].filter(Boolean);
     const outputDir = resolve(projectRoot, row.outputDir || "outputs");
     mkdirSync(outputDir, { recursive: true });
     const fileBase = `${slugify(String(row.entryId ?? "video").replace(/^video-/, ""), row.entryId)}-${timestamp()}`;
@@ -766,11 +809,17 @@ async function main() {
     if (startState.loggedOut || startState.fileInputs === 0 || startState.textareaCount === 0) {
       throw new Error(`Vidu create page is not usable: ${JSON.stringify(startState).slice(0, 1200)}`);
     }
-    const beforeVideos = startState.videos ?? [];
-    runLog.log(`[${tag}] Vidu page ready; ${beforeVideos.length} existing video(s) visible`);
+    assertNoActiveViduTask(startState, "before processing target");
+    const beforeVideos = [
+      ...new Set([
+        ...(startState.videos ?? []),
+        ...(startState.directVideos ?? []),
+      ]),
+    ];
+    runLog.log(`[${tag}] Vidu page ready; ${beforeVideos.length} existing video/direct URL(s) visible`);
 
-    const upload = await uploadFrames(markerPart, [startFrame, endFrame], runLog, tag);
-    runLog.log(`[${tag}] uploaded start/end frames: ${upload.names.join(", ")}`);
+    const upload = await uploadFrames(markerPart, frameFiles, runLog, tag);
+    runLog.log(`[${tag}] uploaded ${frameFiles.length === 1 ? "start frame" : "start/end frames"}: ${upload.names.join(", ")}`);
 
     const duration = await setDurationIfAvailable(markerPart, row.inputs?.durationSec);
     runLog.attachJson(`duration ${tag}`, duration);

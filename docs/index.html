@@ -176,15 +176,15 @@
       <article class="wf-step" data-reveal>
         <div class="n" data-i18n="wf_video_label">04 · VIDEO</div>
         <h3 data-i18n="wf_video_title">Scene stills only</h3>
-        <p data-i18n="wf_video_body">Queue video only after a real adopted scene still exists. For locked-camera motion, reuse the same adopted still as both start and end.</p>
+        <p data-i18n="wf_video_body">Queue video only after a real adopted scene still exists. For locked-camera motion, use a start frame by itself or reuse the same adopted still as both start and end.</p>
         <figure class="wf-shot wf-data-card wf-video-visual">
           <div class="visual-toolbar"><span>Video</span><b>real inputs</b></div>
           <ul class="process-list">
             <li data-i18n="wf_video_step_one">Requires a real adopted scene still.</li>
-            <li data-i18n="wf_video_step_two">Uses explicit startFrame and endFrame paths.</li>
+            <li data-i18n="wf_video_step_two">Uses an explicit startFrame path and an optional endFrame path.</li>
             <li data-i18n="wf_video_step_three">Shows no completed clip until a real MP4 is registered.</li>
           </ul>
-          <figcaption data-i18n="wf_video_caption">Video view: no fake completed clips; start/end frame fields point to adopted stills from the same scene.</figcaption>
+          <figcaption data-i18n="wf_video_caption">Video view: no fake completed clips; frame fields point to adopted stills from the same scene.</figcaption>
         </figure>
       </article>
       <article class="wf-step" data-reveal>
@@ -353,7 +353,7 @@ node server.mjs --doctor</pre>
       <li><strong>素材作成</strong>：採用画像を参照に、キャラの正となるリファレンスシートをテンプレプロンプトで一発生成。一部だけ直したいときはパーツ分解→そのパーツだけ改善→再生成</li>
       <li><strong>ベース</strong>：パーツ別リファレンスを候補管理し、承認したものだけ「採用」に</li>
       <li><strong>画像</strong>：1プロンプト＝1アウトプット。採用済み画像を元画像として添付（リンクはキュー時に最新の「正」へ解決）</li>
-      <li><strong>動画</strong>：採用画像を start/end フレームに指定して image-to-video へ</li>
+      <li><strong>動画</strong>：採用画像を startFrame、必要に応じて endFrame に指定して image-to-video へ</li>
       <li><strong>キュー</strong>：依頼はすべて JSON ファイル。人間でもコーディングエージェントでも処理できます</li>
     </ul>
   </div>
