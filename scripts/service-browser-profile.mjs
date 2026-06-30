@@ -231,12 +231,12 @@ export function loadServiceChromeProfile({ service, serviceLabel, profileConfigP
   };
 }
 
-export function assertNoUserDataDirProcesses({ label, rejectedPaths }) {
+export function assertNoUserDataDirProcesses({ label, rejectedPaths, commandLines = processCommandLines() }) {
   const normalizedRejected = rejectedPaths.flatMap((path) => {
     const value = String(path);
     return [value, value.replaceAll("\\", "/"), value.replaceAll("/", "\\")];
   });
-  const bad = processCommandLines().filter((line) => (
+  const bad = commandLines.filter((line) => (
     line.includes("--user-data-dir=")
     && normalizedRejected.some((path) => line.includes(path))
   ));

@@ -21,6 +21,7 @@ export function legacyMarkerPartForViduProfile(profile) {
 
 export function isViduLoggedOutPageState({ pathname = "", body = "", visibleActionTexts = [] } = {}) {
   const hasSignedInSignal = /\b(Premium|Credits?)\b|プレミアム|クレジットを得る/i.test(body);
-  const hasLoginAction = visibleActionTexts.some((text) => /^(ログイン|Sign in|Log in|Login)(\s|$)/i.test(text));
+  const hasLoginAction = visibleActionTexts.some((text) => /^(ログイン|サインイン|Sign in|Log in|Login)(\s|$)/i.test(text))
+    || /(^|\s)(ログイン|サインイン|Sign in|Log in|Login)(\s|$)/i.test(body);
   return /\/login\b|\/signin\b|\/auth\b/i.test(pathname) || (hasLoginAction && !hasSignedInSignal);
 }

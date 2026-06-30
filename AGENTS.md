@@ -56,6 +56,23 @@ For a different port or workspace, run the underlying commands directly:
 node server.mjs --workspace ./workspace/sample --init sample --port 4321
 ```
 
+## End-of-Task Dev Server State
+
+At the end of a task in this repository, check whether the local development
+server is running. Use the fixed local-tool registry port for this app:
+`http://127.0.0.1:4217/`.
+
+- If `127.0.0.1:4217` is already served by this repository's image-arranger
+  dev server, leave it running and report the URL.
+- If `127.0.0.1:4217` is not listening, start it with `npm start` from the
+  repository root and report the URL.
+- If `127.0.0.1:4217` is occupied by another process or another repository,
+  do not kill it automatically. Report the conflicting PID, command, and working
+  directory, then wait for the operator's decision.
+- Do not choose a random alternate port for the routine end-of-task server.
+  Only use another port when the operator explicitly asks for a temporary
+  workaround or updates the local-tool registry.
+
 ## Workspace and Test-Data Safety
 
 - Treat any workspace under `workspace/` that you did not create yourself as
@@ -155,23 +172,24 @@ environment; it delegates to the ChatGPT or Vidu driver based on each queued
 target's `service`. Use manual browser operations only to repair that same
 route, then rerun from the beginning.
 
-Important distinction: a service driver must not silently launch Chrome,
-choose a profile, or switch profiles during normal queue processing. That does not
-mean the agent should stop and ask the operator to open a marker URL whenever a
-marker tab is missing. Preparing the marker tab is a setup/repair step. If Codex
-has a safe Chrome-control route for the saved normal profile, it should open or
-activate the exact marker URL itself, then rerun `--check`. Ask the operator to
-open the URL only when profile-safe Chrome control is unavailable, the selected
-profile cannot be proven, or a hard human gate such as login, 2FA, CAPTCHA,
-payment confirmation, or final submit is shown.
+Important distinction: a service driver must not silently switch to generated
+automation profiles or unspecified default profiles during normal queue
+processing. Marker tab creation or activation is a setup/repair step inside the
+already-running selected normal Chrome profile. ChatGPT and Vidu must both use
+the shared `scripts/service-browser-route.mjs` profile-safe marker setup route.
+For Vidu, if the marker tab is missing, stale, logged out, or unusable, stop
+before upload/prompt/create after the shared route fails. Do not probe signed-in
+Chrome profiles from Chrome `Local State`, do not update
+`workspace/.local/vidu-profile.json` to a different profile during processing,
+and do not ask the operator to choose another Vidu profile as routine recovery.
 
-For macOS, prefer opening the Vidu marker tab in the same Chrome window as an
-already verified ChatGPT/image-arranger marker tab for the same saved
-`profile-directory` and `profile-email`. Do not use `open -a "Google Chrome"
-... --profile-directory=...`, because a running multi-profile Chrome can route
-the URL to the wrong profile. For Windows, use the bound Chrome bridge route for
-the selected profile. If neither safe route is available, report that limitation
-instead of presenting the URL as ordinary user work.
+For macOS Vidu marker repair, do not use the Google Chrome executable with
+`--profile-directory=<dir>` and do not use
+`open -a "Google Chrome" ... --profile-directory=...`; both can route a URL to
+the wrong profile in a running multi-profile Chrome. For Windows, use the bound
+Chrome bridge route for the selected profile. If the selected Vidu profile cannot
+be verified, stop without upload/prompt/create and record that the saved profile
+was unusable.
 
 For music-video or storyboard work that alternates ChatGPT keyframes and Vidu
 clips, do not create all ChatGPT images in one continuous batch. Continuous
@@ -211,17 +229,29 @@ active model rather than switching routes.
    never use the default `extension` backend blindly.
 4. Use one ChatGPT work tab with a marker URL that includes
    `agent-work=image-arranger`, `profile-directory`, and `profile-email` for the
-   saved profile. Reuse that tab for the whole queue attempt. If it is missing,
-   prepare it through a profile-safe setup/repair route in the already-running
-   selected profile, then rerun the check. Do not launch a second browser
-   instance for the same profile.
+   saved profile. Reuse that tab for the whole queue attempt. The marker URL is
+   only a locator; it is not proof that the tab belongs to the selected Chrome
+   profile. Before attaching files, inserting prompts, sending, or saving, the
+   script must activate the tab, open `chrome://version` in the same Chrome
+   window, and verify the reported Profile Path ends with the saved
+   `profile-directory`. A window name may be recorded as extra diagnostics, but
+   it is not the primary proof. If a matching marker URL exists in a non-matching
+   Chrome profile, treat it as wrong-profile and refuse to operate it. If the
+   marker is missing, prepare it through a profile-safe setup/repair route in the
+   already-running selected profile, then rerun the check. Do not repair by
+   typing or opening the marker URL in the current/front Chrome window, and do
+   not launch a second browser instance for the same profile.
 5. Attach reference images through the approved route for the current OS. On
    macOS, `osascript` sets the clipboard to the PNG as `«class PNGf»`, the
    marked ChatGPT tab is brought to the front, the composer is focused, and
-   System Events sends a real `Cmd+V`. On Windows, the Chrome bridge injects the
-   reference as a browser `File` into the prepared bound marker tab; it does
-   not use Codex image generation, a file chooser fallback, or a generated
-   browser profile. ChatGPT-specific macOS attach/send code lives in
+   System Events sends a real `Cmd+V`. If the attachment chip/thumbnail still
+   does not appear, the macOS route may retry once in the same marker tab by
+   passing the exact local file into ChatGPT's existing browser
+   `input[type=file]` and dispatching normal `input`/`change` events. This is
+   not a CDP `fileChooser.setFiles` route and not a manual operator step. On
+   Windows, the Chrome bridge injects the reference as a browser `File` into the
+   prepared bound marker tab; it does not use Codex image generation, a CDP file
+   chooser fallback, or a generated browser profile. ChatGPT-specific macOS attach/send code lives in
    `scripts/chatgpt-route-macos.mjs`; ChatGPT-specific Windows attach/send code
    lives in `scripts/chatgpt-route-windows.mjs`.
 6. Insert the prompt into the composer with page-context
@@ -237,14 +267,15 @@ active model rather than switching routes.
    The local selection is saved in `workspace/.local/vidu-profile.json`; without
    that file the Vidu driver must print candidates and stop before opening
    Chrome. This selection is written and verified only through
-   `scripts/service-browser-profile.mjs`. Vidu must open in the selected normal
-   Chrome profile, for example `kaminokuresse@gmail.com` / `ユーザー 1`, not in
-   a generated `~/.image-arranger/vidu-*` profile. Do not use the rejected
-   `~/.image-arranger/agent-chrome` profile for ChatGPT or Vidu. The Vidu driver
-   itself must not launch another Chrome/Chromium instance for the same profile;
-   it must use a Vidu marker URL in the saved profile. If the marker is missing,
-   perform the profile-safe marker-tab setup described above, then rerun the Vidu
-   check. The Vidu marker URL must include both
+   `scripts/service-browser-profile.mjs`. Vidu must open only in the selected
+   normal Chrome profile, for example `kaminokuresse@gmail.com` / `ユーザー 1`,
+   not in a generated `~/.image-arranger/vidu-*` profile or another detected
+   profile. Do not use the rejected `~/.image-arranger/agent-chrome` profile for
+   ChatGPT or Vidu. The Vidu driver must use a Vidu marker URL in the saved
+   normal profile. If the marker is missing, stale, logged out, or unusable, use
+   the shared profile-safe marker setup route in `scripts/service-browser-route.mjs`.
+   If that route fails, stop before upload/prompt/create instead of probing or
+   opening other profiles. The Vidu marker URL must include both
    `profile-directory` and `profile-email`; `profile-directory=Default` alone is
    not a safe profile proof.
 
@@ -328,7 +359,9 @@ Rejected routes from the 2026-06-27 audit:
 - Windows `Start-Process chrome`, `start chrome`, or equivalent
   `--profile-directory` launch paths: they can reproduce the same wrong-profile
   failure. Use the Chrome bridge extension in the selected profile instead.
-- Chrome file chooser / `fileChooser.setFiles`: failed with `Not allowed`.
+- Chrome/CDP file chooser / `fileChooser.setFiles`: failed with `Not allowed`.
+  This does not prohibit the macOS same-profile browser file-input fallback
+  described above.
 - Browser tab virtual clipboard for PNG via `tab.clipboard.write`: dropped the
   Chrome extension pipe (`native pipe closed before response`).
 - Codex built-in image generation, screenshots, placeholder files, blob/cache
@@ -365,6 +398,9 @@ browser instance.
   The Vidu driver must not launch an unspecified default profile or a generated
   `~/.image-arranger/vidu-*` profile. If `workspace/.local/vidu-profile.json` is
   missing or stale, list candidates and stop before opening Chrome.
+- ChatGPT and Vidu must share the same Chrome marker-tab setup behavior through
+  `scripts/service-browser-route.mjs`; service-specific drivers must not own
+  their own Chrome executable launch or profile probing code.
 - If that profile is already running, do not launch another Chrome/Chromium
   instance for the same profile. Reuse the running browser when the driver can do
   so safely. If it cannot be reused safely, stop and report the profile conflict.
@@ -399,13 +435,18 @@ node scripts/process-service-queue.mjs --check --service vidu --server http://12
 node scripts/process-service-queue.mjs --service vidu --server http://127.0.0.1:4217
 ```
 
-The Vidu script uses the selected normal Chrome profile's marker tab, injects
-exactly `inputs.startFrame` and `inputs.endFrame` into the Vidu UI, submits
-through Vidu's visible create button, saves the MP4 into `outputDir`, and reports
-completion through `POST /api/requests/complete`. It must not launch a second
-Chrome/Chromium instance, use CDP file chooser upload, or switch back to any
-generated automation profile. If Vidu visibly shows a non-zero credit cost, stop unless
-the operator intentionally reruns with `--allow-paid`.
+The Vidu script uses the selected or script-detected normal Chrome profile's
+marker tab, injects exactly `inputs.startFrame` and optional `inputs.endFrame`
+into the Vidu UI, submits through Vidu's visible create button, saves the MP4
+into `outputDir`, and reports completion through `POST /api/requests/complete`.
+The upload mode is selected by the request data: if only `inputs.startFrame`
+exists, upload exactly one file into the first image input and leave the second
+frame input empty; if both `inputs.startFrame` and `inputs.endFrame` exist,
+upload the two files separately into the first and second frame inputs. Do not
+duplicate one start image into both frame slots for start-only video.
+It must not use CDP file chooser upload, an unspecified default profile, or any
+generated automation profile. If Vidu visibly shows a non-zero credit cost, stop
+unless the operator intentionally reruns with `--allow-paid`.
 
 Division of labour:
 
@@ -413,7 +454,7 @@ Division of labour:
   whose
   `service` is `chatgpt` or omitted.
 - The common service script routes Vidu video `generate` targets with
-  `inputs.startFrame` and `inputs.endFrame`.
+  `inputs.startFrame`; `inputs.endFrame` is optional for start-only Vidu.
 - You handle `draft-prompt` and `analyze` targets. Both are reported via
   `POST /api/requests/complete`; the scripted browser drivers do not process
   them.
@@ -518,7 +559,11 @@ image generation.
 
 ## Video Generation (`generate` with frames)
 
-1. Pass `inputs.startFrame` and `inputs.endFrame` to the image-to-video service.
+1. Pass `inputs.startFrame` to the image-to-video service. Pass
+   `inputs.endFrame` only when the request includes it; start-only video
+   generation is valid. For start-only requests, upload only one file to the
+   first image input. For start/end requests, upload the start and end files to
+   separate first/second frame inputs.
 2. Use the target `prompt` as the motion prompt, and use `inputs.durationSec` when
    the service lets you choose duration.
 3. Generate one video first. Check frame fidelity, locked camera, single action,

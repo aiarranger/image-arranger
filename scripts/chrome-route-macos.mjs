@@ -23,37 +23,126 @@ export function osaString(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-export function findChromeTabByUrlPart(urlPart, { activate = true } = {}) {
+function profileProofCheckScript(profile) {
+  if (!profile?.profileName && !profile?.profileDir) {
+    return `
+        set profileOk to true
+        set chromeWindowName to ""
+        set chromeProfilePath to ""
+`;
+  }
+  return `
+        set expectedProfileName to "${osaString(profile.profileName ?? "")}"
+        set expectedProfileDir to "${osaString(profile.profileDir ?? "")}"
+        set chromeWindowName to ""
+        set chromeProfilePath to ""
+        try
+          tell application "System Events"
+            tell process "Google Chrome"
+              set chromeWindowName to (name of front window as text)
+            end tell
+          end tell
+        end try
+        set profileOk to false
+        if expectedProfileDir is not "" then
+          set savedTabIndex to active tab index of w
+          set profileProofTabCreated to false
+          try
+            set profileProofTab to make new tab at end of tabs of w with properties {URL:"chrome://version"}
+            set profileProofTabCreated to true
+            set active tab index of w to (count of tabs of w)
+            repeat 20 times
+              delay 0.25
+              set chromeProfilePath to execute active tab of w javascript "(document.querySelector('#profile_path') || {}).innerText || ''"
+              if chromeProfilePath is not "" then exit repeat
+            end repeat
+            if chromeProfilePath ends with ("/" & expectedProfileDir) then set profileOk to true
+          on error errMsg
+            set chromeProfilePath to "ERROR:" & errMsg
+          end try
+          if profileProofTabCreated then
+            try
+              close active tab of w
+            end try
+          end if
+          try
+            set active tab index of w to savedTabIndex
+          end try
+        else
+          if (chromeWindowName contains "Google Chrome") and (chromeWindowName contains expectedProfileName) then set profileOk to true
+          if chromeWindowName contains (" - Google Chrome - " & expectedProfileName) then set profileOk to true
+          if chromeWindowName ends with (" - " & expectedProfileName) then set profileOk to true
+          if chromeWindowName is expectedProfileName then set profileOk to true
+        end if
+`;
+}
+
+function profileMismatchMessage(urlPart, profile, windowName, profilePath = "") {
+  return [
+    `target tab matched URL part but the active Chrome window profile did not match.`,
+    `urlPart=${urlPart}`,
+    `expectedProfile=${profile?.profileName ?? "(none)"} / ${profile?.profileDir ?? "(none)"} / ${profile?.email ?? "(none)"}`,
+    `windowName=${windowName || "(empty)"}`,
+    `profilePath=${profilePath || "(empty)"}`,
+  ].join(" ");
+}
+
+function profileProofErrorScript() {
+  return `
+        if chromeProfilePath starts with "ERROR:" then error chromeProfilePath
+`;
+}
+
+export function findChromeTabByUrlPart(urlPart, { activate = true, profile = null } = {}) {
   if (process.platform !== "darwin") return null;
-  const script = `
+  const enforceProfile = Boolean(profile?.profileName || profile?.profileDir);
+const script = `
 set targetPart to "${osaString(urlPart)}"
+set foundWrongProfile to false
+set wrongProfileWindowName to ""
+set wrongProfilePath to ""
 tell application "Google Chrome"
   repeat with wi from 1 to count of windows
     set w to window wi
     repeat with ti from 1 to count of tabs of w
       set t to tab ti of w
       if (URL of t contains targetPart) then
-        if ${activate ? "true" : "false"} then
-          set active tab index of w to ti
-          set index of w to 1
-          activate
+        set active tab index of w to ti
+        set index of w to 1
+        activate
+        delay 0.1
+${profileProofCheckScript(profile)}
+${profileProofErrorScript()}
+        if ${enforceProfile ? "true" : "false"} and not profileOk then
+          set foundWrongProfile to true
+          set wrongProfileWindowName to chromeWindowName
+          set wrongProfilePath to chromeProfilePath
+        else
+          if not ${activate ? "true" : "false"} then
+            -- The tab had to be activated briefly to read the macOS window name.
+            -- Leave it active rather than guessing a previous active tab/window.
+          end if
+          set tabUrl to (URL of t as text)
+          set tabTitle to ""
+          try
+            set tabTitle to (title of t as text)
+          end try
+          return tabUrl & linefeed & tabTitle & linefeed & chromeWindowName & linefeed & chromeProfilePath
         end if
-        set tabUrl to (URL of t as text)
-        set tabTitle to ""
-        try
-          set tabTitle to (title of t as text)
-        end try
-        return tabUrl & linefeed & tabTitle
       end if
     end repeat
   end repeat
 end tell
+if foundWrongProfile then return "WRONG_PROFILE" & linefeed & wrongProfileWindowName & linefeed & wrongProfilePath
 return ""
 `;
   const output = runAppleScript(script);
   if (!output) return null;
-  const [foundUrl = "", title = ""] = output.split(/\r?\n/);
-  return { url: foundUrl, title };
+  const [foundUrl = "", title = "", windowName = "", profilePath = ""] = output.split(/\r?\n/);
+  if (foundUrl === "WRONG_PROFILE") {
+    throw new Error(profileMismatchMessage(urlPart, profile, title, windowName));
+  }
+  return { url: foundUrl, title, windowName, profilePath };
 }
 
 function profileProofParts(profile) {
@@ -80,62 +169,81 @@ export function openChromeTabProfileSafe(url, {
   if (!directoryPart || !emailPart) {
     throw new Error("profile-safe tab creation needs marker profile-directory and profile-email proof parts");
   }
-  const workChecks = proofAgentWorks
-    .map((work) => `(u contains "agent-work=${osaString(work)}")`)
-    .join(" or ");
+  if (!target.toString().includes(directoryPart) || !target.toString().includes(emailPart)) {
+    throw new Error("profile-safe tab creation target URL must include profile-directory and profile-email proof parts");
+  }
+  if (!proofAgentWorks.some((work) => target.searchParams.get("agent-work") === work)) {
+    throw new Error(`profile-safe tab creation target URL has unapproved agent-work: ${target.searchParams.get("agent-work") ?? "(none)"}`);
+  }
   const script = `
 set targetUrl to "${osaString(target.toString())}"
-set directoryPart to "${osaString(directoryPart)}"
-set emailPart to "${osaString(emailPart)}"
 set foundWindow to false
+set foundWrongProfile to false
+set wrongProfileWindowName to ""
+set wrongProfilePath to ""
 set resultText to ""
 tell application "Google Chrome"
+  if (count of windows) is 0 then error "Google Chrome has no open windows"
   repeat with wi from 1 to count of windows
     set w to window wi
-    repeat with ti from 1 to count of tabs of w
-      set t to tab ti of w
-      set u to URL of t
-      if (u contains directoryPart) and (u contains emailPart) and (${workChecks}) then
-        set newTab to make new tab at end of tabs of w with properties {URL:targetUrl}
-        set active tab index of w to (count of tabs of w)
-        if ${activate ? "true" : "false"} then
-          set index of w to 1
-          activate
-        end if
-        delay 0.5
-        set newTabUrl to (URL of newTab as text)
-        set newTabTitle to ""
-        try
-          set newTabTitle to (title of newTab as text)
-        end try
-        set resultText to newTabUrl & linefeed & newTabTitle
-        set foundWindow to true
-        exit repeat
+    set index of w to 1
+    activate
+    delay 0.1
+${profileProofCheckScript(profile)}
+${profileProofErrorScript()}
+    if profileOk then
+      set newTab to make new tab at end of tabs of w with properties {URL:targetUrl}
+      set active tab index of w to (count of tabs of w)
+      if ${activate ? "true" : "false"} then
+        set index of w to 1
+        activate
       end if
-    end repeat
+      delay 0.5
+      set newTabUrl to targetUrl
+      try
+        set newTabUrl to (URL of newTab as text)
+      end try
+      set newTabTitle to ""
+      try
+        set newTabTitle to (title of newTab as text)
+      end try
+      set resultText to newTabUrl & linefeed & newTabTitle & linefeed & chromeWindowName & linefeed & chromeProfilePath
+      set foundWindow to true
+      exit repeat
+    else
+      set foundWrongProfile to true
+      set wrongProfileWindowName to chromeWindowName
+      set wrongProfilePath to chromeProfilePath
+    end if
     if foundWindow then exit repeat
   end repeat
 end tell
-if not foundWindow then error "No existing profile-proof marker tab found for " & directoryPart & " / " & emailPart
+if not foundWindow and foundWrongProfile then error "No Chrome window matched the selected profile; last inspected windowName=" & wrongProfileWindowName & " profilePath=" & wrongProfilePath
+if not foundWindow then error "No Chrome window matched the selected profile"
 return resultText
 `;
   const output = runAppleScript(script);
-  const [foundUrl = "", title = ""] = output.split(/\r?\n/);
-  return { url: foundUrl, title, opened: true };
+  const [foundUrl = "", title = "", windowName = "", profilePath = ""] = output.split(/\r?\n/);
+  return { url: foundUrl, title, windowName, profilePath, opened: true };
 }
 
 export function runChromeTabJsByUrlPart(urlPart, js, {
   activate = true,
   errorLabel = "Chrome tab",
+  profile = null,
 } = {}) {
   if (process.platform !== "darwin") {
     throw new Error(`${errorLabel} page inspection needs macOS AppleScript on this route.`);
   }
   const encoded = Buffer.from(`JSON.stringify((() => { ${js} })())`, "utf8").toString("base64");
+  const enforceProfile = Boolean(profile?.profileName || profile?.profileDir);
   const script = `
 set targetPart to "${osaString(urlPart)}"
 set foundTab to false
 set resultText to ""
+set foundWrongProfile to false
+set wrongProfileWindowName to ""
+set wrongProfilePath to ""
 tell application "Google Chrome"
   if (count of windows) is 0 then error "Google Chrome has no open windows"
   repeat with wi from 1 to count of windows
@@ -144,18 +252,27 @@ tell application "Google Chrome"
       set t to tab ti of w
       if (URL of t contains targetPart) then
         set active tab index of w to ti
-        if ${activate ? "true" : "false"} then
-          set index of w to 1
-          activate
+        set index of w to 1
+        activate
+        delay 0.1
+${profileProofCheckScript(profile)}
+${profileProofErrorScript()}
+        if ${enforceProfile ? "true" : "false"} and not profileOk then
+          set foundWrongProfile to true
+          set wrongProfileWindowName to chromeWindowName
+          set wrongProfilePath to chromeProfilePath
+        else
+          set active tab index of w to ti
+          set resultText to execute active tab of w javascript "eval(new TextDecoder().decode(Uint8Array.from(atob('${encoded}'), (ch) => ch.charCodeAt(0))))"
+          set foundTab to true
+          exit repeat
         end if
-        set resultText to execute active tab of w javascript "eval(new TextDecoder().decode(Uint8Array.from(atob('${encoded}'), (ch) => ch.charCodeAt(0))))"
-        set foundTab to true
-        exit repeat
       end if
     end repeat
     if foundTab then exit repeat
   end repeat
 end tell
+if foundWrongProfile then error "target tab profile mismatch: " & wrongProfileWindowName & " profilePath=" & wrongProfilePath
 if not foundTab then error "target tab not found: " & targetPart
 return resultText
 `;
@@ -168,6 +285,11 @@ return resultText
     } catch (error) {
       lastError = error;
       const message = String(error?.message ?? error);
+      if (/target tab profile mismatch/i.test(message)) {
+        const mismatch = message.replace(/^.*target tab profile mismatch:\s*/i, "");
+        const [windowName = "", profilePath = ""] = mismatch.split(/\s+profilePath=/);
+        throw new Error(profileMismatchMessage(urlPart, profile, windowName, profilePath));
+      }
       if (!/target tab not found|正しくないインデックス|invalid index|can.?t get tab|cannot get tab|tab .*を取り出すことはできません/i.test(message)) {
         throw error;
       }

@@ -18,8 +18,10 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
-import { basename, extname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { RunLog } from "./agent-browser.mjs";
 import {
   assertNoUserDataDirProcesses,
@@ -31,8 +33,8 @@ import {
 import {
   assertChromeRunning,
   assertSingleBridgeCandidateForProfile,
+  ensureChromeMarkerTabProfileSafe,
   findChromeTabByUrlPart,
-  openChromeTabProfileSafe,
   runChromeTabJsByUrlPart,
 } from "./service-browser-route.mjs";
 import {
@@ -41,6 +43,7 @@ import {
   legacyMarkerPartForViduProfile,
   markerPartForViduProfile,
 } from "./vidu-route-helpers.mjs";
+import { VIDU_UPLOAD_PLAN_FUNCTION_JS } from "./vidu-upload-plan.mjs";
 
 const args = process.argv.slice(2);
 function flag(name) { return args.includes(name); }
@@ -78,7 +81,9 @@ Options:
 Hard rules:
   - Vidu uses the selected normal Chrome profile, not a separate automation profile
   - this script never launches another Chrome/Chromium instance for the same profile
-  - if the marker tab is missing, this script first tries the profile-safe setup/repair route before processing
+  - if the marker tab is missing, this script uses the common profile-safe setup/repair route before processing
+  - if the configured Vidu profile is logged out or unusable, stop before upload/prompt/create
+  - do not probe other Chrome profiles from the Vidu driver
   - the previous implicit ~/.image-arranger/vidu-chrome and ~/.image-arranger/vidu-profiles profiles are not used
   - do not use Codex image generation as a fallback for queued Vidu work`;
 
@@ -104,7 +109,10 @@ const SERVICE = "vidu";
 const SERVICE_LABEL = "Vidu";
 const BROWSER_UPLOAD_CHUNK_SIZE = 24000;
 const MIN_VIDEO_BYTES = 100000;
+const START_FRAME_RMSE_THRESHOLD = 0.12;
+const STRICT_START_FRAME_CHECK = process.env.IMAGE_ARRANGER_VIDU_STRICT_START_FRAME === "1";
 let currentViduProfile = null;
+let currentViduUrl = VIDU_URL;
 
 const delay = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 
@@ -154,7 +162,7 @@ function assertNoLegacyViduAutomationChrome() {
 }
 
 function buildViduMarkerUrl(profile, runId = "") {
-  return buildViduMarkerUrlForProfile({ viduUrl: VIDU_URL, profile, runId });
+  return buildViduMarkerUrlForProfile({ viduUrl: currentViduUrl, profile, runId });
 }
 
 function markerPartForProfile(profile) {
@@ -162,12 +170,54 @@ function markerPartForProfile(profile) {
 }
 
 function runViduJs(markerPart, js, { activate = false } = {}) {
-  return runChromeTabJsByUrlPart(markerPart, js, {
-    activate,
-    errorLabel: "Vidu marker tab",
-    profile: currentViduProfile,
-    profileConfigPath: PROFILE_CONFIG_PATH,
-  });
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return runChromeTabJsByUrlPart(markerPart, js, {
+        activate,
+        errorLabel: "Vidu marker tab",
+        profile: currentViduProfile,
+        profileConfigPath: PROFILE_CONFIG_PATH,
+      });
+    } catch (error) {
+      lastError = error;
+      const message = String(error?.message ?? error);
+      if (attempt >= 2 || !/target tab not found|returned no value|missing value|正しくないインデックス|invalid index|can.?t get tab|cannot get tab|tab .*を取り出すことはできません/i.test(message)) {
+        throw error;
+      }
+      if (!currentViduProfile) throw error;
+      spawnSync("sleep", ["2"]);
+    }
+  }
+  throw new Error(`Vidu marker tab disappeared during processing. Re-run the common profile-safe marker setup/check before processing again. Original error: ${lastError?.message ?? lastError}`);
+}
+
+function usableViduCreateState(state) {
+  return state?.readyState === "complete"
+    && !state.loggedOut
+    && state.fileInputs > 0
+    && state.textareaCount > 0;
+}
+
+async function resolveReadyViduProfile(configuredProfile, runLog) {
+  currentViduProfile = configuredProfile;
+  const selectedState = await waitForNormalProfileViduPage(configuredProfile, runLog);
+  if (usableViduCreateState(selectedState)) {
+    return {
+      profile: configuredProfile,
+      markerPart: markerPartForProfile(configuredProfile),
+      state: selectedState,
+    };
+  }
+  throw new Error(`Configured Vidu profile is not usable. Refusing to probe or open other Chrome profiles. State: ${JSON.stringify({
+    url: selectedState.url,
+    title: selectedState.title,
+    loggedOut: selectedState.loggedOut,
+    fileInputs: selectedState.fileInputs,
+    textareaCount: selectedState.textareaCount,
+    submitText: selectedState.submitText,
+    body: String(selectedState.body ?? "").slice(0, 800),
+  })}`);
 }
 
 async function waitForState(label, getter, predicate, { timeoutMs = 30000, intervalMs = 1000 } = {}) {
@@ -190,46 +240,39 @@ async function waitForState(label, getter, predicate, { timeoutMs = 30000, inter
 async function waitForNormalProfileViduPage(profile, runLog) {
   const url = buildViduMarkerUrl(profile);
   const markerPart = markerPartForProfile(profile);
-  let existing = findChromeTabByUrlPart(markerPart, {
-    activate: true,
+  const legacyPart = legacyMarkerPartForViduProfile(profile);
+  const legacy = (() => {
+    try {
+      return findChromeTabByUrlPart(legacyPart, {
+        activate: false,
+        profile,
+        profileConfigPath: PROFILE_CONFIG_PATH,
+      });
+    } catch {
+      return null;
+    }
+  })();
+  const ensured = await ensureChromeMarkerTabProfileSafe({
+    markerPart,
+    markerUrl: url,
     profile,
     profileConfigPath: PROFILE_CONFIG_PATH,
-  });
-  if (!existing) {
-    const legacyPart = legacyMarkerPartForViduProfile(profile);
-    const legacy = (() => {
-      try {
-        return findChromeTabByUrlPart(legacyPart, {
-          activate: false,
-          profile,
-          profileConfigPath: PROFILE_CONFIG_PATH,
-        });
-      } catch {
-        return null;
-      }
-    })();
-    try {
-      openChromeTabProfileSafe(url, {
-        activate: true,
-        profile,
-        profileConfigPath: PROFILE_CONFIG_PATH,
-      });
-      await delay(1500);
-      existing = findChromeTabByUrlPart(markerPart, {
-        activate: true,
-        profile,
-        profileConfigPath: PROFILE_CONFIG_PATH,
-      });
-    } catch (error) {
+    serviceLabel: SERVICE_LABEL,
+    activate: true,
+    missingMessage: ({ initialFindError, repairError }) => {
       const legacyHint = legacy
         ? " A legacy Vidu marker tab is open but it lacks profile-email, so it is not a safe profile proof."
         : "";
-      throw new Error(`Vidu marker tab was not found for the selected Chrome profile.${legacyHint} Profile-safe setup/repair failed for ${profile.profileName} / ${profile.email}: ${error.message}. If no profile-safe route is available, ask the operator to open exactly: ${url}. Do not launch a second Chrome/Chromium instance for this profile.`);
-    }
-    if (!existing) {
-      throw new Error(`Profile-safe Vidu marker-tab setup/repair ran, but the marker tab was still not found for ${profile.profileName} / ${profile.email}. If no profile-safe route is available, ask the operator to open exactly: ${url}. Do not launch a second Chrome/Chromium instance for this profile.`);
-    }
-  }
+      return [
+        `Vidu marker tab was not found for the selected Chrome profile ${profile.profileName} / ${profile.email}.${legacyHint}`,
+        "The common profile-safe route failed; Chrome must already be running in the selected profile.",
+        "Do not launch another Chrome profile or probe other profiles.",
+        initialFindError ? `Initial marker check: ${initialFindError.message}` : "",
+        repairError ? `Profile-safe repair failed: ${repairError.message}` : "",
+      ].filter(Boolean).join(" ");
+    },
+  });
+  const existing = ensured.markerTab;
   runLog.log(`reusing selected-profile Vidu marker tab: ${existing.url}`);
 
   const state = await waitForState(
@@ -391,6 +434,15 @@ function viduState(markerPart) {
 }
 
 function assertNoActiveViduTask(state, phase) {
+  if (state?.loggedOut) {
+    const body = String(state.body ?? state.bodyStart ?? "").slice(0, 1200);
+    throw new Error(`Vidu page is logged out during ${phase}; this is likely the wrong Chrome profile or an unsigned Vidu session. Do not submit. State: ${JSON.stringify({
+      url: state.url,
+      title: state.title,
+      submitText: state.submitText,
+      body,
+    })}`);
+  }
   if (!state?.activeTask) return;
   const body = String(state.body ?? state.bodyStart ?? "").slice(0, 1200);
   throw new Error(`Vidu already has an active upload/generation task during ${phase}; do not submit another Vidu request until the visible task finishes or fails. State: ${JSON.stringify({
@@ -447,30 +499,58 @@ async function uploadFrames(markerPart, files, runLog, tag) {
     if (!upload || upload.files.length !== expectedFileCount || upload.files.some((file) => !file?.chunks?.length)) {
       throw new Error("upload chunks incomplete");
     }
-    const input = document.querySelector("input[type=file]");
-    if (!input) return { ok: false, reason: "file input not found" };
-    const dt = new DataTransfer();
-    for (const file of upload.files) {
+    const inputs = [...document.querySelectorAll("input[type=file]")]
+      .filter((input) => /image|png|jpe?g|webp/i.test(input.accept || ""));
+    ${VIDU_UPLOAD_PLAN_FUNCTION_JS}
+    const plan = planViduUploadStrategy(expectedFileCount, inputs.length);
+    if (!plan.ok) return plan;
+    const buildFile = (file) => {
       const binary = atob(file.chunks.join(""));
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-      dt.items.add(new File([bytes], file.name, { type: file.type }));
+      return new File([bytes], file.name, { type: file.type });
+    };
+    const assignFiles = (input, files) => {
+      const dt = new DataTransfer();
+      for (const file of files) dt.items.add(buildFile(file));
+      input.scrollIntoView({ block: "center", inline: "center" });
+      try {
+        input.files = dt.files;
+      } catch {
+        Object.defineProperty(input, "files", { configurable: true, value: dt.files });
+      }
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      return [...input.files].map((file) => file.name);
+    };
+
+    const strategy = plan.strategy;
+    let assignedNames = [];
+    for (const assignment of plan.assignments) {
+      assignedNames.push(...assignFiles(
+        inputs[assignment.inputIndex],
+        assignment.fileIndexes.map((fileIndex) => upload.files[fileIndex]),
+      ));
     }
-    input.scrollIntoView({ block: "center", inline: "center" });
-    try {
-      input.files = dt.files;
-    } catch {
-      Object.defineProperty(input, "files", { configurable: true, value: dt.files });
-    }
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-    try {
-      input.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
-    } catch {
-      // DragEvent construction is not available in every Chromium context.
+    if (plan.dropTargetIndex !== undefined) {
+      try {
+        const dt = new DataTransfer();
+        for (const fileIndex of plan.assignments.find((item) => item.inputIndex === plan.dropTargetIndex)?.fileIndexes ?? []) {
+          dt.items.add(buildFile(upload.files[fileIndex]));
+        }
+        inputs[plan.dropTargetIndex].dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+      } catch {
+        // DragEvent construction is not available in every Chromium context.
+      }
     }
     delete window.__imageArrangerViduUploads[uploadId];
-    return { ok: true, fileCount: input.files.length, names: [...input.files].map((file) => file.name) };
+    return {
+      ok: true,
+      strategy,
+      fileCount: assignedNames.length,
+      names: assignedNames,
+      inputFileCounts: inputs.map((input) => input.files?.length ?? 0),
+    };
   `, { activate: true });
   if (!committed.ok || committed.fileCount !== expectedFileCount) {
     throw new Error(`Vidu file injection failed: ${JSON.stringify(committed)}`);
@@ -579,6 +659,8 @@ async function clickCreate(markerPart) {
     throw new Error(`Vidu create button shows a non-zero credit cost (${state.submitText}). Rerun with --allow-paid if this is intended.`);
   }
   assertNoActiveViduTask(state, "before create submit");
+  const preSubmit = viduState(markerPart);
+  assertNoActiveViduTask(preSubmit, "immediately before create submit");
   const clicked = runViduJs(markerPart, `
     const normalize = (text) => (text || "").replace(/\\s+/g, " ").trim();
     const button = document.querySelector('[data-testid="form-submit-button"]')
@@ -592,14 +674,23 @@ async function clickCreate(markerPart) {
   return state;
 }
 
+function stableVideoKey(src) {
+  try {
+    const url = new URL(src);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return String(src ?? "").split(/[?#]/)[0];
+  }
+}
+
 async function waitForNewVideo(markerPart, beforeVideos, { onTick = null } = {}) {
-  const before = new Set(beforeVideos);
+  const before = new Set(beforeVideos.map(stableVideoKey));
   const startedAt = Date.now();
   let lastBeat = 0;
   while (Date.now() - startedAt < TIMEOUT_MS) {
     const state = viduState(markerPart);
-    const freshVideos = state.videos.filter((src) => !before.has(src));
-    const freshDirect = state.directVideos.filter((src) => !before.has(src));
+    const freshVideos = state.videos.filter((src) => !before.has(stableVideoKey(src)));
+    const freshDirect = state.directVideos.filter((src) => !before.has(stableVideoKey(src)));
     if (freshDirect.length) return { status: "video", src: freshDirect[0], state, browserDownload: false };
     if (freshVideos.length && state.downloadButtons.length) {
       return { status: "video", src: freshVideos[0], state, browserDownload: true };
@@ -640,6 +731,103 @@ function listDownloadFiles(downloadDir) {
     })
     .filter((item) => item.size >= MIN_VIDEO_BYTES)
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+function sha256(file) {
+  return createHash("sha256").update(readFileSync(file)).digest("hex");
+}
+
+function findDuplicateExistingVideo(file, outputDir) {
+  const current = resolve(file);
+  const currentHash = sha256(current);
+  const duplicate = readdirSync(outputDir)
+    .filter((name) => /\.(mp4|mov|webm)$/i.test(name))
+    .map((name) => resolve(outputDir, name))
+    .filter((candidate) => candidate !== current && existsSync(candidate))
+    .find((candidate) => sha256(candidate) === currentHash);
+  return duplicate ? { file: duplicate, sha256: currentHash } : null;
+}
+
+function commandAvailable(command) {
+  const result = spawnSync("which", [command], { encoding: "utf8" });
+  return result.status === 0 && Boolean(result.stdout.trim());
+}
+
+function runChecked(command, commandArgs, label) {
+  const result = spawnSync(command, commandArgs, { encoding: "utf8" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const detail = [result.stderr, result.stdout].filter(Boolean).join("\n").trim();
+    throw new Error(`${label} failed${detail ? `: ${detail}` : ""}`);
+  }
+  return result;
+}
+
+function normalizedRmseFromCompareOutput(output) {
+  const match = String(output).match(/\((0(?:\.\d+)?|1(?:\.0+)?)\)/);
+  if (!match) throw new Error(`ImageMagick compare RMSE output was not parseable: ${String(output).slice(0, 200)}`);
+  return Number(match[1]);
+}
+
+function assertStartFrameContinuity({ startFrame, videoFile, outputDir, tag, runLog }) {
+  if (!commandAvailable("ffmpeg") || !commandAvailable("magick") || !commandAvailable("compare")) {
+    throw new Error("Start-frame continuity check requires ffmpeg, magick, and compare on PATH.");
+  }
+  const checkDir = join(outputDir, ".vidu-start-frame-checks");
+  mkdirSync(checkDir, { recursive: true });
+  const base = `${slugify(tag, "vidu")}-${timestamp()}`;
+  const videoFrame = join(checkDir, `${base}-video-frame.jpg`);
+  const normalizedStart = join(checkDir, `${base}-start.png`);
+  const normalizedVideo = join(checkDir, `${base}-video.png`);
+  runChecked("ffmpeg", [
+    "-v", "error",
+    "-ss", "0.2",
+    "-i", videoFile,
+    "-frames:v", "1",
+    videoFrame,
+  ], "Vidu start-frame extraction");
+  runChecked("magick", [
+    startFrame,
+    "-resize", "64x64!",
+    "-colorspace", "Gray",
+    normalizedStart,
+  ], "Start-frame normalization");
+  runChecked("magick", [
+    videoFrame,
+    "-resize", "64x64!",
+    "-colorspace", "Gray",
+    normalizedVideo,
+  ], "Vidu first-frame normalization");
+  const compare = spawnSync("compare", [
+    "-metric", "RMSE",
+    normalizedStart,
+    normalizedVideo,
+    "null:",
+  ], { encoding: "utf8" });
+  const compareOutput = [compare.stderr, compare.stdout].filter(Boolean).join("\n").trim();
+  if (![0, 1].includes(compare.status)) {
+    throw new Error(`ImageMagick RMSE compare failed: ${compareOutput}`);
+  }
+  const normalizedRmse = normalizedRmseFromCompareOutput(compareOutput);
+  runLog.log(`[${tag}] start-frame continuity RMSE ${normalizedRmse.toFixed(6)} (threshold ${START_FRAME_RMSE_THRESHOLD}, strict=${STRICT_START_FRAME_CHECK})`);
+  if (normalizedRmse > START_FRAME_RMSE_THRESHOLD) {
+    const message = `Vidu result first frame does not match inputs.startFrame closely enough (RMSE ${normalizedRmse.toFixed(6)} > ${START_FRAME_RMSE_THRESHOLD}); this may indicate stale-history pickup or scene replacement.`;
+    if (STRICT_START_FRAME_CHECK) throw new Error(`${message} Refusing to register because IMAGE_ARRANGER_VIDU_STRICT_START_FRAME=1.`);
+    runLog.log(`[${tag}] ${message} Continuing because strict start-frame rejection is disabled.`, "warn");
+  }
+  return normalizedRmse;
+}
+
+function verifyStartFrameContinuity({ startFrame, videoFile, outputDir, tag, runLog }) {
+  try {
+    return { ok: true, rmse: assertStartFrameContinuity({ startFrame, videoFile, outputDir, tag, runLog }) };
+  } catch (error) {
+    if (STRICT_START_FRAME_CHECK) {
+      return { ok: false, blocking: true, message: error.message };
+    }
+    runLog.log(`[${tag}] start-frame continuity check skipped or failed: ${error.message}. Continuing because strict start-frame rejection is disabled.`, "warn");
+    return { ok: true, skipped: true, message: error.message };
+  }
 }
 
 async function waitForDownloadedVideo(downloadDir, startedAtMs, beforeFiles) {
@@ -755,19 +943,33 @@ async function main() {
   }
 
   const viduProfile = loadViduProfileConfig();
-  assertChromeRunning();
+  try {
+    assertChromeRunning();
+  } catch (error) {
+    runLog.log(`${error.message}; Vidu processing stopped before marker setup. Chrome is not started by this driver.`, "error");
+    process.exitCode = 2;
+    return;
+  }
   currentViduProfile = viduProfile.chrome;
   assertSingleBridgeCandidateForProfile(viduProfile.chrome);
-  const markerPart = markerPartForProfile(viduProfile.chrome);
   runLog.log(`Vidu profile config ${viduProfile.configPath}`);
-  runLog.log(`Vidu selected normal Chrome profile ${viduProfile.chrome.profileName} / ${viduProfile.chrome.email} / ${viduProfile.chrome.profileDir}`);
+  runLog.log(`Vidu configured normal Chrome profile ${viduProfile.chrome.profileName} / ${viduProfile.chrome.email} / ${viduProfile.chrome.profileDir}`);
   assertNoLegacyViduAutomationChrome();
 
-  const pageState = await waitForNormalProfileViduPage(viduProfile.chrome, runLog);
+  const readyProfile = await resolveReadyViduProfile(viduProfile.chrome, runLog);
+  const activeViduProfile = readyProfile.profile;
+  const markerPart = readyProfile.markerPart;
+  currentViduProfile = activeViduProfile;
+  assertSingleBridgeCandidateForProfile(activeViduProfile);
+  runLog.log(`Vidu active normal Chrome profile ${activeViduProfile.profileName} / ${activeViduProfile.email} / ${activeViduProfile.profileDir}`);
+
+  const pageState = usableViduCreateState(readyProfile.state)
+    ? readyProfile.state
+    : await waitForNormalProfileViduPage(activeViduProfile, runLog);
   runLog.attachJson("vidu normal-profile check state", pageState);
   if (!(pageState.fileInputs > 0 && pageState.textareaCount > 0) || pageState.loggedOut) {
     runLog.log(`Vidu is not ready in the selected normal Chrome profile. State: ${JSON.stringify(pageState)}`, "error");
-    console.error("\n>>> Sign in to Vidu in the selected normal Chrome profile, then rerun this script. <<<\n");
+    console.error("\n>>> Vidu is not ready in the selected Chrome profile. Upload/prompt/create was not attempted, and no other profile was opened. <<<\n");
     process.exitCode = 2;
     return;
   }
@@ -794,6 +996,8 @@ async function main() {
     const tag = row.entryId;
     runLog.section(`${row.requestId}[${row.targetIndex}] ${row.overview ?? row.entryId}`);
     runLog.attachJson(`target ${tag}`, row);
+    currentViduUrl = row.inputs?.viduUrl ?? VIDU_URL;
+    runLog.log(`[${tag}] target Vidu URL ${currentViduUrl}`);
 
     const startFrame = assertExistingFile("inputs.startFrame", resolveProjectFile(projectRoot, row.inputs?.startFrame));
     const endFrame = row.inputs?.endFrame
@@ -805,7 +1009,7 @@ async function main() {
     const fileBase = `${slugify(String(row.entryId ?? "video").replace(/^video-/, ""), row.entryId)}-${timestamp()}`;
     const destination = join(outputDir, `${fileBase}.mp4`);
 
-    const startState = await resetViduMarkerTab(viduProfile.chrome, runLog);
+    const startState = await resetViduMarkerTab(activeViduProfile, runLog);
     if (startState.loggedOut || startState.fileInputs === 0 || startState.textareaCount === 0) {
       throw new Error(`Vidu create page is not usable: ${JSON.stringify(startState).slice(0, 1200)}`);
     }
@@ -819,7 +1023,7 @@ async function main() {
     runLog.log(`[${tag}] Vidu page ready; ${beforeVideos.length} existing video/direct URL(s) visible`);
 
     const upload = await uploadFrames(markerPart, frameFiles, runLog, tag);
-    runLog.log(`[${tag}] uploaded ${frameFiles.length === 1 ? "start frame" : "start/end frames"}: ${upload.names.join(", ")}`);
+    runLog.log(`[${tag}] uploaded ${frameFiles.length === 1 ? "start frame" : "start/end frames"} via ${upload.strategy}: ${upload.names.join(", ")}`);
 
     const duration = await setDurationIfAvailable(markerPart, row.inputs?.durationSec);
     runLog.attachJson(`duration ${tag}`, duration);
@@ -835,17 +1039,34 @@ async function main() {
     const submittedAt = Date.now();
     const submit = await clickCreate(markerPart);
     runLog.log(`[${tag}] Vidu create submitted (${submit.submitText || "no visible cost text"})`);
-    const result = await waitForNewVideo(markerPart, beforeVideos, {
-      onTick: (elapsed, state) => runLog.log(
-        `[${tag}] waiting ${elapsed}s - videos:${state.videos.length} submit:${state.submitText || "(none)"}`,
-      ),
-    });
-    if (result.status !== "video") {
-      const message = result.status === "timeout" ? "Vidu generation timed out" : `Vidu generation failed: ${result.message}`;
-      throw new Error(message);
-    }
+    const seenVideos = [...beforeVideos];
+    let saved = null;
+    while (!saved) {
+      const result = await waitForNewVideo(markerPart, seenVideos, {
+        onTick: (elapsed, state) => runLog.log(
+          `[${tag}] waiting ${elapsed}s - videos:${state.videos.length} submit:${state.submitText || "(none)"}`,
+        ),
+      });
+      if (result.status !== "video") {
+        const message = result.status === "timeout" ? "Vidu generation timed out" : `Vidu generation failed: ${result.message}`;
+        throw new Error(message);
+      }
 
-    const saved = await saveViduResult(markerPart, result, destination, submittedAt, runLog, tag);
+      const candidate = await saveViduResult(markerPart, result, destination, submittedAt, runLog, tag);
+      const duplicate = findDuplicateExistingVideo(destination, outputDir);
+      if (duplicate) {
+        if (result.src) seenVideos.push(result.src);
+        runLog.log(`[${tag}] ignored stale Vidu history pickup: ${duplicate.file} has the same sha256 ${duplicate.sha256}; waiting for another result URL`, "warn");
+        continue;
+      }
+      const continuity = verifyStartFrameContinuity({ startFrame, videoFile: destination, outputDir, tag, runLog });
+      if (!continuity.ok) {
+        if (result.src) seenVideos.push(result.src);
+        runLog.log(`[${tag}] ignored Vidu candidate that failed start-frame continuity: ${continuity.message}`, "warn");
+        continue;
+      }
+      saved = candidate;
+    }
     const relFile = relPath(projectRoot, destination);
     runLog.log(`[${tag}] video saved: ${destination} (${Math.round(saved.bytes / 1024)} KB, ${saved.source})`);
 
@@ -863,7 +1084,7 @@ async function main() {
     if (!flag("--keep-tabs")) {
       try {
         runViduJs(markerPart, `
-          history.replaceState(null, document.title, ${JSON.stringify(buildViduMarkerUrl(viduProfile.chrome))});
+          history.replaceState(null, document.title, ${JSON.stringify(buildViduMarkerUrl(activeViduProfile))});
           return { url: location.href };
         `);
       } catch {

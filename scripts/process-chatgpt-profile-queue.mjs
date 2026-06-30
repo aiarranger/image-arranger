@@ -20,8 +20,8 @@ import {
 import {
   assertChromeRunning,
   assertSingleBridgeCandidateForProfile,
+  ensureChromeMarkerTabProfileSafe,
   findChromeTabByUrlPart,
-  openChromeTabProfileSafe,
   runChromeTabJsByUrlPart,
   usesChromeBridgeRoute,
 } from "./service-browser-route.mjs";
@@ -89,7 +89,7 @@ Hard rules:
   - do not launch another Chrome/Chromium instance for the same profile
   - if the marker tab is missing, prepare it through a profile-safe setup/repair route in the selected profile before processing
   - --image-model is advisory; if the model picker cannot be used, generation continues with the active model
-  - do not use scripts/process-queue.mjs, CDP, file chooser, virtual PNG clipboard, or Codex image generation`);
+  - do not use scripts/process-queue.mjs, CDP, browser fileChooser.setFiles, virtual PNG clipboard, or Codex image generation`);
   process.exit(0);
 }
 
@@ -184,6 +184,64 @@ function runActiveChatgptJs(conversationPart, js, { activate = false } = {}) {
     activate,
     tabId: activeChatgptTabId(),
   });
+}
+
+function inspectChatgptSurface({ activate = false, dismissRateLimit = false } = {}) {
+  return runTabJs(currentChatgptMarkerPart, `
+    const body = document.body.innerText || "";
+    const composer = document.querySelector('#prompt-textarea, div[contenteditable="true"]');
+    const rateLimited = /リクエストが多すぎます|Too many requests|rate limit/i.test(body);
+    const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+    const visible = (element) => {
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    };
+    const candidates = Array.from(document.querySelectorAll('button, [role="button"]'))
+      .filter(visible)
+      .map((element) => ({
+        element,
+        label: normalize(element.innerText || element.getAttribute('aria-label') || element.textContent || ''),
+      }))
+      .filter(({ label }) => label);
+    const dismissCandidate = rateLimited
+      ? candidates.find(({ label }) => /^(了解|OK|Okay|Got it|閉じる|Close)$/i.test(label)
+          || /リクエストが多すぎます/.test(label))
+      : null;
+    if (${dismissRateLimit ? "true" : "false"} && dismissCandidate) {
+      const element = dismissCandidate.element;
+      for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+        const Ctor = type.startsWith('pointer') && window.PointerEvent ? PointerEvent : MouseEvent;
+        element.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, view: window, buttons: 1, pointerId: 1 }));
+      }
+    }
+    return {
+      url: location.href,
+      title: document.title,
+      isAuthLogin: location.href.includes('/auth/login'),
+      composerExists: Boolean(composer),
+      rateLimited,
+      dismissClicked: Boolean(${dismissRateLimit ? "true" : "false"} && dismissCandidate),
+      dismissLabel: dismissCandidate?.label ?? null,
+      bodyStart: body.slice(0, 120),
+      bodyTail: body.slice(-500)
+    };
+  `, { activate, tabId: activeChatgptTabId() });
+}
+
+async function dismissChatgptRateLimitIfPossible({ context = "ChatGPT tab", activate = false } = {}) {
+  let state = inspectChatgptSurface({ activate, dismissRateLimit: false });
+  if (!state.rateLimited) return state;
+
+  const dismissed = inspectChatgptSurface({ activate: true, dismissRateLimit: true });
+  if (!dismissed.dismissClicked) return dismissed;
+
+  await sleep(1500);
+  state = inspectChatgptSurface({ activate: false, dismissRateLimit: false });
+  if (state.rateLimited) {
+    throw new Error(`${context} is still rate limited after clicking ${dismissed.dismissLabel ?? "dismiss"}: ${JSON.stringify(state)}`);
+  }
+  return { ...state, dismissedRateLimit: true, dismissLabel: dismissed.dismissLabel };
 }
 
 async function resetActiveTabToMarker(conversationPart) {
@@ -284,52 +342,39 @@ async function routePreflight({ ensureTab = false } = {}) {
     profileConfigPath: PROFILE_CONFIG_PATH,
     approvedProfile,
     markerUrl,
+    profileProof: null,
     markerTab: null,
   };
   if (ensureTab) {
-    let existing = findChromeTabByUrlPart(currentChatgptMarkerPart, {
-      activate: true,
+    const ensured = await ensureChromeMarkerTabProfileSafe({
+      markerPart: currentChatgptMarkerPart,
+      markerUrl,
       profile: approvedProfile,
       profileConfigPath: PROFILE_CONFIG_PATH,
+      serviceLabel: SERVICE_LABEL,
+      activate: true,
+      missingMessage: ({ initialFindError, repairError }) => markerTabMissingMessage(approvedProfile, markerUrl, [
+        initialFindError ? `Initial marker check: ${initialFindError.message}` : "",
+        repairError ? `Profile-safe repair failed: ${repairError.message}` : "",
+        !repairError ? "Profile-safe repair ran, but the marker tab was still not found." : "",
+      ].filter(Boolean).join(" ")),
     });
-    if (!existing) {
-      try {
-        openChromeTabProfileSafe(markerUrl, {
-          activate: true,
-          profile: approvedProfile,
-          profileConfigPath: PROFILE_CONFIG_PATH,
-        });
-        await sleep(1500);
-        existing = findChromeTabByUrlPart(currentChatgptMarkerPart, {
-          activate: true,
-          profile: approvedProfile,
-          profileConfigPath: PROFILE_CONFIG_PATH,
-        });
-      } catch (error) {
-        throw new Error(markerTabMissingMessage(approvedProfile, markerUrl, `Profile-safe repair failed: ${error.message}`));
-      }
-      if (!existing) {
-        throw new Error(markerTabMissingMessage(approvedProfile, markerUrl, "Profile-safe repair ran, but the marker tab was still not found."));
-      }
-    }
+    const existing = ensured.markerTab;
     currentChatgptTabId = existing.tabId ?? null;
+    result.profileProof = {
+      url: existing.url,
+      title: existing.title,
+      windowName: existing.windowName,
+      profilePath: existing.profilePath,
+    };
     if (usesChromeBridgeRoute() && currentChatgptTabId == null) {
       throw new Error("ChatGPT marker tab was found through the Chrome bridge, but the bridge did not return tabId. Windows ChatGPT processing must stop because the tab cannot be followed after the marker URL changes to a conversation URL.");
     }
     try {
-      result.markerTab = runTabJs(currentChatgptMarkerPart, `
-      const body = document.body.innerText || "";
-      const composer = document.querySelector('#prompt-textarea, div[contenteditable="true"]');
-      return {
-        url: location.href,
-        title: document.title,
-        isAuthLogin: location.href.includes('/auth/login'),
-        composerExists: Boolean(composer),
-        rateLimited: /リクエストが多すぎます|Too many requests|rate limit/i.test(body),
-        bodyStart: body.slice(0, 120),
-        bodyTail: body.slice(-500)
-      };
-      `, { tabId: currentChatgptTabId });
+      result.markerTab = await dismissChatgptRateLimitIfPossible({
+        context: "ChatGPT marker tab",
+        activate: false,
+      });
     } catch (error) {
       throw new Error(markerTabMissingMessage(approvedProfile, markerUrl, `Original error: ${error.message}`));
     }
@@ -337,7 +382,7 @@ async function routePreflight({ ensureTab = false } = {}) {
       throw new Error(`ChatGPT marker tab is not ready: ${JSON.stringify(result.markerTab)}`);
     }
     if (result.markerTab.rateLimited) {
-      throw new Error(`ChatGPT marker tab is temporarily rate limited: ${JSON.stringify(result.markerTab)}`);
+      throw new Error(`ChatGPT marker tab is temporarily rate limited and no dismiss button was clicked: ${JSON.stringify(result.markerTab)}`);
     }
   }
   return result;
@@ -532,7 +577,7 @@ async function ensureChatgptModel(pattern, { timeoutMs = MODEL_SWITCH_TIMEOUT_MS
   return { status: "unavailable", reason: `clicked ${picked.chosen}, but the switcher label did not change` };
 }
 
-function attachReference(absPath) {
+function attachReference(absPath, { via = "clipboard" } = {}) {
   if (usesChromeBridgeRoute()) {
     return chatgptWindowsRoute.attachReference({
       absPath,
@@ -544,6 +589,7 @@ function attachReference(absPath) {
   return chatgptMacRoute.attachReference({
     absPath,
     markerPart: currentChatgptMarkerPart,
+    via,
   });
 }
 
@@ -588,7 +634,14 @@ async function waitForAttachmentCount(expectedCount, timeoutMs = 240000) {
       };
     `, { activate: false, tabId: activeChatgptTabId() });
     if (state.rateLimited) {
-      throw new Error(`ChatGPT is temporarily rate limited before attachment completed: ${JSON.stringify(state)}`);
+      const afterDismiss = await dismissChatgptRateLimitIfPossible({
+        context: "ChatGPT attachment wait",
+        activate: false,
+      });
+      if (afterDismiss.rateLimited) {
+        throw new Error(`ChatGPT is temporarily rate limited before attachment completed: ${JSON.stringify(afterDismiss)}`);
+      }
+      state = afterDismiss;
     }
     if (state.attachmentCount >= expectedCount) return state;
     await sleep(1000);
@@ -654,10 +707,22 @@ async function waitForSendReady(prompt, timeoutMs = 120000) {
         canonicalEqual: canonicalInnerText === canonicalExpected || canonicalTextContent === canonicalExpected,
         sendDisabled: send ? (send.disabled || send.getAttribute('aria-disabled') === 'true') : null,
         sendExists: Boolean(send),
-        uploadTextPresent: /アップロード中|Uploading|処理中|Processing/i.test(document.body.innerText || '')
+        uploadTextPresent: /アップロード中|Uploading|処理中|Processing/i.test(document.body.innerText || ''),
+        rateLimited: /リクエストが多すぎます|Too many requests|rate limit/i.test(document.body.innerText || '')
       };
     `, { activate: false, tabId: activeChatgptTabId() });
     if (!state.ok) throw new Error(`Prompt changed while waiting to send: ${JSON.stringify(state)}`);
+    if (state.rateLimited) {
+      const afterDismiss = await dismissChatgptRateLimitIfPossible({
+        context: "ChatGPT send wait",
+        activate: false,
+      });
+      if (afterDismiss.rateLimited) {
+        throw new Error(`ChatGPT is temporarily rate limited before send: ${JSON.stringify(afterDismiss)}`);
+      }
+      await sleep(1000);
+      continue;
+    }
     if (state.sendExists && !state.sendDisabled) return state;
     await sleep(1000);
   }
@@ -849,10 +914,13 @@ async function processTarget(queue, target) {
     console.log(`[${target.requestId}:${target.targetIndex}] attach ${ref}`);
     attachReference(abs);
     try {
-      await waitForAttachmentCount(expectedAttachments);
+      const firstAttachTimeoutMs = process.platform === "darwin" && !usesChromeBridgeRoute() ? 30000 : 240000;
+      await waitForAttachmentCount(expectedAttachments, firstAttachTimeoutMs);
     } catch (error) {
-      console.warn(`[${target.requestId}:${target.targetIndex}] attachment did not appear after paste; retrying once for ${ref}: ${error.message}`);
-      attachReference(abs);
+      const retryVia = process.platform === "darwin" && !usesChromeBridgeRoute() ? "browser-file-input" : "clipboard";
+      const retryLabel = retryVia === "browser-file-input" ? "browser file-input fallback" : "approved attach route";
+      console.warn(`[${target.requestId}:${target.targetIndex}] attachment did not appear after paste; retrying once through ${retryLabel} for ${ref}: ${error.message}`);
+      attachReference(abs, { via: retryVia });
       await waitForAttachmentCount(expectedAttachments);
     }
   }
