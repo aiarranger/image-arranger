@@ -1,4 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 export function assertChromeRunning(message = "Google Chrome is not running. Start the selected normal Chrome profile first; this script must not switch to another browser route.") {
   const result = spawnSync("pgrep", ["-x", "Google Chrome"], { encoding: "utf8" });
@@ -23,56 +26,62 @@ export function osaString(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function profileProofCheckScript(profile) {
+function profileWindowCheckScript(profile) {
   if (!profile?.profileName && !profile?.profileDir) {
     return `
         set profileOk to true
         set chromeWindowName to ""
-        set chromeProfilePath to ""
+        set chromeProfilePath to "not-checked:window-profile-label-only"
 `;
   }
   return `
         set expectedProfileName to "${osaString(profile.profileName ?? "")}"
         set expectedProfileDir to "${osaString(profile.profileDir ?? "")}"
         set chromeWindowName to ""
-        set chromeProfilePath to ""
+        set chromeWindowTitle to ""
+        set chromeProfilePath to "not-checked:window-profile-label-only"
+        try
+          set chromeWindowTitle to (name of w as text)
+          set chromeWindowName to chromeWindowTitle
+        end try
         try
           tell application "System Events"
             tell process "Google Chrome"
-              set chromeWindowName to (name of front window as text)
+              set frontWindowName to (name of front window as text)
+              if frontWindowName contains expectedProfileName then
+                set chromeWindowName to frontWindowName
+              else
+                repeat with candidateWindow in windows
+                  set candidateName to ""
+                  try
+                    set candidateName to (name of candidateWindow as text)
+                  end try
+                  if candidateName is not "" and expectedProfileName is not "" and chromeWindowTitle is not "" then
+                    if candidateName contains expectedProfileName and candidateName contains chromeWindowTitle then
+                      set chromeWindowName to candidateName
+                      exit repeat
+                    end if
+                  end if
+                end repeat
+              end if
             end tell
           end tell
         end try
+        set chromeProfileLabel to ""
+        if chromeWindowName contains " - Google Chrome - " then
+          set oldDelimiters to AppleScript's text item delimiters
+          set AppleScript's text item delimiters to " - Google Chrome - "
+          set chromeProfileLabel to (last text item of chromeWindowName as text)
+          set AppleScript's text item delimiters to oldDelimiters
+        end if
         set profileOk to false
-        if expectedProfileDir is not "" then
-          set savedTabIndex to active tab index of w
-          set profileProofTabCreated to false
-          try
-            set profileProofTab to make new tab at end of tabs of w with properties {URL:"chrome://version"}
-            set profileProofTabCreated to true
-            set active tab index of w to (count of tabs of w)
-            repeat 20 times
-              delay 0.25
-              set chromeProfilePath to execute active tab of w javascript "(document.querySelector('#profile_path') || {}).innerText || ''"
-              if chromeProfilePath is not "" then exit repeat
-            end repeat
-            if chromeProfilePath ends with ("/" & expectedProfileDir) then set profileOk to true
-          on error errMsg
-            set chromeProfilePath to "ERROR:" & errMsg
-          end try
-          if profileProofTabCreated then
-            try
-              close active tab of w
-            end try
-          end if
-          try
-            set active tab index of w to savedTabIndex
-          end try
-        else
-          if (chromeWindowName contains "Google Chrome") and (chromeWindowName contains expectedProfileName) then set profileOk to true
-          if chromeWindowName contains (" - Google Chrome - " & expectedProfileName) then set profileOk to true
-          if chromeWindowName ends with (" - " & expectedProfileName) then set profileOk to true
+        if expectedProfileName is not "" then
+          if chromeProfileLabel is expectedProfileName then set profileOk to true
+          if chromeProfileLabel contains expectedProfileName then set profileOk to true
+          if chromeProfileLabel contains ("(" & expectedProfileName & ")") then set profileOk to true
           if chromeWindowName is expectedProfileName then set profileOk to true
+        else if expectedProfileDir is not "" then
+          set profileOk to true
         end if
 `;
 }
@@ -87,10 +96,103 @@ function profileMismatchMessage(urlPart, profile, windowName, profilePath = "") 
   ].join(" ");
 }
 
-function profileProofErrorScript() {
-  return `
-        if chromeProfilePath starts with "ERROR:" then error chromeProfilePath
-`;
+function chromeUserDataRoot() {
+  return join(homedir(), "Library/Application Support/Google/Chrome");
+}
+
+function sessionFilesForProfile(profileDir) {
+  if (!profileDir) return [];
+  const sessionsDir = join(chromeUserDataRoot(), profileDir, "Sessions");
+  if (!existsSync(sessionsDir)) return [];
+  return readdirSync(sessionsDir)
+    .filter((name) => /^(Session|Tabs)_/i.test(name))
+    .map((name) => join(sessionsDir, name))
+    .filter((file) => {
+      try {
+        return statSync(file).isFile();
+      } catch {
+        return false;
+      }
+    });
+}
+
+function profileDirsWithSessions() {
+  const root = chromeUserDataRoot();
+  if (!existsSync(root)) return [];
+  return readdirSync(root)
+    .filter((name) => name === "Default" || /^Profile \d+$/i.test(name))
+    .filter((name) => existsSync(join(root, name, "Sessions")));
+}
+
+function fileContainsAscii(file, value) {
+  if (!value) return false;
+  try {
+    return readFileSync(file).includes(Buffer.from(String(value), "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+function fileContainsAllAscii(file, values) {
+  if (!values.length) return false;
+  try {
+    const buffer = readFileSync(file);
+    return values.every((value) => buffer.includes(Buffer.from(String(value), "utf8")));
+  } catch {
+    return false;
+  }
+}
+
+function newestSessionProofHit(profileDir, sessionNeedles) {
+  const hits = [];
+  for (const file of sessionFilesForProfile(profileDir)) {
+    if (!fileContainsAllAscii(file, sessionNeedles)) continue;
+    try {
+      hits.push({ profileDir, file, mtimeMs: statSync(file).mtimeMs });
+    } catch {
+      // Ignore files that disappear while Chrome is writing session state.
+    }
+  }
+  return hits.sort((a, b) => b.mtimeMs - a.mtimeMs)[0] ?? null;
+}
+
+function sessionProfileProof(profile, foundUrl, urlPart) {
+  if (process.platform !== "darwin") return { ok: false, reason: "not-macos" };
+  if (!profile?.profileDir || !profile?.email) return { ok: false, reason: "missing-profile-fields" };
+  const proofParts = profileProofParts(profile);
+  const markerNeedle = foundUrl || urlPart;
+  if (!markerNeedle) return { ok: false, reason: "missing-marker-url" };
+  if (!String(markerNeedle).includes(proofParts.directoryPart) || !String(markerNeedle).includes(proofParts.emailPart)) {
+    return { ok: false, reason: "marker-url-lacks-profile-proof-parts" };
+  }
+  const agentWork = String(markerNeedle).match(/agent-work=[^&]+/)?.[0] ?? "";
+  const sessionNeedles = [agentWork, proofParts.directoryPart, proofParts.emailPart].filter(Boolean);
+
+  const matchingProfiles = [];
+  for (const profileDir of profileDirsWithSessions()) {
+    const hit = newestSessionProofHit(profileDir, sessionNeedles);
+    if (hit) matchingProfiles.push(hit);
+  }
+
+  const expectedHit = matchingProfiles.find((hit) => hit.profileDir === profile.profileDir);
+  if (!expectedHit) {
+    return { ok: false, reason: `marker-not-found-in-expected-profile-session:${profile.profileDir}` };
+  }
+  const freshnessWindowMs = 5 * 60 * 1000;
+  const otherFreshMatches = matchingProfiles
+    .filter((hit) => hit.profileDir !== profile.profileDir)
+    .filter((hit) => hit.mtimeMs >= expectedHit.mtimeMs - freshnessWindowMs);
+  if (otherFreshMatches.length > 0) {
+    return { ok: false, reason: `marker-also-found-in-other-current-profile-sessions:${otherFreshMatches.map((hit) => hit.profileDir).join(",")}` };
+  }
+  const staleMatches = matchingProfiles
+    .filter((hit) => hit.profileDir !== profile.profileDir)
+    .map((hit) => hit.profileDir);
+  return {
+    ok: true,
+    reason: `marker-session-proof:${profile.profileDir}${staleMatches.length ? `;ignored-stale:${staleMatches.join(",")}` : ""}`,
+    profilePath: `session-proof:${join(chromeUserDataRoot(), profile.profileDir, "Sessions")}`,
+  };
 }
 
 export function findChromeTabByUrlPart(urlPart, { activate = true, profile = null } = {}) {
@@ -101,6 +203,8 @@ set targetPart to "${osaString(urlPart)}"
 set foundWrongProfile to false
 set wrongProfileWindowName to ""
 set wrongProfilePath to ""
+set wrongProfileUrl to ""
+set wrongProfileTitle to ""
 tell application "Google Chrome"
   repeat with wi from 1 to count of windows
     set w to window wi
@@ -111,12 +215,17 @@ tell application "Google Chrome"
         set index of w to 1
         activate
         delay 0.1
-${profileProofCheckScript(profile)}
-${profileProofErrorScript()}
+${profileWindowCheckScript(profile)}
         if ${enforceProfile ? "true" : "false"} and not profileOk then
           set foundWrongProfile to true
           set wrongProfileWindowName to chromeWindowName
           set wrongProfilePath to chromeProfilePath
+          try
+            set wrongProfileUrl to (URL of t as text)
+          end try
+          try
+            set wrongProfileTitle to (title of t as text)
+          end try
         else
           if not ${activate ? "true" : "false"} then
             -- The tab had to be activated briefly to read the macOS window name.
@@ -133,14 +242,27 @@ ${profileProofErrorScript()}
     end repeat
   end repeat
 end tell
-if foundWrongProfile then return "WRONG_PROFILE" & linefeed & wrongProfileWindowName & linefeed & wrongProfilePath
+if foundWrongProfile then return "WRONG_PROFILE" & linefeed & wrongProfileWindowName & linefeed & wrongProfilePath & linefeed & wrongProfileUrl & linefeed & wrongProfileTitle
 return ""
 `;
   const output = runAppleScript(script);
   if (!output) return null;
-  const [foundUrl = "", title = "", windowName = "", profilePath = ""] = output.split(/\r?\n/);
+  const [foundUrl = "", title = "", windowName = "", profilePath = "", wrongTitle = ""] = output.split(/\r?\n/);
   if (foundUrl === "WRONG_PROFILE") {
-    throw new Error(profileMismatchMessage(urlPart, profile, title, windowName));
+    const wrongWindowName = title;
+    const wrongProfilePath = windowName;
+    const wrongUrl = profilePath;
+    const proof = sessionProfileProof(profile, wrongUrl, urlPart);
+    if (proof.ok) {
+      return {
+        url: wrongUrl,
+        title: wrongTitle,
+        windowName: wrongWindowName,
+        profilePath: proof.profilePath,
+        profileProof: proof.reason,
+      };
+    }
+    throw new Error(`${profileMismatchMessage(urlPart, profile, wrongWindowName, wrongProfilePath)} sessionProof=${proof.reason} wrongUrl=${wrongUrl}`);
   }
   return { url: foundUrl, title, windowName, profilePath };
 }
@@ -189,8 +311,7 @@ tell application "Google Chrome"
     set index of w to 1
     activate
     delay 0.1
-${profileProofCheckScript(profile)}
-${profileProofErrorScript()}
+${profileWindowCheckScript(profile)}
     if profileOk then
       set newTab to make new tab at end of tabs of w with properties {URL:targetUrl}
       set active tab index of w to (count of tabs of w)
@@ -236,14 +357,17 @@ export function runChromeTabJsByUrlPart(urlPart, js, {
     throw new Error(`${errorLabel} page inspection needs macOS AppleScript on this route.`);
   }
   const encoded = Buffer.from(`JSON.stringify((() => { ${js} })())`, "utf8").toString("base64");
-  const enforceProfile = Boolean(profile?.profileName || profile?.profileDir);
-  const script = `
+  const buildScript = (profileForCheck) => {
+    const enforceProfile = Boolean(profileForCheck?.profileName || profileForCheck?.profileDir);
+    const profileCheckScript = enforceProfile ? profileWindowCheckScript(profileForCheck) : profileWindowCheckScript(null);
+    return `
 set targetPart to "${osaString(urlPart)}"
 set foundTab to false
 set resultText to ""
 set foundWrongProfile to false
 set wrongProfileWindowName to ""
 set wrongProfilePath to ""
+set wrongProfileUrl to ""
 tell application "Google Chrome"
   if (count of windows) is 0 then error "Google Chrome has no open windows"
   repeat with wi from 1 to count of windows
@@ -255,12 +379,14 @@ tell application "Google Chrome"
         set index of w to 1
         activate
         delay 0.1
-${profileProofCheckScript(profile)}
-${profileProofErrorScript()}
+${profileCheckScript}
         if ${enforceProfile ? "true" : "false"} and not profileOk then
           set foundWrongProfile to true
           set wrongProfileWindowName to chromeWindowName
           set wrongProfilePath to chromeProfilePath
+          try
+            set wrongProfileUrl to (URL of t as text)
+          end try
         else
           set active tab index of w to ti
           set resultText to execute active tab of w javascript "eval(new TextDecoder().decode(Uint8Array.from(atob('${encoded}'), (ch) => ch.charCodeAt(0))))"
@@ -272,14 +398,36 @@ ${profileProofErrorScript()}
     if foundTab then exit repeat
   end repeat
 end tell
-if foundWrongProfile then error "target tab profile mismatch: " & wrongProfileWindowName & " profilePath=" & wrongProfilePath
+if foundWrongProfile then return "__WRONG_PROFILE__" & linefeed & wrongProfileWindowName & linefeed & wrongProfilePath & linefeed & wrongProfileUrl
 if not foundTab then error "target tab not found: " & targetPart
 return resultText
+`;
+  };
+  const buildActiveTabScript = (expectedUrl) => `
+set targetPart to "${osaString(urlPart)}"
+set expectedUrl to "${osaString(expectedUrl)}"
+tell application "Google Chrome"
+  if (count of windows) is 0 then error "Google Chrome has no open windows"
+  set w to front window
+  set t to active tab of w
+  set activeUrl to (URL of t as text)
+  if activeUrl is not expectedUrl then error "session-proof active tab changed: " & activeUrl
+  if activeUrl does not contain targetPart then error "session-proof active tab no longer matches: " & targetPart
+  return execute active tab of w javascript "eval(new TextDecoder().decode(Uint8Array.from(atob('${encoded}'), (ch) => ch.charCodeAt(0))))"
+end tell
 `;
   let lastError = null;
   for (let attempt = 1; attempt <= 5; attempt += 1) {
     try {
-      const raw = runAppleScript(script);
+      let raw = runAppleScript(buildScript(profile));
+      if (raw.startsWith("__WRONG_PROFILE__")) {
+        const [, windowName = "", profilePath = "", wrongUrl = ""] = raw.split(/\r?\n/);
+        const proof = sessionProfileProof(profile, wrongUrl, urlPart);
+        if (!proof.ok) {
+          throw new Error(profileMismatchMessage(urlPart, profile, windowName, `${profilePath || ""}${profilePath ? " " : ""}${proof.reason}`));
+        }
+        raw = runAppleScript(buildActiveTabScript(wrongUrl));
+      }
       if (!raw || raw === "missing value") throw new Error(`AppleScript returned no value for ${errorLabel} ${urlPart}`);
       return JSON.parse(raw);
     } catch (error) {

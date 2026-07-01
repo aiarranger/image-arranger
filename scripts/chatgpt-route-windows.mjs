@@ -117,8 +117,8 @@ export async function sendPrompt({ markerPart, runTabJs, tabId = null, sleep }) 
         composerExists: Boolean(document.querySelector('#prompt-textarea, div[contenteditable="true"]'))
       };
     `, { activate: false, tabId });
-    if (state.hasConversation) return state;
+    if (state.hasConversation || state.hasStopButton) return state;
     await sleep(1000);
   }
-  throw new Error(`sent ChatGPT conversation tab did not leave the marker tab: ${JSON.stringify(state)}`);
+  throw new Error(`sent ChatGPT conversation tab did not start generating: ${JSON.stringify(state)}`);
 }

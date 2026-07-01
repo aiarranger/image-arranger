@@ -132,12 +132,40 @@ entrypoint and drivers:
   disabled create button plus visible upload/generation status in the create
   area, active upload preview, or an unmistakable current task panel. History text
   alone is evidence to inspect, not a blocker.
+- for Vidu, when the create page is showing an older selected history/result
+  video or download surface before the current request image has been uploaded,
+  do not treat that visible old result as the current request and do not fail
+  solely because it is visible. Instead the driver must log it as a preexisting
+  result surface, record all visible video/direct MP4 URLs as the baseline before
+  upload, verify the current request image upload and prompt after upload, and
+  ignore every baseline video URL while waiting for the new result. If the
+  baseline cannot be recorded, or if the driver cannot prove the current upload
+  and prompt before create submit, stop before create. A stale selected result is
+  different from old history text: it can keep an unrelated video/prompt visible
+  in the main surface and make the operator believe the current request is using
+  the wrong clip, so the safe behavior is baseline-and-exclude, not acceptance.
+- for macOS ChatGPT/Vidu operation, do not prove the Chrome profile by opening
+  `chrome://version`. ChatGPT and Vidu must use the same shared
+  `scripts/service-browser-route.mjs` -> `scripts/chrome-route-macos.mjs`
+  marker-tab route: saved profile config, marker URL with `profile-directory`
+  and `profile-email`, and the Chrome window profile label. Vidu may move the
+  same marker tab to a unique URL that includes `run=...` so one target can be
+  followed during upload/wait/download, but it must not add a Vidu-only profile
+  proof or proof-bypass path. If the script visually opens `chrome://version`,
+  `about:blank`, or repeated marker tabs during a single operation, stop the run,
+  cancel the queued test target if needed, fix the shared route, and rerun the
+  checks from the start.
 - for Vidu, always record the start-frame continuity RMSE after saving a result
   when `inputs.startFrame` is available. By default this check is warning-only
   for test runs and should not block progress; it becomes a rejection gate only
   when `IMAGE_ARRANGER_VIDU_STRICT_START_FRAME=1` is set. Separately, exact
   SHA-256 duplication with an older registered clip is still treated as stale
   history pickup.
+- for Vidu, `クレジットが足りません`, `Insufficient credits`, `Not enough credits`,
+  or a purchase/add-credit screen is not the same as an approved paid-credit
+  create cost. In this state, do not keep waiting for a video URL and do not
+  purchase credits from the driver. Stop with the same request incomplete so it
+  can be resumed after credits are added.
 
 Implementation guardrails for the common entrypoint and ChatGPT driver:
 
@@ -149,8 +177,16 @@ Implementation guardrails for the common entrypoint and ChatGPT driver:
   `?agent-work=image-arranger` marker. Do not scan all ChatGPT tabs for matching
   prompt text, because old conversations can contain similar prompts or images.
 - Treat `hasStopButton: true` on the marker URL as "send accepted but URL not
-  settled yet"; keep waiting until the same tab becomes a `/c/...` conversation
-  URL before watching for the generated image.
+  settled yet". The current ChatGPT UI can keep the marker URL for the whole
+  image generation. Do not fail just because `/c/...` did not appear; continue
+  watching the same marker tab for the generated image.
+- When cleaning or counting ChatGPT attachments before retrying a pending target,
+  inspect only the composer/form area. Uploaded images in earlier conversation
+  messages are history, not unsent attachments, and must not block retry.
+- On macOS, the Chrome profile check must not depend only on the current
+  System Events front-window name. Download panels can temporarily make the
+  front window read as `最近のダウンロード履歴`; resolve the profile label from the
+  target Chrome window/title instead of opening `chrome://version`.
 
 If the common entrypoint or a service driver fails, do not switch routes. Read
 the failure and either fix the script/skill, then rerun from the beginning, or
@@ -172,34 +208,29 @@ For the real macOS browser route, use the explicit test-only command:
 npm run test:real-browser-route
 ```
 
-This command is not part of normal queue processing. It may open temporary
-Google Chrome windows only under a disposable test `--user-data-dir`, and must
-refuse to run if a normal operator Chrome is already running. It covers
-multi-profile/multi-window cases, wrong-profile marker URLs, marker tabs closed
-during operation, and page-JavaScript execution against the wrong profile.
-Because the macOS route proves the active Chrome profile by executing JavaScript
-on `chrome://version`, remember that
-`表示 > 開発 / 管理 > Apple Events からの JavaScript を許可` is stored per Chrome
-profile as `browser.allow_javascript_apple_events`. The real-browser test seeds
-that preference into its disposable `Default` and `Profile 1` profiles before
-launch. If Chrome still refuses Apple Events JavaScript, the test must perform
-one probe, close Chrome, and stop with the permission error. It must not keep
-opening `chrome://version` tabs.
+This command is not part of normal queue processing. In routine validation it
+uses the already-running saved normal Chrome profile from
+`workspace/.local/chatgpt-profile.json`; it must not launch a temporary
+`--user-data-dir` Chrome while normal Chrome is open. macOS AppleScript addresses
+the running `Google Chrome` application, so a separate temporary Chrome can make
+the test inspect the wrong browser instance. The npm script covers the real
+operator condition where normal ChatGPT/Vidu Chrome is already open: profile-safe
+marker repair, page JavaScript execution, marker-closed-during-repair stop, and
+macOS ChatGPT send through the shared route. The direct script without
+`--allow-existing-chrome` is a stricter isolated-debug mode that intentionally
+refuses to run while any normal Chrome process is open; do not mistake that
+refusal for full real-browser validation.
+The macOS route must not use `chrome://version` for profile proof. If a
+validation or service run leaves `chrome://version` tabs behind, treat that as a
+route bug, close only those proof tabs, fix the shared route, and rerun the
+regression tests before any service upload or submit.
 
 For live ChatGPT/Vidu service checks, remember that the service drivers still
-must not launch Chrome by themselves. If Chrome is closed and the operator
-explicitly asks for live service checks, prepare the test precondition only after
-confirming no Chrome process is running:
-
-```bash
-open -na "Google Chrome" --args --profile-directory=Default --no-first-run --no-default-browser-check --new-window about:blank
-```
-
-This is a test precondition for the saved normal profile, not a queue-processing
-startup route. Do not use it while any Chrome profile is already running. After
-the live checks, close the Chrome instance opened for the test and verify no
-`Google Chrome`, `ia-real-browser`, `agent-chrome`, or `vidu-chrome` process
-remains.
+must not launch Chrome by themselves. The saved normal Chrome profile must
+already be running. Do not prepare live checks with
+`open -na "Google Chrome" --args --profile-directory=...`; in a multi-profile
+Chrome session that can route the URL into the wrong profile. After live checks,
+verify no `ia-real-browser`, `agent-chrome`, or `vidu-chrome` process remains.
 
 ## Shared Startup Contract for All Services
 
@@ -281,10 +312,11 @@ ChatGPT route:
    saved profile. Reuse that tab for the whole queue attempt. The marker URL is
    only a locator; it is not proof that the tab belongs to the selected Chrome
    profile. Before attaching files, inserting prompts, sending, or saving, the
-   script must activate the tab, open `chrome://version` in the same Chrome
-   window, and verify the reported Profile Path ends with the saved
-   `profile-directory`. A window name may be recorded as extra diagnostics, but
-   it is not the primary proof. If a matching marker URL exists in a non-matching
+   script must use the same shared marker-tab check used by Vidu: activate the
+   marker tab, confirm the Chrome window profile label matches the saved
+   `profileName`, and require the marker URL to include the saved
+   `profile-directory` and `profile-email`. Do not open `chrome://version` for
+   this check. If a matching marker URL exists in a non-matching
    Chrome profile, treat it as wrong-profile and refuse to operate it. If the
    marker is missing, prepare it through a profile-safe setup/repair route in the
    already-running selected profile, then rerun the check. Do not repair by
@@ -317,6 +349,9 @@ ChatGPT route:
 9. Send through the visible ChatGPT composer, wait for generation to finish, save
    the result through the normal ChatGPT image UI, then report completion through
    `POST /api/requests/complete`.
+   ChatGPT may keep the `?agent-work=image-arranger` marker URL after send; if
+   the stop button appears, treat the send as accepted and watch that same marker
+   tab rather than requiring an immediate `/c/...` URL.
    If ChatGPT stays on `思考中` / `より詳細な画像を生成中です` until the local
    timeout, with no generated image, no policy refusal, and no saved output, treat
    that target as not completed. Confirm the request is still pending, restore or
@@ -372,8 +407,16 @@ Vidu route:
    contains `処理中` from a previous prompt; inspect the current form state before
    blocking. Do not start the same cut again until a true current task has
    finished or failed.
-8. If Vidu visibly shows a non-zero credit cost, the driver stops unless the
-   operator intentionally reruns with `--allow-paid`. Do not bypass this by
+8. If Vidu visibly shows a non-zero credit cost, the driver stops unless paid
+   use is approved either by `--allow-paid`, `IMAGE_ARRANGER_VIDU_ALLOW_PAID=1`,
+   or the selected local Vidu profile config
+   `workspace/.local/vidu-profile.json` containing `"allowPaid": true`. For this
+   operator environment, the user explicitly approved always using paid Vidu
+   credits on 2026-06-30, so the local profile config is the standing approval.
+   Vidu may render the cost as raw numbers inside the `作成する` / `生成` /
+   `Create` / `Generate` control without the word `credit` or `クレジット`; treat
+   those visible create-button numbers as a paid-cost signal and require one of
+   the approved paid-use flags/settings before clicking. Do not bypass this by
    switching service, browser profile, or generation tool.
 
 ## macOS Successful Route Evidence

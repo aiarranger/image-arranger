@@ -74,6 +74,25 @@ export function formatProfileLine(profile, index) {
   return `${index + 1}. ${profile.profileName} / ${profile.profileDir} / ${email}${gaia}`;
 }
 
+export function assertUniqueProfileWindowLabel(profileConfig, profiles = listChromeProfiles()) {
+  const expectedName = String(profileConfig?.profileName ?? "").trim();
+  if (!expectedName) {
+    throw new Error("Selected Chrome profile has no profileName; profile-safe window routing cannot verify it.");
+  }
+  const matches = profiles.filter((profile) => String(profile.profileName ?? "").trim() === expectedName);
+  const otherMatches = matches.filter((profile) => profile.profileDir !== profileConfig.profileDir);
+  if (otherMatches.length) {
+    throw new Error([
+      `Multiple Chrome profiles share the visible profile name "${expectedName}".`,
+      "macOS AppleScript can only verify the visible Chrome window label, so duplicate profile names are unsafe.",
+      `Selected: ${profileConfig.profileDir} / ${profileConfig.email ?? ""}`,
+      `Duplicates: ${otherMatches.map((profile) => `${profile.profileDir} / ${profile.email || "email未確認"}`).join(", ")}`,
+      "Rename one Chrome profile or choose a uniquely named profile, then re-run --setup-profile.",
+    ].join(" "));
+  }
+  return true;
+}
+
 export function printServiceProfileCandidates({
   service,
   serviceLabel,
@@ -219,6 +238,9 @@ export function assertRequiredChromeProfile(profileConfig, { service, serviceLab
   }
   if (!actual.email) {
     throw new Error(`Selected Chrome profile has no confirmed email in Local State. Re-run --setup-profile --service ${service} with a signed-in profile.`);
+  }
+  if (process.platform === "darwin") {
+    assertUniqueProfileWindowLabel(actual);
   }
   return actual;
 }

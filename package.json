@@ -17,6 +17,7 @@
     "service-browser-profile.test.mjs",
     "queue-profile-route-regression.test.mjs",
     "vidu-route-helpers.test.mjs",
+    "vidu-processing-helpers.test.mjs",
     "vidu-upload-plan.test.mjs",
     "public/",
     "scripts/",
@@ -27,6 +28,7 @@
     "docs/manual-fallback.md",
     "docs/windows-chrome-bridge.md",
     "docs/queue-profile-route-test-plan.md",
+    "docs/queue-profile-route-review-checklist.md",
     "docs/assets/brand/",
     "docs/assets/base/",
     "docs/assets/readme/",
@@ -48,9 +50,9 @@
   "license": "MIT",
   "scripts": {
     "start": "node server.mjs --workspace ./workspace/sample --init sample --port 4217",
-    "test": "node --test server.test.mjs chrome-bridge.test.mjs browser-route-split.test.mjs service-browser-route.test.mjs service-browser-profile.test.mjs queue-profile-route-regression.test.mjs vidu-route-helpers.test.mjs vidu-upload-plan.test.mjs",
-    "test:real-browser-route": "node scripts/real-browser-profile-route-test.mjs",
+    "test": "node --test server.test.mjs chrome-bridge.test.mjs browser-route-split.test.mjs service-browser-route.test.mjs service-browser-profile.test.mjs queue-profile-route-regression.test.mjs vidu-route-helpers.test.mjs vidu-processing-helpers.test.mjs vidu-upload-plan.test.mjs",
+    "test:real-browser-route": "node scripts/real-browser-profile-route-test.mjs --allow-existing-chrome",
     "doctor": "node server.mjs --workspace ./workspace/sample --init sample --doctor",
-    "check": "node --check server.mjs && node --check public/app.js && node --check public/gallery.js && node --check server.test.mjs && node --check chrome-bridge.test.mjs && node --check browser-route-split.test.mjs && node --check service-browser-route.test.mjs && node --check service-browser-profile.test.mjs && node --check queue-profile-route-regression.test.mjs && node --check vidu-route-helpers.test.mjs && node --check vidu-upload-plan.test.mjs && node --check scripts/process-queue.mjs && node --check scripts/service-browser-profile.mjs && node --check scripts/service-browser-route.mjs && node --check scripts/chrome-route-macos.mjs && node --check scripts/chrome-route-windows.mjs && node --check scripts/chatgpt-route-macos.mjs && node --check scripts/chatgpt-route-windows.mjs && node --check scripts/vidu-route-helpers.mjs && node --check scripts/vidu-upload-plan.mjs && node --check scripts/real-browser-profile-route-test.mjs && node --check scripts/chrome-bridge-client.mjs && node --check scripts/chrome-bridge-host.mjs && node --check scripts/process-vidu-queue.mjs && node --check scripts/agent-browser.mjs && node --check scripts/process-chatgpt-profile-queue.mjs && node --check scripts/process-service-queue.mjs && node --check extensions/chrome-bridge/service_worker.js"
+    "check": "node --check server.mjs && node --check public/app.js && node --check public/gallery.js && node --check server.test.mjs && node --check chrome-bridge.test.mjs && node --check browser-route-split.test.mjs && node --check service-browser-route.test.mjs && node --check service-browser-profile.test.mjs && node --check queue-profile-route-regression.test.mjs && node --check vidu-route-helpers.test.mjs && node --check vidu-processing-helpers.test.mjs && node --check vidu-upload-plan.test.mjs && node --check scripts/process-queue.mjs && node --check scripts/service-browser-profile.mjs && node --check scripts/service-browser-route.mjs && node --check scripts/chrome-route-macos.mjs && node --check scripts/chrome-route-windows.mjs && node --check scripts/chatgpt-route-macos.mjs && node --check scripts/chatgpt-route-windows.mjs && node --check scripts/vidu-route-helpers.mjs && node --check scripts/vidu-processing-helpers.mjs && node --check scripts/vidu-upload-plan.mjs && node --check scripts/real-browser-profile-route-test.mjs && node --check scripts/chrome-bridge-client.mjs && node --check scripts/chrome-bridge-host.mjs && node --check scripts/process-vidu-queue.mjs && node --check scripts/agent-browser.mjs && node --check scripts/process-chatgpt-profile-queue.mjs && node --check scripts/process-service-queue.mjs && node --check extensions/chrome-bridge/service_worker.js"
   }
 }

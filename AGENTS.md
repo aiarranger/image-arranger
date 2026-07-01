@@ -182,6 +182,23 @@ before upload/prompt/create after the shared route fails. Do not probe signed-in
 Chrome profiles from Chrome `Local State`, do not update
 `workspace/.local/vidu-profile.json` to a different profile during processing,
 and do not ask the operator to choose another Vidu profile as routine recovery.
+If the Vidu create page shows an old selected history/result video or download
+surface before the current request image has been uploaded, do not treat it as
+the current request and do not fail solely because it is visible. The driver must
+log the old visible result, record all visible video/direct MP4 URLs as the
+pre-upload baseline, verify the current upload and prompt, and ignore the
+baseline URLs while waiting for the new clip. Old history text alone is not an
+active-task blocker, but a visible selected old result is a stale surface that
+can be mistaken for the current request unless it is explicitly baselined and
+excluded.
+During macOS ChatGPT/Vidu operation, do not open `chrome://version` as a profile
+proof. ChatGPT and Vidu must use the same shared marker-tab route: the saved
+profile config, marker URL with `profile-directory` and `profile-email`, and the
+Chrome window profile label. Vidu may move its tab to a unique `run=...` marker
+URL to keep one target isolated, but it must not add a Vidu-only profile-proof
+or proof-bypass path. If one operation visibly opens `chrome://version`,
+`about:blank`, or repeated marker tabs, stop the run and fix the shared route
+before any further generation.
 
 For macOS Vidu marker repair, do not use the Google Chrome executable with
 `--profile-directory=<dir>` and do not use
@@ -232,10 +249,11 @@ active model rather than switching routes.
    saved profile. Reuse that tab for the whole queue attempt. The marker URL is
    only a locator; it is not proof that the tab belongs to the selected Chrome
    profile. Before attaching files, inserting prompts, sending, or saving, the
-   script must activate the tab, open `chrome://version` in the same Chrome
-   window, and verify the reported Profile Path ends with the saved
-   `profile-directory`. A window name may be recorded as extra diagnostics, but
-   it is not the primary proof. If a matching marker URL exists in a non-matching
+   script must use the same shared marker-tab check used by Vidu: activate the
+   marker tab, confirm the Chrome window profile label matches the saved
+   `profileName`, and require the marker URL to include the saved
+   `profile-directory` and `profile-email`. Do not open `chrome://version` for
+   this check. If a matching marker URL exists in a non-matching
    Chrome profile, treat it as wrong-profile and refuse to operate it. If the
    marker is missing, prepare it through a profile-safe setup/repair route in the
    already-running selected profile, then rerun the check. Do not repair by
@@ -338,10 +356,19 @@ driver, preserve these implementation constraints:
   decoded with `TextDecoder`; `atob()` alone corrupts Japanese labels such as
   `保存` and breaks the normal ChatGPT save flow.
 - After sending, track only the same active marker tab until it becomes a
-  `/c/...` conversation URL. Do not scan all ChatGPT tabs for matching prompt
-  text or generated images.
+  `/c/...` conversation URL or, when ChatGPT keeps the marker URL after send,
+  keep tracking that same marker tab. Do not scan all ChatGPT tabs for matching
+  prompt text or generated images.
 - `hasStopButton: true` on the marker URL means ChatGPT accepted the send but
-  the URL has not settled yet. Keep waiting for the conversation URL.
+  the URL has not settled yet. Keep waiting on the same tab; do not fail only
+  because `/c/...` did not appear.
+- When retrying a pending ChatGPT target, clean and count attachments only inside
+  the composer/form. Images attached in old conversation messages are history,
+  not unsent composer attachments.
+- On macOS, the profile guard must not rely only on the current System Events
+  front-window name. Save/download panels can briefly become the front window;
+  resolve the selected profile from the target Chrome window/title and never
+  fall back to `chrome://version`.
 - On Windows, ChatGPT image queues use the same bound Chrome bridge route as
   preflight. Reference images are injected as browser `File` objects, sending is
   done through the visible ChatGPT send button, and saving is done through the
@@ -435,8 +462,8 @@ node scripts/process-service-queue.mjs --check --service vidu --server http://12
 node scripts/process-service-queue.mjs --service vidu --server http://127.0.0.1:4217
 ```
 
-The Vidu script uses the selected or script-detected normal Chrome profile's
-marker tab, injects exactly `inputs.startFrame` and optional `inputs.endFrame`
+The Vidu script uses the saved selected normal Chrome profile's marker tab,
+injects exactly `inputs.startFrame` and optional `inputs.endFrame`
 into the Vidu UI, submits through Vidu's visible create button, saves the MP4
 into `outputDir`, and reports completion through `POST /api/requests/complete`.
 The upload mode is selected by the request data: if only `inputs.startFrame`
@@ -446,7 +473,23 @@ upload the two files separately into the first and second frame inputs. Do not
 duplicate one start image into both frame slots for start-only video.
 It must not use CDP file chooser upload, an unspecified default profile, or any
 generated automation profile. If Vidu visibly shows a non-zero credit cost, stop
-unless the operator intentionally reruns with `--allow-paid`.
+unless paid use is approved either by `--allow-paid`,
+`IMAGE_ARRANGER_VIDU_ALLOW_PAID=1`, or the selected local Vidu profile config
+`workspace/.local/vidu-profile.json` containing `"allowPaid": true`. In this
+operator environment, the user explicitly approved always using paid Vidu
+credits on 2026-06-30, so that local profile config is the standing approval.
+Vidu may show the cost as raw numbers inside the `作成する` / `生成` / `Create` /
+`Generate` button without the word `credit` or `クレジット`; those visible
+create-button numbers must still be treated as a paid-cost gate unless one of
+the approved paid-use flags/settings is present.
+If Vidu's visible result surface is still showing an older history item before
+the current upload, baseline and exclude the old visible video/direct MP4 URLs
+before upload, then accept only a newly appearing video URL that is not in that
+baseline. Stop instead of submitting only when the baseline cannot be recorded or
+the current upload/prompt cannot be proven.
+For macOS upload internals, repeated file-transfer chunks must use the same
+shared ChatGPT/Vidu browser route and the current `run=...` Vidu marker. They
+must not create profile-proof tabs or a Vidu-only browser-control path.
 
 Division of labour:
 

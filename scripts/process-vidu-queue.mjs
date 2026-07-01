@@ -44,6 +44,13 @@ import {
   markerPartForViduProfile,
 } from "./vidu-route-helpers.mjs";
 import { VIDU_UPLOAD_PLAN_FUNCTION_JS } from "./vidu-upload-plan.mjs";
+import {
+  assertDistinctViduFrameInputs,
+  isInsufficientViduCreditError,
+  isInsufficientViduCreditState,
+  stableVideoKey,
+  visibleCreditCost,
+} from "./vidu-processing-helpers.mjs";
 
 const args = process.argv.slice(2);
 function flag(name) { return args.includes(name); }
@@ -104,15 +111,25 @@ const CHECK_ONLY = flag("--check");
 const DRY_RUN = flag("--dry-run");
 const REQUEST_ID = option("--request", "");
 const TIMEOUT_MS = Math.max(1, Number(option("--timeout-min", "25")) || 25) * 60 * 1000;
-const ALLOW_PAID = flag("--allow-paid") || process.env.IMAGE_ARRANGER_VIDU_ALLOW_PAID === "1";
+function readLocalAllowPaid() {
+  try {
+    const raw = JSON.parse(readFileSync(PROFILE_CONFIG_PATH, "utf8"));
+    return raw?.allowPaid === true || raw?.viduAllowPaid === true || raw?.policy?.allowPaid === true;
+  } catch {
+    return false;
+  }
+}
+const LOCAL_ALLOW_PAID = readLocalAllowPaid();
+const ALLOW_PAID = flag("--allow-paid") || process.env.IMAGE_ARRANGER_VIDU_ALLOW_PAID === "1" || LOCAL_ALLOW_PAID;
 const SERVICE = "vidu";
 const SERVICE_LABEL = "Vidu";
-const BROWSER_UPLOAD_CHUNK_SIZE = 24000;
+const BROWSER_UPLOAD_CHUNK_SIZE = 240000;
 const MIN_VIDEO_BYTES = 100000;
 const START_FRAME_RMSE_THRESHOLD = 0.12;
 const STRICT_START_FRAME_CHECK = process.env.IMAGE_ARRANGER_VIDU_STRICT_START_FRAME === "1";
 let currentViduProfile = null;
 let currentViduUrl = VIDU_URL;
+let currentViduRunMarkerPart = "";
 
 const delay = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 
@@ -167,6 +184,10 @@ function buildViduMarkerUrl(profile, runId = "") {
 
 function markerPartForProfile(profile) {
   return markerPartForViduProfile(profile);
+}
+
+function markerPartForViduRun(profile, runId) {
+  return `${markerPartForProfile(profile)}&run=${encodeURIComponent(runId)}`;
 }
 
 function runViduJs(markerPart, js, { activate = false } = {}) {
@@ -275,25 +296,34 @@ async function waitForNormalProfileViduPage(profile, runLog) {
   const existing = ensured.markerTab;
   runLog.log(`reusing selected-profile Vidu marker tab: ${existing.url}`);
 
-  const state = await waitForState(
+  const state = await waitForReadyViduPageState(markerPart);
+  return state;
+}
+
+async function waitForReadyViduPageState(markerPart) {
+  return waitForState(
     "Vidu selected normal Chrome profile page",
     () => viduState(markerPart),
     (item) => item.readyState === "complete" && (item.loggedOut || (item.fileInputs > 0 && item.textareaCount > 0)),
     { timeoutMs: 30000, intervalMs: 1000 },
   );
-  return state;
 }
 
 async function resetViduMarkerTab(profile, runLog) {
   const markerPart = markerPartForProfile(profile);
-  const targetUrl = buildViduMarkerUrl(profile, timestamp());
+  currentViduRunMarkerPart = "";
+  const runId = timestamp();
+  const targetUrl = buildViduMarkerUrl(profile, runId);
+  const runMarkerPart = markerPartForViduRun(profile, runId);
   runViduJs(markerPart, `
-    location.href = ${JSON.stringify(targetUrl)};
+    history.replaceState(null, document.title, ${JSON.stringify(targetUrl)});
     return { url: location.href };
   `, { activate: true });
-  await delay(3000);
-  const state = await waitForNormalProfileViduPage(profile, runLog);
-  await closeTopBanner(markerPart);
+  currentViduRunMarkerPart = runMarkerPart;
+  await delay(1000);
+  const state = await waitForReadyViduPageState(runMarkerPart);
+  await closeTopBanner(runMarkerPart);
+  runLog.log(`Vidu marker for this run: ${currentViduRunMarkerPart}`);
   return state;
 }
 
@@ -452,6 +482,48 @@ function assertNoActiveViduTask(state, phase) {
     uploading: state.uploading,
     body,
   })}`);
+}
+
+function preexistingViduResultSummary(state) {
+  const directVideoCount = Array.isArray(state?.directVideos) ? state.directVideos.length : 0;
+  const videoCount = Array.isArray(state?.videos) ? state.videos.length : 0;
+  const downloadCount = Array.isArray(state?.downloadButtons) ? state.downloadButtons.length : 0;
+  const uploadedFrames = Array.isArray(state?.fileInputFiles)
+    ? state.fileInputFiles.reduce((sum, count) => sum + Number(count || 0), 0)
+    : 0;
+  const hasUploadPreview = Number(state?.uploadPreviews || 0) > 0 || uploadedFrames > 0;
+  const visible = !hasUploadPreview && (directVideoCount > 0 || downloadCount > 0 || (videoCount > 0 && state?.historyHasProcessingText));
+  return {
+    visible,
+    videos: videoCount,
+    directVideos: directVideoCount,
+    downloadButtons: downloadCount,
+    uploadPreviews: Number(state?.uploadPreviews || 0),
+    fileInputFiles: state?.fileInputFiles,
+  };
+}
+
+function logPreexistingViduResultIfVisible(state, phase, runLog, tag = "vidu") {
+  const summary = preexistingViduResultSummary(state);
+  if (!summary.visible) return summary;
+  const body = String(state.body ?? state.bodyStart ?? "").slice(0, 1200);
+  const detail = {
+    url: state.url,
+    title: state.title,
+    submitText: state.submitText,
+    submitDisabled: state.submitDisabled,
+    videos: summary.videos,
+    directVideos: summary.directVideos,
+    downloadButtons: summary.downloadButtons,
+    uploadPreviews: summary.uploadPreviews,
+    fileInputFiles: summary.fileInputFiles,
+    body,
+  };
+  runLog.log(
+    `[${tag}] preexisting Vidu history/result surface visible during ${phase}; baseline will be recorded and excluded from current-result detection. State: ${JSON.stringify(detail)}`,
+    "warn",
+  );
+  return summary;
 }
 
 async function uploadFrames(markerPart, files, runLog, tag) {
@@ -639,14 +711,6 @@ async function setViduPrompt(markerPart, prompt) {
   return written;
 }
 
-function visibleCreditCost(text) {
-  const visible = String(text);
-  if (!/(credit|credits|クレジット|消費|cost|C\b)/i.test(visible)) return 0;
-  const numbers = visible.match(/\b\d+\b/g) ?? [];
-  if (!numbers.length) return 0;
-  return Number(numbers[numbers.length - 1]) || 0;
-}
-
 async function clickCreate(markerPart) {
   const state = await waitForState(
     "Vidu create button enabled",
@@ -654,6 +718,11 @@ async function clickCreate(markerPart) {
     (item) => item.submitText && !item.submitDisabled && !item.uploading,
     { timeoutMs: 120000, intervalMs: 1000 },
   );
+  if (isInsufficientViduCreditState(state)) {
+    const error = new Error(`Vidu account has insufficient credits; purchase/add credits before retrying. Submit text: ${state.submitText || "(empty)"}`);
+    error.code = "VIDU_INSUFFICIENT_CREDITS";
+    throw error;
+  }
   const cost = visibleCreditCost(state.submitText);
   if (cost > 0 && !ALLOW_PAID) {
     throw new Error(`Vidu create button shows a non-zero credit cost (${state.submitText}). Rerun with --allow-paid if this is intended.`);
@@ -674,15 +743,6 @@ async function clickCreate(markerPart) {
   return state;
 }
 
-function stableVideoKey(src) {
-  try {
-    const url = new URL(src);
-    return `${url.origin}${url.pathname}`;
-  } catch {
-    return String(src ?? "").split(/[?#]/)[0];
-  }
-}
-
 async function waitForNewVideo(markerPart, beforeVideos, { onTick = null } = {}) {
   const before = new Set(beforeVideos.map(stableVideoKey));
   const startedAt = Date.now();
@@ -695,7 +755,7 @@ async function waitForNewVideo(markerPart, beforeVideos, { onTick = null } = {})
     if (freshVideos.length && state.downloadButtons.length) {
       return { status: "video", src: freshVideos[0], state, browserDownload: true };
     }
-    if (/生成に失敗|失敗しました|Generation failed|Failed to generate|Insufficient credits|クレジット不足|ポリシーに違反|policy violation|規約違反/i.test(state.body)) {
+    if (/生成に失敗|失敗しました|Generation failed|Failed to generate|クレジット不足|ポリシーに違反|policy violation|規約違反/i.test(state.body) || isInsufficientViduCreditState(state)) {
       return { status: "error", message: state.body.slice(0, 800), state };
     }
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
@@ -911,6 +971,7 @@ async function main() {
   runLog.log(`${CHECK_ONLY ? "check-only" : `server ${SERVER}`}, projectRoot ${projectRoot}`);
   runLog.log(`Vidu URL ${VIDU_URL}`);
   runLog.log(`download dir ${DOWNLOAD_DIR}`);
+  runLog.log(`allow paid credits: ${ALLOW_PAID ? "yes" : "no"}${LOCAL_ALLOW_PAID ? " (local profile config)" : ""}`);
   runLog.log(`run log: ${runLog.dir}`);
 
   const all = queue.requests ?? [];
@@ -986,6 +1047,7 @@ async function main() {
       process.exitCode = 2;
       return;
     }
+    logPreexistingViduResultIfVisible(pageState, "--check", runLog, "check");
     runLog.log("--check finished: selected normal Chrome profile + Vidu page are ready");
     return;
   }
@@ -1003,6 +1065,12 @@ async function main() {
     const endFrame = row.inputs?.endFrame
       ? assertExistingFile("inputs.endFrame", resolveProjectFile(projectRoot, row.inputs.endFrame))
       : null;
+    assertDistinctViduFrameInputs({
+      startFrame,
+      endFrame,
+      startSha256: sha256(startFrame),
+      endSha256: endFrame ? sha256(endFrame) : "",
+    });
     const frameFiles = [startFrame, endFrame].filter(Boolean);
     const outputDir = resolve(projectRoot, row.outputDir || "outputs");
     mkdirSync(outputDir, { recursive: true });
@@ -1010,10 +1078,12 @@ async function main() {
     const destination = join(outputDir, `${fileBase}.mp4`);
 
     const startState = await resetViduMarkerTab(activeViduProfile, runLog);
+    const targetMarkerPart = currentViduRunMarkerPart || markerPart;
     if (startState.loggedOut || startState.fileInputs === 0 || startState.textareaCount === 0) {
       throw new Error(`Vidu create page is not usable: ${JSON.stringify(startState).slice(0, 1200)}`);
     }
     assertNoActiveViduTask(startState, "before processing target");
+    logPreexistingViduResultIfVisible(startState, "before processing target", runLog, tag);
     const beforeVideos = [
       ...new Set([
         ...(startState.videos ?? []),
@@ -1022,10 +1092,10 @@ async function main() {
     ];
     runLog.log(`[${tag}] Vidu page ready; ${beforeVideos.length} existing video/direct URL(s) visible`);
 
-    const upload = await uploadFrames(markerPart, frameFiles, runLog, tag);
+    const upload = await uploadFrames(targetMarkerPart, frameFiles, runLog, tag);
     runLog.log(`[${tag}] uploaded ${frameFiles.length === 1 ? "start frame" : "start/end frames"} via ${upload.strategy}: ${upload.names.join(", ")}`);
 
-    const duration = await setDurationIfAvailable(markerPart, row.inputs?.durationSec);
+    const duration = await setDurationIfAvailable(targetMarkerPart, row.inputs?.durationSec);
     runLog.attachJson(`duration ${tag}`, duration);
     if (duration.status === "picked" || duration.status === "already") {
       runLog.log(`[${tag}] duration: ${duration.text ?? duration.current}`);
@@ -1033,26 +1103,30 @@ async function main() {
       runLog.log(`[${tag}] could not set duration ${row.inputs.durationSec}s (${duration.status}); relying on the prompt/default`, "warn");
     }
 
-    await setViduPrompt(markerPart, row.prompt);
+    await setViduPrompt(targetMarkerPart, row.prompt);
     runLog.log(`[${tag}] prompt inserted and verified`);
 
     const submittedAt = Date.now();
-    const submit = await clickCreate(markerPart);
+    const submit = await clickCreate(targetMarkerPart);
     runLog.log(`[${tag}] Vidu create submitted (${submit.submitText || "no visible cost text"})`);
     const seenVideos = [...beforeVideos];
     let saved = null;
     while (!saved) {
-      const result = await waitForNewVideo(markerPart, seenVideos, {
+      const result = await waitForNewVideo(targetMarkerPart, seenVideos, {
         onTick: (elapsed, state) => runLog.log(
           `[${tag}] waiting ${elapsed}s - videos:${state.videos.length} submit:${state.submitText || "(none)"}`,
         ),
       });
       if (result.status !== "video") {
         const message = result.status === "timeout" ? "Vidu generation timed out" : `Vidu generation failed: ${result.message}`;
-        throw new Error(message);
+        const error = new Error(message);
+        if (isInsufficientViduCreditState(result.state ?? result.message)) {
+          error.code = "VIDU_INSUFFICIENT_CREDITS";
+        }
+        throw error;
       }
 
-      const candidate = await saveViduResult(markerPart, result, destination, submittedAt, runLog, tag);
+      const candidate = await saveViduResult(targetMarkerPart, result, destination, submittedAt, runLog, tag);
       const duplicate = findDuplicateExistingVideo(destination, outputDir);
       if (duplicate) {
         if (result.src) seenVideos.push(result.src);
@@ -1083,7 +1157,7 @@ async function main() {
 
     if (!flag("--keep-tabs")) {
       try {
-        runViduJs(markerPart, `
+        runViduJs(targetMarkerPart, `
           history.replaceState(null, document.title, ${JSON.stringify(buildViduMarkerUrl(activeViduProfile))});
           return { url: location.href };
         `);
@@ -1105,6 +1179,17 @@ async function main() {
       summary.push(await processTarget(row));
     } catch (error) {
       runLog.log(`[${row.entryId}] failed: ${error.message}`, "error");
+      if (isInsufficientViduCreditError(error)) {
+        runLog.log(`[${row.entryId}] request left pending because this is an account-credit blocker, not a generated-asset failure`, "error");
+        summary.push({
+          requestId: row.requestId,
+          targetIndex: row.targetIndex,
+          entryId: row.entryId,
+          status: "blocked_pending",
+          message: error.message,
+        });
+        continue;
+      }
       await api("/api/requests/complete", {
         requestId: row.requestId,
         targetIndex: row.targetIndex,
@@ -1123,10 +1208,11 @@ async function main() {
   runLog.section("Summary");
   runLog.attachJson("summary", summary);
   for (const item of summary) {
-    runLog.log(`${item.status === "completed" ? "completed" : "error"} ${item.requestId}[${item.targetIndex}] ${item.entryId} ${item.file ?? item.message ?? ""}`);
+    runLog.log(`${item.status} ${item.requestId}[${item.targetIndex}] ${item.entryId} ${item.file ?? item.message ?? ""}`);
   }
   console.log(`\nRun log: ${runLog.dir}/log.md`);
   if (summary.some((item) => item.status === "error")) process.exitCode = 1;
+  if (summary.some((item) => item.status === "blocked_pending")) process.exitCode = Math.max(process.exitCode ?? 0, 2);
 }
 
 main().then(() => {

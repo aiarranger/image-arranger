@@ -398,13 +398,16 @@ function eligibleTargets(queue) {
 
 function cleanComposer() {
   return runTabJs(currentChatgptMarkerPart, `
+    const ed = document.querySelector('#prompt-textarea, div[contenteditable="true"]');
+    if (!ed) return { ok: false, reason: 'no-composer', url: location.href, title: document.title };
+    const composerRoot = ed.closest('form') || ed.parentElement?.parentElement || document;
     const isAttachmentLabel = (label) => {
       const value = label || '';
       return (value.includes('image(') && value.includes(').png'))
         || /\\.(png|jpe?g|webp|gif)\\b/i.test(value)
         || /uploaded image|open image|アップロード済み|添付済み/i.test(value);
     };
-    const buttons = Array.from(document.querySelectorAll('button'));
+    const buttons = Array.from(composerRoot.querySelectorAll('button'));
     for (const button of buttons) {
       const label = button.getAttribute('aria-label') || button.innerText || '';
       if (isAttachmentLabel(label) || (/delete|remove|削除/i.test(label) && /image|file|画像|ファイル/i.test(label))) {
@@ -413,8 +416,6 @@ function cleanComposer() {
         button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
       }
     }
-    const ed = document.querySelector('#prompt-textarea, div[contenteditable="true"]');
-    if (!ed) return { ok: false, reason: 'no-composer', url: location.href, title: document.title };
     ed.focus();
     const selection = window.getSelection();
     const range = document.createRange();
@@ -427,7 +428,7 @@ function cleanComposer() {
       url: location.href,
       title: document.title,
       composerTextLength: (ed.innerText || ed.textContent || '').length,
-      deleteButtonCount: Array.from(document.querySelectorAll('button')).filter((button) => {
+      deleteButtonCount: Array.from(composerRoot.querySelectorAll('button')).filter((button) => {
         const label = button.getAttribute('aria-label') || button.innerText || '';
         return isAttachmentLabel(label) || (/delete|remove|削除/i.test(label) && /image|file|画像|ファイル/i.test(label));
       }).length
@@ -440,14 +441,17 @@ async function waitForNoAttachments(timeoutMs = 30000) {
   let state = null;
   while (Date.now() - started < timeoutMs) {
     state = runTabJs(currentChatgptMarkerPart, `
+      const ed = document.querySelector('#prompt-textarea, div[contenteditable="true"]');
+      const composerRoot = ed?.closest('form') || ed?.parentElement?.parentElement || null;
       const isAttachmentLabel = (label) => {
         const value = label || '';
         return (value.includes('image(') && value.includes(').png'))
           || /\\.(png|jpe?g|webp|gif)\\b/i.test(value)
           || /uploaded image|open image|アップロード済み|添付済み/i.test(value);
       };
-      const labels = Array.from(document.querySelectorAll('button'))
-        .map((button) => button.getAttribute('aria-label') || button.innerText || '');
+      const labels = composerRoot
+        ? Array.from(composerRoot.querySelectorAll('button')).map((button) => button.getAttribute('aria-label') || button.innerText || '')
+        : [];
       const attachmentLabels = labels.filter((label) => isAttachmentLabel(label)
         || (/delete|remove|削除/i.test(label) && /image|file|画像|ファイル/i.test(label)));
       return { attachmentCount: attachmentLabels.length, attachmentLabels };
@@ -590,6 +594,7 @@ function attachReference(absPath, { via = "clipboard" } = {}) {
     absPath,
     markerPart: currentChatgptMarkerPart,
     via,
+    profile: currentChatgptProfile,
   });
 }
 
@@ -643,7 +648,10 @@ async function waitForAttachmentCount(expectedCount, timeoutMs = 240000) {
       }
       state = afterDismiss;
     }
-    if (state.attachmentCount >= expectedCount) return state;
+    if (state.attachmentCount === expectedCount) return state;
+    if (state.attachmentCount > expectedCount) {
+      throw new Error(`ChatGPT attached too many files; expected ${expectedCount}, saw ${state.attachmentCount}: ${JSON.stringify(state)}`);
+    }
     await sleep(1000);
   }
   throw new Error(`Timed out waiting for ${expectedCount} ChatGPT attachment(s): ${JSON.stringify(state)}`);
@@ -740,14 +748,48 @@ async function sendPrompt() {
   }
   return chatgptMacRoute.sendPrompt({
     markerPart: currentChatgptMarkerPart,
+    profile: currentChatgptProfile,
   });
 }
 
-async function waitForGeneratedImage(conversationPart, timeoutMs = 15 * 60 * 1000) {
+function generatedImageSnapshot(conversationPart) {
+  return runActiveChatgptJs(conversationPart, `
+    const isUploadedImageAlt = (alt) => {
+      const value = (alt || '').trim();
+      return value.startsWith('image(') && value.endsWith(').png') && value.length <= 32;
+    };
+    return Array.from(document.querySelectorAll('img')).map((img, index) => {
+      const rect = img.getBoundingClientRect();
+      const src = img.currentSrc || img.src || '';
+      const alt = img.alt || '';
+      return {
+        index,
+        key: [src.slice(0, 240), alt, img.naturalWidth, img.naturalHeight].join('|'),
+        alt,
+        src: src.slice(0, 180),
+        naturalWidth: img.naturalWidth,
+        naturalHeight: img.naturalHeight,
+        area: Math.round(rect.width * rect.height),
+        visible: rect.width > 40 && rect.height > 40,
+        generated: rect.width > 40
+          && rect.height > 40
+          && src.includes('/backend-api/estuary/content')
+          && img.naturalWidth > 256
+          && img.naturalHeight > 256
+          && alt
+          && !isUploadedImageAlt(alt)
+      };
+    }).filter((img) => img.generated);
+  `, { activate: false });
+}
+
+async function waitForGeneratedImage(conversationPart, { beforeKeys = [] } = {}, timeoutMs = 15 * 60 * 1000) {
+  const baseline = new Set(beforeKeys);
   const started = Date.now();
   let state = null;
   while (Date.now() - started < timeoutMs) {
     state = runActiveChatgptJs(conversationPart, `
+      const beforeKeys = new Set(${JSON.stringify([...baseline])});
       const isUploadedImageAlt = (alt) => {
         const value = (alt || '').trim();
         return value.startsWith('image(') && value.endsWith(').png') && value.length <= 32;
@@ -759,6 +801,7 @@ async function waitForGeneratedImage(conversationPart, timeoutMs = 15 * 60 * 100
           index,
           alt: img.alt || '',
           src: (img.currentSrc || img.src || '').slice(0, 180),
+          key: [(img.currentSrc || img.src || '').slice(0, 240), img.alt || '', img.naturalWidth, img.naturalHeight].join('|'),
           naturalWidth: img.naturalWidth,
           naturalHeight: img.naturalHeight,
           area: Math.round(rect.width * rect.height),
@@ -769,7 +812,8 @@ async function waitForGeneratedImage(conversationPart, timeoutMs = 15 * 60 * 100
         && img.naturalWidth > 256
         && img.naturalHeight > 256
         && img.alt
-        && !isUploadedImageAlt(img.alt));
+        && !isUploadedImageAlt(img.alt)
+        && !beforeKeys.has(img.key));
       return {
         url: location.href,
         title: document.title,
@@ -777,6 +821,7 @@ async function waitForGeneratedImage(conversationPart, timeoutMs = 15 * 60 * 100
         generatedCount: generated.length,
         generated,
         policyBlocked: /コンテンツポリシーに違反|content policy violation|violates? (the )?content policy|generated image[^\\n]{0,160}policy/i.test(body.slice(-3000)),
+        transientError: /Something went wrong|問題が発生しました|エラーが発生しました|再試行|try again/i.test(body.slice(-3000)),
         refused: /申し訳|できません|I can.?t|cannot|policy|ポリシー/i.test(body.slice(-2000)),
         bodyTail: body.slice(-500)
       };
@@ -784,6 +829,9 @@ async function waitForGeneratedImage(conversationPart, timeoutMs = 15 * 60 * 100
     if (!state.hasStopButton && state.generatedCount > 0) return state;
     if (state.policyBlocked && state.generatedCount === 0) {
       throw new Error(`ChatGPT image generation was blocked by policy: ${state.bodyTail}`);
+    }
+    if (!state.hasStopButton && state.transientError && state.generatedCount === 0) {
+      throw new Error(`ChatGPT image generation failed before an image was produced: ${state.bodyTail}`);
     }
     if (!state.hasStopButton && state.refused && state.generatedCount === 0) {
       throw new Error(`ChatGPT appears to have refused or errored: ${state.bodyTail}`);
@@ -805,28 +853,86 @@ function listDownloadImages() {
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
-async function saveGeneratedImage(conversationPart) {
+function downloadKeyForState() {
+  return `imageArrangerChatgptBlobDownload_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function startBrowserBlobDownload(conversationPart, opened, stateKey) {
+  return runActiveChatgptJs(conversationPart, `
+    const stateKey = ${JSON.stringify(stateKey)};
+    const src = ${JSON.stringify(opened.src ?? "")};
+    const alt = ${JSON.stringify(opened.alt ?? "")};
+    const extension = /\\.webp(\\?|$)/i.test(src) ? '.webp' : (/\\.jpe?g(\\?|$)/i.test(src) ? '.jpg' : '.png');
+    const fileName = 'image-arranger-chatgpt-generated-' + Date.now() + extension;
+    if (!src) return { ok: false, reason: 'missing-src' };
+    window[stateKey] = { status: 'started', fileName, alt, at: Date.now() };
+    fetch(src, { credentials: 'include' }).then(async (response) => {
+      if (!response.ok) throw new Error('fetch ' + response.status);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      window[stateKey] = { status: 'clicked', fileName, alt, size: blob.size, type: blob.type, at: Date.now() };
+    }).catch((error) => {
+      window[stateKey] = { status: 'error', fileName, alt, message: String(error && error.message || error), at: Date.now() };
+    });
+    return { ok: true, stateKey, fileName, alt, srcHead: src.slice(0, 120) };
+  `, { activate: true });
+}
+
+function inspectBrowserBlobDownload(conversationPart, stateKey) {
+  return runActiveChatgptJs(conversationPart, `
+    return window[${JSON.stringify(stateKey)}] || null;
+  `, { activate: false });
+}
+
+async function saveGeneratedImage(conversationPart, { beforeKeys = [] } = {}) {
   const before = Date.now();
+  const beforeDownloads = new Set(listDownloadImages().map((item) => `${item.file}|${item.mtimeMs}|${item.size}`));
   const opened = runActiveChatgptJs(conversationPart, `
+    const beforeKeys = new Set(${JSON.stringify(beforeKeys)});
+    const allImages = Array.from(document.querySelectorAll('img'));
+    const firePointerSequence = (element) => {
+      for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+        const Ctor = type.startsWith('pointer') ? PointerEvent : MouseEvent;
+        element.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, view: window, buttons: 1, pointerId: 1 }));
+      }
+    };
     const isUploadedImageAlt = (alt) => {
       const value = (alt || '').trim();
       return value.startsWith('image(') && value.endsWith(').png') && value.length <= 32;
     };
     const candidates = Array.from(document.querySelectorAll('img')).map((img) => {
       const rect = img.getBoundingClientRect();
-      return { img, rect, area: rect.width * rect.height };
-    }).filter(({ img, rect }) => rect.width > 40
+      const src = img.currentSrc || img.src || '';
+      const alt = img.alt || '';
+      const key = [src.slice(0, 240), alt, img.naturalWidth, img.naturalHeight].join('|');
+      return { img, rect, area: rect.width * rect.height, src, alt, key, index: allImages.indexOf(img) };
+    }).filter(({ img, rect, src, alt, key }) => rect.width > 40
       && rect.height > 40
-      && (img.currentSrc || img.src || '').includes('/backend-api/estuary/content')
-      && img.naturalWidth > 256
-      && img.naturalHeight > 256
-      && img.alt
-      && !isUploadedImageAlt(img.alt))
-      .sort((a, b) => b.area - a.area);
+      && src.includes('/backend-api/estuary/content')
+      && alt
+      && !isUploadedImageAlt(alt)
+      && (alt.startsWith('生成された画像') || (img.naturalWidth > 256 && img.naturalHeight > 256))
+      && !beforeKeys.has(key))
+      .sort((a, b) => b.index - a.index || b.area - a.area);
     if (!candidates.length) return { ok: false, reason: 'generated-image-not-found' };
-    candidates[0].img.scrollIntoView({ block: 'center', inline: 'center' });
-    candidates[0].img.click();
-    return { ok: true, alt: candidates[0].img.alt, width: candidates[0].img.naturalWidth, height: candidates[0].img.naturalHeight };
+    const opener = candidates[0].img.closest('button,[role="button"]') || candidates[0].img;
+    opener.scrollIntoView({ block: 'center', inline: 'center' });
+    firePointerSequence(opener);
+    return {
+      ok: true,
+      alt: candidates[0].img.alt,
+      src: candidates[0].src,
+      width: candidates[0].img.naturalWidth,
+      height: candidates[0].img.naturalHeight,
+      openerLabel: opener.getAttribute('aria-label') || opener.innerText || ''
+    };
   `);
   if (!opened.ok) throw new Error(`Could not open generated image: ${JSON.stringify(opened)}`);
   await sleep(1200);
@@ -851,14 +957,33 @@ async function saveGeneratedImage(conversationPart) {
       height: Math.round(save.rect.height)
     };
   `);
-  if (!saved.ok) throw new Error(`Could not click ChatGPT save button: ${JSON.stringify(saved)}`);
+  let blobDownloadStateKey = null;
+  let blobDownloadStarted = null;
+  if (!saved.ok) {
+    blobDownloadStateKey = downloadKeyForState();
+    blobDownloadStarted = startBrowserBlobDownload(conversationPart, opened, blobDownloadStateKey);
+    if (!blobDownloadStarted.ok) {
+      throw new Error(`Could not click ChatGPT save button or start browser blob download: ${JSON.stringify({ saved, blobDownloadStarted })}`);
+    }
+  }
   let found = null;
+  let blobState = null;
   for (let i = 0; i < 30; i += 1) {
-    found = listDownloadImages().find((item) => item.mtimeMs >= before - 2000 && item.size > 0);
+    found = listDownloadImages().find((item) => (
+      item.mtimeMs >= before - 2000
+      && item.size > 0
+      && !beforeDownloads.has(`${item.file}|${item.mtimeMs}|${item.size}`)
+    ));
     if (found) break;
+    if (blobDownloadStateKey) {
+      blobState = inspectBrowserBlobDownload(conversationPart, blobDownloadStateKey);
+      if (blobState?.status === "error") break;
+    }
     await sleep(1000);
   }
-  if (!found) throw new Error("ChatGPT save did not create a new image file in Downloads");
+  if (!found) {
+    throw new Error(`ChatGPT save did not create a new image file in Downloads: ${JSON.stringify({ saved, blobDownloadStarted, blobState })}`);
+  }
   if (!KEEP_MODAL) {
     runActiveChatgptJs(conversationPart, `
       const close = Array.from(document.querySelectorAll('button')).find((button) => (button.getAttribute('aria-label') || '') === '全画面表示を閉じる');
@@ -866,7 +991,7 @@ async function saveGeneratedImage(conversationPart) {
       return { closed: Boolean(close) };
     `, { activate: false });
   }
-  return { downloaded: found, opened, saved };
+  return { downloaded: found, opened, saved, blobDownload: blobDownloadStarted ?? null };
 }
 
 function resolveProjectPath(projectRoot, file) {
@@ -912,7 +1037,20 @@ async function processTarget(queue, target) {
     if (!existsSync(abs)) throw new Error(`Reference image does not exist: ${abs}`);
     expectedAttachments += 1;
     console.log(`[${target.requestId}:${target.targetIndex}] attach ${ref}`);
-    attachReference(abs);
+    let attachAttemptError = null;
+    try {
+      attachReference(abs);
+    } catch (error) {
+      attachAttemptError = error;
+    }
+    if (attachAttemptError) {
+      const retryVia = process.platform === "darwin" && !usesChromeBridgeRoute() ? "browser-file-input" : "clipboard";
+      if (retryVia !== "browser-file-input") throw attachAttemptError;
+      console.warn(`[${target.requestId}:${target.targetIndex}] clipboard attach failed before upload appeared; retrying once through browser file-input fallback for ${ref}: ${attachAttemptError.message}`);
+      attachReference(abs, { via: retryVia });
+      await waitForAttachmentCount(expectedAttachments);
+      continue;
+    }
     try {
       const firstAttachTimeoutMs = process.platform === "darwin" && !usesChromeBridgeRoute() ? 30000 : 240000;
       await waitForAttachmentCount(expectedAttachments, firstAttachTimeoutMs);
@@ -935,18 +1073,25 @@ async function processTarget(queue, target) {
   if (sendReady.sendDisabled) {
     throw new Error(`ChatGPT send button stayed disabled before send: ${JSON.stringify(sendReady)}`);
   }
+  const beforeGeneratedImageKeys = generatedImageSnapshot(currentChatgptMarkerPart).map((image) => image.key);
   console.log(`[${target.requestId}:${target.targetIndex}] prompt verified, sending`);
   const sent = await sendPrompt();
-  if (!sent.url || !sent.url.includes("/c/")) throw new Error(`Could not confirm sent ChatGPT conversation: ${JSON.stringify(sent)}`);
-  const conversationPart = sent.url.split("/c/")[1]?.split(/[?#]/)[0] ?? sent.url;
+  if (!sent.url || (!sent.url.includes("/c/") && !sent.hasStopButton)) {
+    throw new Error(`Could not confirm sent ChatGPT generation started: ${JSON.stringify(sent)}`);
+  }
+  const conversationPart = sent.url.includes("/c/")
+    ? sent.url.split("/c/")[1]?.split(/[?#]/)[0]
+    : currentChatgptMarkerPart;
 
   console.log(`[${target.requestId}:${target.targetIndex}] waiting for generated image in ${sent.url}`);
-  const generated = await waitForGeneratedImage(conversationPart);
+  const generated = await waitForGeneratedImage(conversationPart, { beforeKeys: beforeGeneratedImageKeys });
   console.log(`[${target.requestId}:${target.targetIndex}] generated image ready (${generated.generatedCount})`);
 
-  const saveResult = await saveGeneratedImage(conversationPart);
+  const saveResult = await saveGeneratedImage(conversationPart, { beforeKeys: beforeGeneratedImageKeys });
   const output = uniqueOutputPath(projectRoot, target, saveResult.downloaded.file);
   copyFileSync(saveResult.downloaded.file, output.abs);
+  const outputStat = statSync(output.abs);
+  if (outputStat.size <= 0) throw new Error(`Copied ChatGPT output is empty: ${output.abs}`);
   console.log(`[${target.requestId}:${target.targetIndex}] saved ${output.rel}`);
 
   const complete = await api("/api/requests/complete", {
@@ -954,6 +1099,9 @@ async function processTarget(queue, target) {
     targetIndex: target.targetIndex,
     results: [{ file: output.rel }],
   });
+  if ((complete.requests ?? []).some((row) => row.requestId === target.requestId && row.targetIndex === target.targetIndex)) {
+    throw new Error(`ChatGPT completion API returned but target is still queued: ${target.requestId}[${target.targetIndex}]`);
+  }
   console.log(`[${target.requestId}:${target.targetIndex}] complete ok; queue remaining ${(complete.requests ?? []).length}`);
   if ((complete.requests ?? []).some((row) => row.service === "chatgpt" || !row.service)) {
     const reset = await resetActiveTabToMarker(conversationPart);

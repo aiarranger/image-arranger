@@ -12,129 +12,145 @@ function mimeForFile(file) {
   return "image/png";
 }
 
-function attachReferenceFromClipboard({ absPath, markerPart }) {
-  const script = `
-set imagePath to "${osaString(absPath)}"
-set the clipboard to (read (POSIX file imagePath) as «class PNGf»)
-set foundTab to false
-tell application "Google Chrome"
-  repeat with wi from 1 to count of windows
-    set w to window wi
-    repeat with ti from 1 to count of tabs of w
-      set t to tab ti of w
-      if (URL of t contains "${osaString(markerPart)}") then
-        set active tab index of w to ti
-        set index of w to 1
-        activate
-        execute t javascript "(() => { const ed = document.querySelector('#prompt-textarea, div[contenteditable=\\\"true\\\"]'); if (!ed) return 'no-composer'; ed.scrollIntoView({ block: 'center', inline: 'nearest' }); const rect = ed.getBoundingClientRect(); const opts = { bubbles: true, cancelable: true, view: window, clientX: Math.round(rect.left + rect.width / 2), clientY: Math.round(rect.top + Math.min(rect.height / 2, 24)) }; ed.dispatchEvent(new MouseEvent('mousedown', opts)); ed.focus(); ed.dispatchEvent(new MouseEvent('mouseup', opts)); ed.dispatchEvent(new MouseEvent('click', opts)); return document.activeElement === ed || ed.contains(document.activeElement) ? 'focused' : 'focus-attempted'; })();"
-        set foundTab to true
-        exit repeat
-      end if
-    end repeat
-    if foundTab then exit repeat
-  end repeat
-end tell
-if not foundTab then error "ChatGPT marker tab was not found"
-delay 0.4
+function focusComposer(markerPart, { profile = null } = {}) {
+  return runMarkerJs(markerPart, `
+    const ed = document.querySelector('#prompt-textarea, div[contenteditable="true"]');
+    if (!ed) return { ok: false, reason: 'no-composer' };
+    ed.scrollIntoView({ block: 'center', inline: 'nearest' });
+    const rect = ed.getBoundingClientRect();
+    const opts = {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX: Math.round(rect.left + rect.width / 2),
+      clientY: Math.round(rect.top + Math.min(rect.height / 2, 24))
+    };
+    ed.dispatchEvent(new MouseEvent('mousedown', opts));
+    ed.focus();
+    ed.dispatchEvent(new MouseEvent('mouseup', opts));
+    ed.dispatchEvent(new MouseEvent('click', opts));
+    return {
+      ok: document.activeElement === ed || ed.contains(document.activeElement),
+      focusState: document.activeElement === ed || ed.contains(document.activeElement) ? 'focused' : 'focus-attempted'
+    };
+  `, { activate: true, profile });
+}
+
+function systemEventsKeystroke(scriptBody) {
+  runAppleScript(`
 tell application "System Events"
   tell process "Google Chrome" to set frontmost to true
-  delay 0.1
-  keystroke "v" using command down
+  ${scriptBody}
 end tell
+`);
+}
+
+function attachReferenceFromClipboard({ absPath, markerPart, profile = null }) {
+  runAppleScript(`
+set imagePath to "${osaString(absPath)}"
+set the clipboard to (read (POSIX file imagePath) as «class PNGf»)
+`);
+  const focused = focusComposer(markerPart, { profile });
+  if (!focused.ok) throw new Error(`ChatGPT composer was not focused before paste: ${JSON.stringify(focused)}`);
+  systemEventsKeystroke(`
+delay 0.4
+delay 0.1
+keystroke "v" using command down
 delay 1
-`;
-  runAppleScript(script);
+`);
   return { ok: true, via: "macos-clipboard" };
 }
 
-function attachReferenceWithFilePicker({ absPath, markerPart }) {
-  const script = `
+function attachReferenceWithFilePicker({ absPath, markerPart, profile = null }) {
+  systemEventsKeystroke("key code 53");
+  const buttonInfo = runMarkerJs(markerPart, `
+    const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+    const visible = (element) => {
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    };
+    const buttons = Array.from(document.querySelectorAll('button, [role=button]')).filter(visible);
+    const button = document.querySelector('[data-testid="composer-plus-btn"]')
+      || buttons.find((element) => /ファイルなどを追加|Add photos and files|Attach files|Add files|ファイル.*追加/i.test(normalize(element.getAttribute('aria-label') || element.innerText || element.textContent)));
+    if (!button) return {
+      ok: false,
+      reason: 'composer plus button not found',
+      labels: buttons.map((element) => normalize(element.getAttribute('aria-label') || element.innerText || element.textContent)).filter(Boolean).slice(-20),
+    };
+    button.scrollIntoView({ block: 'center', inline: 'center' });
+    const rect = button.getBoundingClientRect();
+    return {
+      ok: true,
+      x: Math.round(window.screenX + rect.left + rect.width / 2),
+      y: Math.round(window.screenY + rect.top + rect.height / 2),
+      label: normalize(button.getAttribute('aria-label') || button.innerText || button.textContent)
+    };
+  `, { activate: true, profile });
+  if (!buttonInfo.ok) throw new Error(`Could not locate ChatGPT add-files button: ${JSON.stringify(buttonInfo)}`);
+  systemEventsKeystroke(`click at {${buttonInfo.x}, ${buttonInfo.y}}`);
+  const menuInfo = runMarkerJs(markerPart, `
+    const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+    const visible = (element) => {
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    };
+    const elements = Array.from(document.querySelectorAll('[role=menuitem], [role=group], button, [role=button], div')).filter(visible);
+    const exact = elements.filter((element) => {
+      const label = normalize(element.getAttribute('aria-label') || element.innerText || element.textContent);
+      return /^(写真とファイルを追加|Add photos and files|Upload from computer|Upload files|Add files)$/.test(label);
+    });
+    const item = exact.find((element) => {
+      const rect = element.getBoundingClientRect();
+      const role = element.getAttribute('role') || '';
+      return rect.width >= 80 && rect.height >= 20 && /^(menuitem|group|button)$/.test(role || element.tagName.toLowerCase());
+    }) || exact.find((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width >= 80 && rect.height >= 20;
+    });
+    if (!item) return {
+      ok: false,
+      reason: 'photos/files menu item not found',
+      labels: elements.map((element) => normalize(element.getAttribute('aria-label') || element.innerText || element.textContent)).filter(Boolean).filter((label) => /写真|ファイル|Upload|Add/.test(label)).slice(-20),
+    };
+    const rect = item.getBoundingClientRect();
+    return {
+      ok: true,
+      x: Math.round(window.screenX + rect.left + rect.width / 2),
+      y: Math.round(window.screenY + rect.top + rect.height / 2),
+      label: normalize(item.getAttribute('aria-label') || item.innerText || item.textContent)
+    };
+  `, { activate: true, profile });
+  if (!menuInfo.ok) throw new Error(`Could not locate ChatGPT photos/files menu item: ${JSON.stringify(menuInfo)}`);
+  runAppleScript(`
 set imagePath to "${osaString(absPath)}"
-set markerPart to "${osaString(markerPart)}"
-set foundTab to false
-set targetTab to missing value
-set buttonInfo to ""
-tell application "Google Chrome"
-  repeat with wi from 1 to count of windows
-    set w to window wi
-    repeat with ti from 1 to count of tabs of w
-      set t to tab ti of w
-      if (URL of t contains markerPart) then
-        set active tab index of w to ti
-        set index of w to 1
-        activate
-        set targetTab to t
-        set foundTab to true
-        exit repeat
-      end if
-    end repeat
-    if foundTab then exit repeat
-  end repeat
-end tell
-if not foundTab then error "ChatGPT marker tab was not found"
-
-delay 0.2
+set the clipboard to imagePath
 tell application "System Events"
   tell process "Google Chrome" to set frontmost to true
-  key code 53
-end tell
-delay 0.2
-
-tell application "Google Chrome"
-  set buttonInfo to execute targetTab javascript "(() => { const normalize = (value) => String(value || '').replace(/\\\\s+/g, ' ').trim(); const visible = (element) => { const rect = element.getBoundingClientRect(); const style = window.getComputedStyle(element); return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none'; }; const buttons = Array.from(document.querySelectorAll('button, [role=button]')).filter(visible); const button = document.querySelector('[data-testid=\\\"composer-plus-btn\\\"]') || buttons.find((element) => /ファイルなどを追加|Add photos and files|Attach files|Add files|ファイル.*追加/i.test(normalize(element.getAttribute('aria-label') || element.innerText || element.textContent))); if (!button) return ['ERROR', 'composer plus button not found', buttons.map((element) => normalize(element.getAttribute('aria-label') || element.innerText || element.textContent)).filter(Boolean).slice(-20).join(' | ')].join('\\\\n'); button.scrollIntoView({ block: 'center', inline: 'center' }); const rect = button.getBoundingClientRect(); return ['OK', Math.round(window.screenX + rect.left + rect.width / 2), Math.round(window.screenY + rect.top + rect.height / 2), normalize(button.getAttribute('aria-label') || button.innerText || button.textContent)].join('\\\\n'); })();"
-end tell
-set oldDelimiters to AppleScript's text item delimiters
-set AppleScript's text item delimiters to linefeed
-set buttonParts to text items of buttonInfo
-set AppleScript's text item delimiters to oldDelimiters
-if item 1 of buttonParts is not "OK" then error "Could not locate ChatGPT add-files button: " & buttonInfo
-set buttonX to (item 2 of buttonParts) as integer
-set buttonY to (item 3 of buttonParts) as integer
-
-tell application "System Events"
-  tell process "Google Chrome" to set frontmost to true
-  click at {buttonX, buttonY}
-end tell
-delay 0.5
-
-set menuInfo to ""
-tell application "Google Chrome"
-  set menuInfo to execute targetTab javascript "(() => { const normalize = (value) => String(value || '').replace(/\\\\s+/g, ' ').trim(); const visible = (element) => { const rect = element.getBoundingClientRect(); const style = window.getComputedStyle(element); return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none'; }; const elements = Array.from(document.querySelectorAll('[role=menuitem], [role=group], button, [role=button], div')).filter(visible); const exact = elements.filter((element) => { const label = normalize(element.getAttribute('aria-label') || element.innerText || element.textContent); return /^(写真とファイルを追加|Add photos and files|Upload from computer|Upload files|Add files)$/.test(label); }); const item = exact.find((element) => { const rect = element.getBoundingClientRect(); const role = element.getAttribute('role') || ''; return rect.width >= 80 && rect.height >= 20 && /^(menuitem|group|button)$/.test(role || element.tagName.toLowerCase()); }) || exact.find((element) => { const rect = element.getBoundingClientRect(); return rect.width >= 80 && rect.height >= 20; }); if (!item) return ['ERROR', 'photos/files menu item not found', elements.map((element) => normalize(element.getAttribute('aria-label') || element.innerText || element.textContent)).filter(Boolean).filter((label) => /写真|ファイル|Upload|Add/.test(label)).slice(-20).join(' | ')].join('\\\\n'); const rect = item.getBoundingClientRect(); return ['OK', Math.round(window.screenX + rect.left + rect.width / 2), Math.round(window.screenY + rect.top + rect.height / 2), normalize(item.getAttribute('aria-label') || item.innerText || item.textContent)].join('\\\\n'); })();"
-end tell
-set oldDelimiters to AppleScript's text item delimiters
-set AppleScript's text item delimiters to linefeed
-set menuParts to text items of menuInfo
-set AppleScript's text item delimiters to oldDelimiters
-if item 1 of menuParts is not "OK" then error "Could not locate ChatGPT photos/files menu item: " & menuInfo
-set menuX to (item 2 of menuParts) as integer
-set menuY to (item 3 of menuParts) as integer
-
-tell application "System Events"
-  tell process "Google Chrome" to set frontmost to true
-  click at {menuX, menuY}
+  click at {${menuInfo.x}, ${menuInfo.y}}
   delay 0.8
   keystroke "g" using {command down, shift down}
   delay 0.2
-  set the clipboard to imagePath
   keystroke "v" using command down
   key code 36
   delay 0.4
   key code 36
 end tell
 delay 1
-`;
-  runAppleScript(script);
+`);
   return { ok: true, via: "macos-visible-file-picker" };
 }
 
-function runMarkerJs(markerPart, js, { activate = true } = {}) {
+function runMarkerJs(markerPart, js, { activate = true, profile = null } = {}) {
   return runChromeTabJsByUrlPart(markerPart, js, {
     activate,
     errorLabel: "ChatGPT macOS attach tab",
+    profile,
   });
 }
 
-function attachReferenceWithBrowserFileInput({ absPath, markerPart }) {
+function attachReferenceWithBrowserFileInput({ absPath, markerPart, profile = null }) {
   const uploadId = `chatgpt-macos-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const data = readFileSync(absPath).toString("base64");
   const fileInfo = { name: basename(absPath), type: mimeForFile(absPath), size: statSync(absPath).size };
@@ -146,7 +162,7 @@ function attachReferenceWithBrowserFileInput({ absPath, markerPart }) {
       chunks: []
     };
     return { ok: true };
-  `, { activate: true });
+  `, { activate: true, profile });
   for (let offset = 0; offset < data.length; offset += BROWSER_UPLOAD_CHUNK_SIZE) {
     const chunk = data.slice(offset, offset + BROWSER_UPLOAD_CHUNK_SIZE);
     runMarkerJs(markerPart, `
@@ -154,7 +170,7 @@ function attachReferenceWithBrowserFileInput({ absPath, markerPart }) {
       if (!upload) throw new Error("ChatGPT upload store missing");
       upload.chunks.push(${JSON.stringify(chunk)});
       return { chunks: upload.chunks.length };
-    `, { activate: false });
+    `, { activate: false, profile });
   }
   const committed = runMarkerJs(markerPart, `
     const upload = window.__imageArrangerChatgptUploads?.[${JSON.stringify(uploadId)}];
@@ -196,66 +212,52 @@ function attachReferenceWithBrowserFileInput({ absPath, markerPart }) {
       inputId: input.id || "",
       inputAccept: input.getAttribute("accept") || ""
     };
-  `, { activate: true });
+  `, { activate: true, profile });
   if (!committed.ok || committed.fileCount < 1) {
     throw new Error(`ChatGPT macOS browser file attach failed: ${JSON.stringify(committed)}`);
   }
   return committed;
 }
 
-export function attachReference({ absPath, markerPart, via = "clipboard" }) {
+export function attachReference({ absPath, markerPart, via = "clipboard", profile = null }) {
   if (via === "browser-file-input") {
-    return attachReferenceWithBrowserFileInput({ absPath, markerPart });
+    return attachReferenceWithBrowserFileInput({ absPath, markerPart, profile });
   }
   if (via === "file-picker") {
-    return attachReferenceWithFilePicker({ absPath, markerPart });
+    return attachReferenceWithFilePicker({ absPath, markerPart, profile });
   }
-  return attachReferenceFromClipboard({ absPath, markerPart });
+  return attachReferenceFromClipboard({ absPath, markerPart, profile });
 }
 
-export function sendPrompt({ markerPart }) {
-  const script = `
-set foundTab to false
-set resultText to ""
-set targetTab to missing value
-tell application "Google Chrome"
-  repeat with wi from 1 to count of windows
-    set w to window wi
-    repeat with ti from 1 to count of tabs of w
-      set t to tab ti of w
-      if (URL of t contains "${osaString(markerPart)}") then
-        set active tab index of w to ti
-        set index of w to 1
-        activate
-        execute t javascript "(() => { const ed = document.querySelector('#prompt-textarea, div[contenteditable=\\\"true\\\"]'); if (!ed) return 'no-composer'; ed.scrollIntoView({ block: 'center', inline: 'nearest' }); const rect = ed.getBoundingClientRect(); const opts = { bubbles: true, cancelable: true, view: window, clientX: Math.round(rect.left + rect.width / 2), clientY: Math.round(rect.top + Math.min(rect.height / 2, 24)) }; ed.dispatchEvent(new MouseEvent('mousedown', opts)); ed.focus(); ed.dispatchEvent(new MouseEvent('mouseup', opts)); ed.dispatchEvent(new MouseEvent('click', opts)); return document.activeElement === ed || ed.contains(document.activeElement) ? 'focused' : 'focus-attempted'; })();"
-        set targetTab to t
-        set foundTab to true
-        exit repeat
-      end if
-    end repeat
-    if foundTab then exit repeat
-  end repeat
-end tell
-if not foundTab then error "ChatGPT marker tab was not found"
-delay 0.3
-set clickResult to ""
-tell application "Google Chrome"
-  set clickResult to execute targetTab javascript "JSON.stringify((() => { const send = document.querySelector('[data-testid=\\\"send-button\\\"]'); if (!send) return { ok: false, reason: 'no-send-button' }; const disabled = send.disabled || send.getAttribute('aria-disabled') === 'true'; if (disabled) return { ok: false, reason: 'send-disabled' }; send.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window })); send.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window })); send.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); return { ok: true }; })())"
-end tell
-if clickResult does not contain "\\"ok\\":true" then
-  tell application "System Events" to key code 36
-end if
-delay 1
-tell application "Google Chrome"
-  repeat 120 times
-    try
-      set resultText to execute targetTab javascript "JSON.stringify((() => ({url: location.href, title: document.title, hasMarker: location.href.includes('${osaString(markerPart)}'), hasConversation: location.href.includes('/c/'), hasStopButton: !!document.querySelector('[data-testid=\\\"stop-button\\\"]'), composerExists: !!document.querySelector('#prompt-textarea, div[contenteditable=\\\"true\\\"]')}))())"
-      if resultText contains "\\"hasConversation\\":true" then return resultText
-    end try
-    delay 1
-  end repeat
-end tell
-error "sent ChatGPT conversation tab did not leave the marker tab: " & resultText
-`;
-  return JSON.parse(runAppleScript(script));
+export function sendPrompt({ markerPart, profile = null }) {
+  focusComposer(markerPart, { profile });
+  const clickResult = runMarkerJs(markerPart, `
+    const send = document.querySelector('[data-testid="send-button"]');
+    if (!send) return { ok: false, reason: 'no-send-button' };
+    const disabled = send.disabled || send.getAttribute('aria-disabled') === 'true';
+    if (disabled) return { ok: false, reason: 'send-disabled' };
+    send.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+    send.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+    send.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+    return { ok: true };
+  `, { activate: true, profile });
+  if (!clickResult.ok) {
+    systemEventsKeystroke("key code 36");
+  }
+  let result = null;
+  for (let i = 0; i < 120; i += 1) {
+    result = runMarkerJs(markerPart, `
+      return {
+        url: location.href,
+        title: document.title,
+        hasMarker: location.href.includes(${JSON.stringify(markerPart)}),
+        hasConversation: location.href.includes('/c/'),
+        hasStopButton: !!document.querySelector('[data-testid="stop-button"]'),
+        composerExists: !!document.querySelector('#prompt-textarea, div[contenteditable="true"]')
+      };
+    `, { activate: false, profile });
+    if (result.hasConversation || result.hasStopButton) return result;
+    runAppleScript("delay 1");
+  }
+  throw new Error(`sent ChatGPT conversation tab did not start generating: ${JSON.stringify(result)}`);
 }

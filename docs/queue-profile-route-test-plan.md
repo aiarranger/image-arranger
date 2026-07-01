@@ -22,12 +22,14 @@ marker-tab route and must not open or probe other Chrome profiles.
 | MULTI-01 | Matching marker URL exists in a wrong Chrome profile, and the selected profile window also exists | Ignore the wrong-profile marker, create/refind the marker only in the selected profile | `service-browser-route.test.mjs`, `npm run test:real-browser-route` |
 | MULTI-02 | Matching marker URL exists in a wrong Chrome profile, and no selected-profile window can be proven | Stop; do not open another Chrome profile and do not probe profiles | `service-browser-route.test.mjs`, `npm run test:real-browser-route` |
 | MULTI-03 | Rejected generated/automation Chrome `--user-data-dir` process is still running | Stop before using the normal-profile route | `service-browser-profile.test.mjs` |
-| MULTI-04 | macOS route sees multiple Chrome windows/tabs | Prove actual profile through `chrome://version` / Profile Path, not through URL text or window title alone | `queue-profile-route-regression.test.mjs`, `npm run test:real-browser-route` |
+| MULTI-04 | macOS route sees multiple Chrome windows/tabs | Use the same ChatGPT/Vidu marker route and Chrome window profile label; never open `chrome://version` | `queue-profile-route-regression.test.mjs`, `npm run test:real-browser-route` |
 | HUMAN-01 | Human closes the marker tab during profile-safe repair | Stop after refind fails; do not continue to upload/send/create | `service-browser-route.test.mjs`, `npm run test:real-browser-route` |
 | HUMAN-02 | Human switches/moves the target so page JavaScript would run against a wrong-profile marker | Stop with profile-mismatch before executing page JavaScript | `queue-profile-route-regression.test.mjs`, `npm run test:real-browser-route` |
 | HUMAN-03 | Human opens extra Vidu/ChatGPT profile while AI is operating | Ignore extra profile/window unless it matches the saved selected profile proof | `service-browser-route.test.mjs`, `npm run test:real-browser-route` |
 | HUMAN-04 | Vidu marker tab disappears during processing | Stop and require rerun of common marker setup/check; do not auto-reopen or resubmit | `queue-profile-route-regression.test.mjs` |
 | HUMAN-05 | Human manually starts an active Vidu task before AI submits | Active Vidu task check stops before create submit | `process-vidu-queue.mjs` guard; confirm during Vidu service check when present |
+| HUMAN-06 | Vidu create page shows a selected old history/result video before current upload | `--check` logs the old visible result as preexisting; processing records visible video/direct MP4 URLs as the baseline, verifies the current upload and prompt, then ignores baseline URLs while waiting for the new result | `queue-profile-route-regression.test.mjs`, live Vidu check when present |
+| HUMAN-07 | macOS ChatGPT/Vidu processing opens `chrome://version`, `about:blank`, or repeated marker tabs during one operation | Stop the run, cancel the queued test target if needed, and fix the shared route. Vidu may use `run=...` only as the current marker URL, not as a separate profile-proof path | `queue-profile-route-regression.test.mjs`, live service observation |
 | VIDU-UP-01 | Vidu start-only request, one input | Upload exactly one file into first image input | `vidu-upload-plan.test.mjs` |
 | VIDU-UP-02 | Vidu start-only request, two inputs visible | Still upload exactly one file into first image input; leave second empty | `vidu-upload-plan.test.mjs` |
 | VIDU-UP-03 | Vidu start/end request, two inputs visible | Upload start to first input and end to second input | `vidu-upload-plan.test.mjs` |
@@ -43,33 +45,35 @@ marker-tab route and must not open or probe other Chrome profiles.
 
 ## Real Browser Profile Route Cases
 
-These cases open real Google Chrome windows, but only with a temporary test-only
-`--user-data-dir`. They must not touch the operator's normal ChatGPT/Vidu
-profile. The script refuses to run if a non-test Google Chrome process is
-already running, and it quits/removes the temporary browser profile at the end.
-On macOS, the route proves the active Chrome profile by executing JavaScript on
-`chrome://version`. Chrome stores
-`表示 > 開発 / 管理 > Apple Events からの JavaScript を許可` as a per-profile
-preference (`browser.allow_javascript_apple_events`), so a disposable test
-profile does not inherit the operator's normal Chrome setting. The real-browser
-test seeds this preference into its temporary `Default` and `Profile 1`
-profiles before launch. If Chrome still refuses Apple Events JavaScript, the
-script performs one probe, closes Chrome, and stops; it must not keep opening
-`chrome://version` tabs.
+Routine validation uses the operator's already-running saved normal Chrome
+profile from `workspace/.local/chatgpt-profile.json`. It does not launch a
+temporary `--user-data-dir` Chrome while normal Chrome is open, because macOS
+AppleScript addresses the running `Google Chrome` application and can otherwise
+inspect the wrong browser instance. Test actions are restricted to unique local
+marker URLs and are cleaned up by marker id.
+On macOS, the route must not use `chrome://version` for profile proof. The
+real-browser test confirms the shared marker/window-label route works against
+the saved profile, stops when a human closes the marker during repair, and
+executes ChatGPT send through the same profile-safe route.
 
 | ID | Pattern | Expected result |
 | --- | --- | --- |
-| REAL-PRE-01 | Test Chrome launches with Apple Events JavaScript available | Continue to profile route cases; if unavailable, stop after one probe and close Chrome |
-| REAL-01 | Test Chrome has two profiles/windows; wrong profile already has the matching marker URL | The shared route detects the wrong-profile marker, then repairs/refinds the marker in the selected `Default` profile |
-| REAL-02 | Test Chrome has only the wrong-profile marker/window | The shared route stops and reports that it must not launch/probe another profile |
-| REAL-03 | Selected profile exists, but the marker tab is closed immediately after repair | The shared route stops after refind, matching a human closing the tab during AI operation |
-| REAL-04 | Page JavaScript route sees only a wrong-profile marker | The route stops on profile mismatch before executing page JavaScript |
+| REAL-NORMAL-01 | Saved normal Chrome profile is already running and marker is missing | The shared route creates/refinds the marker in the saved selected profile only |
+| REAL-NORMAL-02 | Page JavaScript runs through the marker route | JavaScript executes only after the saved profile window label is verified |
+| REAL-NORMAL-03 | Marker tab is closed immediately after repair | The shared route stops after refind, matching a human closing the tab during AI operation |
+| REAL-NORMAL-04 | Fake ChatGPT page uses the same macOS send route | Send operates through the saved selected profile, not a service-specific tab scan |
 
 Command:
 
 ```bash
 npm run test:real-browser-route
 ```
+
+The underlying script still accepts direct strict mode without
+`--allow-existing-chrome`; that mode intentionally refuses to run while any
+normal Chrome process is open and is reserved for disposable isolated route
+debugging. Use the npm script for routine validation because it covers the real
+operator condition where ChatGPT/Vidu Chrome is already open.
 
 ## Live No-Browser Stop Cases
 
@@ -86,23 +90,16 @@ windows.
 
 These cases check the real saved ChatGPT/Vidu normal Chrome profile without
 submitting generation requests. They are separate from normal queue processing:
-the service drivers still must not launch Chrome by themselves. If Chrome is
-closed and a live service check is explicitly requested, prepare the precondition
-only after confirming no Chrome process is running:
-
-```bash
-open -na "Google Chrome" --args --profile-directory=Default --no-first-run --no-default-browser-check --new-window about:blank
-```
-
-Do not use this preparation while another Chrome profile is already running.
-After checks, close the Chrome instance opened for the test and verify no
-`Google Chrome`, `ia-real-browser`, `agent-chrome`, or `vidu-chrome` process is
-left.
+the service drivers still must not launch Chrome by themselves. The saved normal
+Chrome profile must already be running. Do not prepare live checks with
+`open -na "Google Chrome" --args --profile-directory=...`; that can route into
+the wrong profile when Chrome is already open. After checks, verify no
+`ia-real-browser`, `agent-chrome`, or `vidu-chrome` process is left.
 
 | ID | Command | Expected result |
 | --- | --- | --- |
-| LIVE-SVC-01 | `node scripts/process-service-queue.mjs --service chatgpt --check --ensure-tab --server http://127.0.0.1:4217` | exits 0; profile proof path ends with saved `Default`; ChatGPT is signed in, not rate-limited, and composer exists |
-| LIVE-SVC-02 | `node scripts/process-service-queue.mjs --service vidu --check --server http://127.0.0.1:4217` | exits 0; selected-profile Vidu marker tab is reused or repaired; page is ready; no active task blocks create |
+| LIVE-SVC-01 | `node scripts/process-service-queue.mjs --service chatgpt --check --ensure-tab --server http://127.0.0.1:4217` | exits 0; selected marker tab is in the saved profile window, ChatGPT is signed in, not rate-limited, and composer exists |
+| LIVE-SVC-02 | `node scripts/process-service-queue.mjs --service vidu --check --server http://127.0.0.1:4217` | exits 0 only when selected-profile Vidu marker tab is reused or repaired, the create form is ready, and no active task blocks create. If an old selected history/result video is visible, the check logs it as preexisting baseline evidence instead of treating it as current work |
 
 ## Full Validation Commands
 
@@ -110,10 +107,10 @@ left.
 npm run check
 npm test
 npm run test:real-browser-route
+curl -fsS http://127.0.0.1:4217/api/state >/dev/null
 node scripts/process-service-queue.mjs --server http://127.0.0.1:4217 --service vidu --check # with Chrome closed, expected non-zero
 node scripts/process-service-queue.mjs --server http://127.0.0.1:4217 --service chatgpt --check --ensure-tab # with Chrome closed, expected non-zero
-open -na "Google Chrome" --args --profile-directory=Default --no-first-run --no-default-browser-check --new-window about:blank
 node scripts/process-service-queue.mjs --server http://127.0.0.1:4217 --service vidu --check
 node scripts/process-service-queue.mjs --server http://127.0.0.1:4217 --service chatgpt --check --ensure-tab
-pgrep -x "Google Chrome" || true
+ps -ax -o pid=,command= | rg '[i]a-real-browser|[a]gent-chrome|[v]idu-chrome' # expected no output
 ```
